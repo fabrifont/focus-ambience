@@ -2,6 +2,7 @@
 name = "focus"
 version = "0.1.1"
 edition = "2024"
+rust-version = "1.88"
 description = "Mezclador de ambientes para concentrarse, liviano y en la terminal"
 
 [dependencies]
