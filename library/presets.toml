@@ -1,0 +1,38 @@
+[[preset]]
+name = "Biblioteca de Winterhold"
+
+[preset.layers]
+skyrim-estudio-y-calma = 0.7
+chimenea = 0.35
+binaural-40 = 0.25
+
+[[preset]]
+name = "Rivendell bajo la lluvia"
+
+[preset.layers]
+rivendell = 0.7
+lluvia-en-la-selva = 0.4
+
+[[preset]]
+name = "Bolsón Cerrado en tormenta"
+
+[preset.layers]
+la-comarca = 0.65
+chimenea = 0.4
+lluvia-en-la-ventana-con-truenos = 0.3
+
+[[preset]]
+name = "Templo Jedi"
+
+[preset.layers]
+meditacion-jedi = 0.65
+halcon-milenario-cabina = 0.3
+binaural-40 = 0.25
+
+[[preset]]
+name = "Foco profundo"
+
+[preset.layers]
+noise-brown = 0.45
+binaural-40 = 0.3
+lluvia-en-la-selva = 0.3

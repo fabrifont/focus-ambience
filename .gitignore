@@ -1,0 +1,3 @@
+/target
+# Los audios van a Google Drive (focus sync), no a git.
+/library/sounds/

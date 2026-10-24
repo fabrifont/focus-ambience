@@ -1,0 +1,26 @@
+# Sonidos descargados. Los .opus viven en sounds/ (no versionados) y se
+# sincronizan con `focus sync`. Este archivo sí va en git.
+
+[[sound]]
+id = "lluvia-en-la-selva"
+name = "Lluvia en la selva"
+theme = "nature"
+visual = "rain"
+url = "https://www.youtube.com/watch?v=ubNfkpbxXUs"
+file = "lluvia-en-la-selva.opus"
+sha256 = "57f69cc3eeb853dc65584b8cb38a449dd13644510da90de5943c2a3e48a5bc05"
+duration = 3597
+bytes = 24916131
+trim = 60
+
+[[sound]]
+id = "chimenea"
+name = "Chimenea"
+theme = "nature"
+visual = "embers"
+url = "https://www.youtube.com/watch?v=UgHKb_7884o"
+file = "chimenea.opus"
+sha256 = "01d6480f93096843dd2bd91253e286f51264f82951a7af44ba915f0d5b41c774"
+duration = 3597
+bytes = 24021828
+trim = 60
