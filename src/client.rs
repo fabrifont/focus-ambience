@@ -1,6 +1,10 @@
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::process::{Command as Process, Stdio};
 use std::time::{Duration, Instant};
 
@@ -8,6 +12,8 @@ use anyhow::{Context, Result, bail};
 
 use crate::paths;
 use crate::protocol::{Command, Event};
+#[cfg(windows)]
+use uds_windows::UnixStream;
 
 pub fn connect() -> Option<UnixStream> {
     UnixStream::connect(paths::socket_path()).ok()
@@ -23,11 +29,19 @@ pub fn connect_or_spawn() -> Result<UnixStream> {
     let mut cmd = Process::new(std::env::current_exe()?);
     cmd.arg("daemon").stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);
     // New session: no controlling terminal, so closing it doesn't take the audio with it.
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
             Ok(())
         });
+    }
+    // Same on Windows: no console attached, own process group (Ctrl+C doesn't reach it).
+    #[cfg(windows)]
+    {
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     cmd.spawn().context("no pude lanzar el daemon")?;
     let start = Instant::now();

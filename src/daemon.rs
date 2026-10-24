@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::Command as Process;
 use std::sync::mpsc::{self, Sender};
@@ -8,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use uds_windows::{UnixListener, UnixStream};
 
 use crate::audio::engine::Engine;
 use crate::audio::sources::{self, OpusFile, Source};
@@ -77,6 +80,7 @@ pub fn run() -> Result<()> {
     let _ = std::fs::remove_file(&sock);
     let listener = UnixListener::bind(&sock).with_context(|| format!("no pude abrir {}", sock.display()))?;
     // Survive the terminal that launched us closing.
+    #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGHUP, libc::SIG_IGN);
     }
@@ -498,6 +502,31 @@ fn notify(mins: u64) {
         0 => "Se terminó el temporizador.".to_string(),
         m => format!("{m} min de foco. Buen momento para estirarte y tomar agua."),
     };
+    #[cfg(unix)]
     let _ =
         Process::new("notify-send").args(["-a", "focus", "-i", "alarm-symbolic", "Sesión terminada", &body]).spawn();
+    #[cfg(windows)]
+    toast("Sesión terminada", &body);
+}
+
+/// Silent Windows toast through PowerShell's WinRT bridge (no extra dependencies).
+#[cfg(windows)]
+fn toast(title: &str, body: &str) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('\'', "''");
+    let script = format!(
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;\
+         [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null;\
+         $x = New-Object Windows.Data.Xml.Dom.XmlDocument;\
+         $x.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual><audio silent=\"true\"/></toast>');\
+         $app = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\powershell.exe';\
+         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($x))",
+        esc(title),
+        esc(body)
+    );
+    let _ = Process::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
 }

@@ -11,7 +11,7 @@ Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido
 
 ## Decisiones de diseño acordadas con el usuario (no cambiarlas sin preguntar)
 
-- Solo Linux. Solo TUI + CLI, sin ventana gráfica. La interfaz debe ser **bonita y animada** (se acepta gastar algo de CPU en eso, solo mientras la TUI está abierta).
+- Linux (principal) y Windows 10 1803+ (compilado en GitHub Actions; lo específico de cada uno va con `#[cfg]`, sin ramas aparte). Solo TUI + CLI, sin ventana gráfica. La interfaz debe ser **bonita y animada** (se acepta gastar algo de CPU en eso, solo mientras la TUI está abierta).
 - Capas mezclables con volumen por capa + presets.
 - Fuentes: generadas en tiempo real (ruido blanco/rosa/marrón, binaural 40 Hz — el usuario siempre usa auriculares) y audios de YouTube descargados **una vez** con yt-dlp, guardados como Opus 64 kbps 48 kHz estéreo.
 - El audio se lee por streaming desde disco (no cargar archivos en RAM); se decodifica en bloques grandes para que la CPU duerma.
