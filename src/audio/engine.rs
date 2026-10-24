@@ -275,9 +275,12 @@ fn open_stream(rx: Receiver<CbLayer>, shared: Arc<Shared>) -> Result<cpal::Strea
         return Ok(stream);
     }
 
-    let fallback = device
-        .default_output_config()
-        .with_context(|| format!("48 kHz estéreo f32 no funcionó ({}) y el dispositivo no tiene una config por defecto", tried.join("; ")))?;
+    let fallback = device.default_output_config().with_context(|| {
+        format!(
+            "48 kHz estéreo f32 no funcionó ({}) y el dispositivo no tiene una config por defecto",
+            tried.join("; ")
+        )
+    })?;
     let format = fallback.sample_format();
     let mut config = fallback.config();
     config.buffer_size = BufferSize::Fixed(DEVICE_FRAMES);
@@ -285,8 +288,9 @@ fn open_stream(rx: Receiver<CbLayer>, shared: Arc<Shared>) -> Result<cpal::Strea
         Ok(s) => s,
         Err(_) => {
             config.buffer_size = BufferSize::Default;
-            attempt(&config, format, &mut tried)
-                .map_err(|e| anyhow::anyhow!("no se pudo abrir ningún dispositivo de audio. Se probó: {}; {e}", tried.join("; ")))?
+            attempt(&config, format, &mut tried).map_err(|e| {
+                anyhow::anyhow!("no se pudo abrir ningún dispositivo de audio. Se probó: {}; {e}", tried.join("; "))
+            })?
         }
     };
     stream.pause().ok();
@@ -599,8 +603,9 @@ mod tests {
         let mut produced = Vec::new();
         for &out_frames in &sizes {
             let new_count = resample_new_frames_needed(out_count, out_frames, src_count, step);
-            let new_src: Vec<f32> =
-                (0..new_count).flat_map(|i| [(src_count + i as u64) as f32, -((src_count + i as u64) as f32)]).collect();
+            let new_src: Vec<f32> = (0..new_count)
+                .flat_map(|i| [(src_count + i as u64) as f32, -((src_count + i as u64) as f32)])
+                .collect();
             for j in 0..out_frames {
                 let pos = (out_count + j as u64) as f64 * step;
                 let idx = pos.floor() as u64;

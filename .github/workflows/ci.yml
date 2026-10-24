@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Dependencias de ALSA
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Formato
+        run: cargo fmt --check
+      # El código específico de Windows (#[cfg(windows)]) sólo se compila/lintea en el runner
+      # de Windows; clippy en Linux no lo ve.
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Compilar
+        run: cargo build --locked
+      - name: Tests
+        run: cargo test --locked

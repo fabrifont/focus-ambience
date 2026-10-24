@@ -26,9 +26,7 @@ fn rclone(from: &str, to: &str, only: Option<&[String]>) -> Result<()> {
         Some(files) => files.iter().fold(&mut cmd, |c, f| c.arg("--include").arg(f)),
         None => cmd.args(["--include", "*.opus"]),
     };
-    let status = cmd
-        .status()
-        .context("no se pudo ejecutar rclone (¿está instalado?)")?;
+    let status = cmd.status().context("no se pudo ejecutar rclone (¿está instalado?)")?;
     if !status.success() {
         bail!(
             "rclone falló. Si es la primera vez, configurá Google Drive con `rclone config` \

@@ -121,7 +121,9 @@ fn update_sounds_toml(dir: &std::path::Path) {
         eprintln!("⚠ {} no se pudo interpretar (¿lo editaste a mano?); lo dejo como está", path.display());
         return;
     };
-    let Ok(bundled) = toml::from_str::<crate::library::Manifest>(include_str!("../library/sounds.toml")) else { return };
+    let Ok(bundled) = toml::from_str::<crate::library::Manifest>(include_str!("../library/sounds.toml")) else {
+        return;
+    };
     if bundled.version > user.version {
         let merged = crate::library::merge_manifest(user, bundled);
         let _ = crate::library::write_manifest_at(&path, &merged);

@@ -308,9 +308,11 @@ mod tests {
 
     #[test]
     fn manifest_without_version_field_parses_as_zero() {
-        let m: Manifest = toml::from_str("[[sound]]\nid = \"a\"\nname = \"a\"\ntheme = \"nature\"\n\
-            url = \"https://example.com\"\nfile = \"a.opus\"\nsha256 = \"old\"\nduration = 1\nbytes = 1\n")
-            .unwrap();
+        let m: Manifest = toml::from_str(
+            "[[sound]]\nid = \"a\"\nname = \"a\"\ntheme = \"nature\"\n\
+            url = \"https://example.com\"\nfile = \"a.opus\"\nsha256 = \"old\"\nduration = 1\nbytes = 1\n",
+        )
+        .unwrap();
         assert_eq!(m.version, 0);
     }
 
