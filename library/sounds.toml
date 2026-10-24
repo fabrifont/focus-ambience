@@ -24,3 +24,120 @@ sha256 = "01d6480f93096843dd2bd91253e286f51264f82951a7af44ba915f0d5b41c774"
 duration = 3597
 bytes = 24021828
 trim = 60
+
+[[sound]]
+id = "rivendell"
+name = "Rivendell"
+theme = "lotr"
+url = "https://www.youtube.com/watch?v=62j1xAdYKAQ"
+file = "rivendell.opus"
+sha256 = "622eef1e50f7962ddb83c105bba22fd173db63ab902a5a9b74d02040e6b8ab03"
+duration = 10797
+bytes = 83932004
+
+[[sound]]
+id = "skyrim-estudio-y-calma"
+name = "Skyrim · Estudio y calma"
+theme = "skyrim"
+url = "https://www.youtube.com/watch?v=_Z1VzsE1GVg"
+file = "skyrim-estudio-y-calma.opus"
+sha256 = "77a9291779791a12d2ef081446c4d6de0d2ae2ecccb7de619bd65b3670dc740d"
+duration = 10205
+bytes = 74885093
+
+[[sound]]
+id = "meditacion-jedi"
+name = "Meditación Jedi"
+theme = "starwars"
+url = "https://www.youtube.com/watch?v=WQ_557JbIpQ"
+file = "meditacion-jedi.opus"
+sha256 = "c33547b2b89fd680feae420906eeae8bc680dc3e1f30893bc282ab508b686e3e"
+duration = 10797
+bytes = 85129133
+
+[[sound]]
+id = "lluvia-en-la-ventana-con-truenos"
+name = "Lluvia en la ventana con truenos"
+theme = "nature"
+visual = "rain"
+url = "https://www.youtube.com/watch?v=mPZkdNFkNps"
+file = "lluvia-en-la-ventana-con-truenos.opus"
+sha256 = "c50d5b2509d45d215a82d0bffa17778ad473e72b6ddb8f8b021f105cb55b6ee5"
+duration = 3597
+bytes = 25499833
+trim = 60
+
+[[sound]]
+id = "bosque-y-pajaros"
+name = "Bosque y pájaros"
+theme = "nature"
+visual = "leaves"
+url = "https://www.youtube.com/watch?v=xNN7iTA57jM"
+file = "bosque-y-pajaros.opus"
+sha256 = "2bd8c6b40e596249f6646d15a5109fbac4bbb29e94cb7e3bd95593235fc0b3b8"
+duration = 3597
+bytes = 24765566
+trim = 60
+
+[[sound]]
+id = "la-comarca"
+name = "La Comarca"
+theme = "lotr"
+visual = "leaves"
+url = "https://www.youtube.com/watch?v=30b7_S0paCQ"
+file = "la-comarca.opus"
+sha256 = "bae96e45e79781021f4ab177e3a5fd9f42bbf97a4300a07400a3269e24380e43"
+duration = 7198
+bytes = 57117116
+
+[[sound]]
+id = "skyrim-auroras-boreales"
+name = "Skyrim · Auroras boreales"
+theme = "skyrim"
+url = "https://www.youtube.com/watch?v=-ubAT36Z6HQ"
+file = "skyrim-auroras-boreales.opus"
+sha256 = "890be6f8cd1b0256ab1336e0cfd32b4274e865903b44f96e24a2289e0957eb23"
+duration = 12622
+bytes = 96644796
+
+[[sound]]
+id = "halcon-milenario-cabina"
+name = "Halcón Milenario · cabina"
+theme = "starwars"
+visual = "stars"
+url = "https://www.youtube.com/watch?v=nc5YHodcXpM"
+file = "halcon-milenario-cabina.opus"
+sha256 = "7a758e3b37dd9bc2f23968e981f9020b5a609f8c4eea9da6226eb4bb189bb38c"
+duration = 3807
+bytes = 27224694
+
+[[sound]]
+id = "noche-en-la-comarca"
+name = "Noche en la Comarca"
+theme = "lotr"
+url = "https://www.youtube.com/watch?v=eAxW7CvX5WI"
+file = "noche-en-la-comarca.opus"
+sha256 = "c7e4853f04531967c3c1a662fecaa55c59b3744a1f1b947a38db083f29bf7dfe"
+duration = 10797
+bytes = 86339054
+
+[[sound]]
+id = "skyrim-noche-de-lluvia"
+name = "Skyrim · Noche de lluvia"
+theme = "skyrim"
+visual = "rain"
+url = "https://www.youtube.com/watch?v=n7_GtsDStsk"
+file = "skyrim-noche-de-lluvia.opus"
+sha256 = "898e3b21f8e5db7e919816ade8988083c67fc6e8c05363f2394ecb728881522f"
+duration = 7319
+bytes = 55165606
+
+[[sound]]
+id = "atardeceres-de-la-galaxia"
+name = "Atardeceres de la galaxia"
+theme = "starwars"
+url = "https://www.youtube.com/watch?v=7_gPUOCMUJc"
+file = "atardeceres-de-la-galaxia.opus"
+sha256 = "3bc6bf6b79facc6e005913fa0c32494b1577ead9abee1f0160b21a264f425870"
+duration = 10797
+bytes = 81299039
