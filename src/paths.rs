@@ -90,18 +90,41 @@ pub fn library_dir() -> PathBuf {
 }
 
 /// First run of a downloaded binary: start from the manifest and presets it was built with, so
-/// `focus sync pull` can fetch the audio.
+/// `focus sync pull` can fetch the audio. On later runs of a newer binary, folds in whatever
+/// changed in the embedded manifest (e.g. hashes fixed after a quality bump) without touching
+/// the user's own additions or presets — see `update_sounds_toml`.
 fn seed_library(dir: &std::path::Path) {
-    let files = [
-        ("sounds.toml", include_str!("../library/sounds.toml")),
-        ("presets.toml", include_str!("../library/presets.toml")),
-    ];
-    for (name, contents) in files {
-        let path = dir.join(name);
-        if !path.exists() {
-            let _ = std::fs::create_dir_all(dir);
-            let _ = std::fs::write(path, contents);
-        }
+    let _ = std::fs::create_dir_all(dir);
+    update_sounds_toml(dir);
+    let presets = dir.join("presets.toml");
+    if !presets.exists() {
+        let _ = std::fs::write(presets, include_str!("../library/presets.toml"));
+    }
+}
+
+/// Writes the embedded sounds.toml on first run; on later runs, merges it into the user's copy
+/// if the embedded one carries a newer `version` (see `crate::library::merge_manifest`).
+/// Doesn't go through `library::save_manifest`/`library_dir()` to avoid recursing back into
+/// `seed_library`. If the file exists but can't be read or parsed (e.g. a hand-edit typo), it's
+/// left untouched instead of being clobbered with the bundled copy.
+fn update_sounds_toml(dir: &std::path::Path) {
+    let path = dir.join("sounds.toml");
+    if !path.exists() {
+        let _ = std::fs::write(&path, include_str!("../library/sounds.toml"));
+        return;
+    }
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        eprintln!("⚠ no pude leer {}; lo dejo como está", path.display());
+        return;
+    };
+    let Ok(user) = toml::from_str::<crate::library::Manifest>(&contents) else {
+        eprintln!("⚠ {} no se pudo interpretar (¿lo editaste a mano?); lo dejo como está", path.display());
+        return;
+    };
+    let Ok(bundled) = toml::from_str::<crate::library::Manifest>(include_str!("../library/sounds.toml")) else { return };
+    if bundled.version > user.version {
+        let merged = crate::library::merge_manifest(user, bundled);
+        let _ = crate::library::write_manifest_at(&path, &merged);
     }
 }
 

@@ -1,5 +1,9 @@
 # Sonidos descargados. Los .opus viven en sounds/ (no versionados) y se
 # sincronizan con `focus sync`. Este archivo sí va en git.
+#
+# `version` sube cada vez que cambia algo acá (sonidos nuevos, hashes corregidos) para que los
+# binarios ya instalados actualicen su copia; ver `library::merge_manifest`.
+version = 1
 
 [[sound]]
 id = "lluvia-en-la-selva"

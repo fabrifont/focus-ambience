@@ -1,6 +1,6 @@
 [package]
 name = "focus"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Mezclador de ambientes para concentrarse, liviano y en la terminal"
 
