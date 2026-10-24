@@ -17,10 +17,16 @@ fn remote() -> String {
     paths::config().remote.unwrap_or_else(|| paths::DEFAULT_REMOTE.to_string())
 }
 
-fn rclone(from: &str, to: &str) -> Result<()> {
+/// `only`: copy just these files instead of every .opus.
+fn rclone(from: &str, to: &str, only: Option<&[String]>) -> Result<()> {
     println!("  {from}  →  {to}");
-    let status = Command::new(paths::tool("rclone"))
-        .args(["copy", from, to, "--include", "*.opus", "--progress", "--stats-one-line"])
+    let mut cmd = Command::new(paths::tool("rclone"));
+    cmd.args(["copy", from, to, "--progress", "--stats-one-line"]);
+    match only {
+        Some(files) => files.iter().fold(&mut cmd, |c, f| c.arg("--include").arg(f)),
+        None => cmd.args(["--include", "*.opus"]),
+    };
+    let status = cmd
         .status()
         .context("no se pudo ejecutar rclone (¿está instalado?)")?;
     if !status.success() {
@@ -39,14 +45,32 @@ pub fn run(dir: Direction) -> Result<()> {
     let local = local.to_string_lossy().to_string();
     let remote = remote();
     if dir != Direction::Push {
-        println!("⇣ bajando sonidos que falten");
-        rclone(&remote, &local)?;
+        // Only what's missing or doesn't match the manifest, so an old copy on the remote
+        // never overwrites a newer local one.
+        let wanted = outdated()?;
+        if wanted.is_empty() {
+            println!("⇣ no falta bajar nada");
+        } else {
+            println!("⇣ bajando sonidos que falten");
+            rclone(&remote, &local, Some(&wanted))?;
+        }
     }
     if dir != Direction::Pull {
         println!("⇡ subiendo sonidos nuevos");
-        rclone(&local, &remote)?;
+        rclone(&local, &remote, None)?;
     }
     verify()
+}
+
+/// Files in the manifest that are missing locally or whose hash differs.
+fn outdated() -> Result<Vec<String>> {
+    let dir = paths::sounds_dir();
+    Ok(library::load_manifest()?
+        .sounds
+        .into_iter()
+        .filter(|e| hash_file(&dir.join(&e.file)).ok().is_none_or(|(h, _)| h != e.sha256))
+        .map(|e| e.file)
+        .collect())
 }
 
 /// Compare what's on disk with the manifest.

@@ -88,8 +88,11 @@ pub fn add(req: &AddRequest, mut progress: impl FnMut(&str, f32)) -> Result<Mani
     let entry = result?;
 
     let mut manifest = library::load_manifest()?;
-    manifest.sounds.retain(|e| e.id != entry.id);
-    manifest.sounds.push(entry.clone());
+    // Re-adding a sound replaces it in place, so the list order stays put.
+    match manifest.sounds.iter_mut().find(|e| e.id == entry.id) {
+        Some(e) => *e = entry.clone(),
+        None => manifest.sounds.push(entry.clone()),
+    }
     library::save_manifest(&manifest)?;
     Ok(entry)
 }

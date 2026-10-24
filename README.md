@@ -42,6 +42,6 @@ El destino se cambia en `~/.config/focus-ambience/config.toml`:
 
 ```toml
 remote = "gdrive:focus-ambience/sounds"
-bitrate = 64                # kbps de los .opus nuevos
+bitrate = 160               # kbps de los .opus nuevos
 # library = "/otra/ruta"    # por defecto, library/ de este repo
 ```

@@ -16,7 +16,7 @@ pub struct Config {
 }
 
 pub const DEFAULT_REMOTE: &str = "gdrive:focus-ambience/sounds";
-pub const DEFAULT_BITRATE: u32 = 64;
+pub const DEFAULT_BITRATE: u32 = 160;
 
 fn home() -> PathBuf {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
