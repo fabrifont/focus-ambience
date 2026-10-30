@@ -3,7 +3,7 @@
 #
 # `version` sube cada vez que cambia algo acá (sonidos nuevos, hashes corregidos) para que los
 # binarios ya instalados actualicen su copia; ver `library::merge_manifest`.
-version = 1
+version = 2
 
 [[sound]]
 id = "lluvia-en-la-selva"
@@ -145,3 +145,13 @@ file = "atardeceres-de-la-galaxia.opus"
 sha256 = "22e7d794af7dbcb8b40436bbe01fb5c9812b22fa2ffae9272aea75567d10c898"
 duration = 10797
 bytes = 207088144
+
+[[sound]]
+id = "star-wars-compilation"
+name = "Star Wars Compilation"
+theme = "starwars"
+url = "https://youtu.be/ChuVhTcXA2c"
+file = "star-wars-compilation.opus"
+sha256 = "06d216458203fec91c145f28129606d2ef02a74408e28aae1927bb6e809c7a51"
+duration = 2036
+bytes = 39614781
