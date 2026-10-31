@@ -3,6 +3,7 @@ mod client;
 mod daemon;
 mod download;
 mod library;
+mod meditation;
 mod paths;
 mod protocol;
 mod sync;
@@ -11,7 +12,7 @@ mod tui;
 use anyhow::{Result, bail};
 
 use crate::library::{Theme, Visual};
-use crate::protocol::{AddRequest, Command};
+use crate::protocol::{AddMeditationRequest, AddRequest, Command};
 
 const HELP: &str = "\
 focus — ambientes para concentrarse
@@ -30,7 +31,11 @@ USO
       --theme <tema>         skyrim | lotr | starwars | nature | other
       --visual <efecto>      rain | snow | fireflies | stars | embers | leaves
       --trim <min>           guarda solo los primeros N minutos
-  focus sync [pull|push]     sincroniza los .opus con Google Drive (rclone)
+  focus meditacion agregar <url> <minutos>   baja una meditación (5, 10, 15, 20, 25, 30, 40 o 60)
+  focus meditacion listar                    meditaciones por duración
+  focus meditacion borrar <nombre>           la saca de la biblioteca y borra el archivo
+  focus meditacion reproducir <nombre>       la reproduce una vez, de principio a fin
+  focus sync [pull|push]     sincroniza los .opus (sonidos y meditaciones) con Google Drive (rclone)
   focus verify               compara los archivos con el manifest
 ";
 
@@ -80,6 +85,7 @@ fn run() -> Result<()> {
         Some("status") => status(),
         Some("list") => list(),
         Some("add") => add(rest),
+        Some("meditacion" | "meditación") => meditation_cmd(rest),
         Some("sync") => sync::run(match rest.first().map(String::as_str) {
             Some("pull") => sync::Direction::Pull,
             Some("push") => sync::Direction::Push,
@@ -95,13 +101,22 @@ fn status() -> Result<()> {
         println!("silencio (el daemon no está corriendo)");
         return Ok(());
     };
-    if state.active.is_empty() {
+    if state.active.is_empty() && state.meditation.is_none() {
         println!("silencio");
     }
     for id in &state.active {
         let name = state.sounds.iter().find(|s| s.id == *id).map_or(id.as_str(), |s| s.name.as_str());
         let vol = state.volumes.get(id).copied().unwrap_or(0.0);
         println!("{} {name}  {:.0}%", if state.paused { "⏸" } else { "♫" }, vol * 100.0);
+    }
+    if let Some(m) = &state.meditation {
+        let name = state.meditations.iter().find(|x| x.id == m.id).map_or(m.id.as_str(), |x| x.name.as_str());
+        println!(
+            "{} {name}  {} / {}",
+            if m.paused { "⏸" } else { "▶" },
+            meditation::clock(m.position_secs),
+            meditation::clock(m.total_secs)
+        );
     }
     if let Some(t) = state.timer {
         println!("⏱ {}:{:02}", t.remaining_secs / 60, t.remaining_secs % 60);
@@ -151,22 +166,7 @@ fn add(args: &[String]) -> Result<()> {
     let Some(url) = url else { bail!("uso: focus add <url> [--name ..] [--theme ..] [--trim min]") };
     req.url = url;
 
-    let mut last_stage = String::new();
-    let entry = download::add(&req, |stage, p| {
-        use std::io::Write;
-        if stage != last_stage {
-            if !last_stage.is_empty() {
-                eprintln!();
-            }
-            last_stage = stage.to_string();
-        }
-        if p >= 0.0 {
-            eprint!("\r  {stage:<14} {}", bar(p, 30));
-        } else {
-            eprint!("\r  {stage}…");
-        }
-        let _ = std::io::stderr().flush();
-    })?;
+    let entry = download::add(&req, progress_printer())?;
     eprintln!();
     println!(
         "✓ {} ({}h{:02}, {:.0} MB) → {}",
@@ -183,4 +183,93 @@ fn add(args: &[String]) -> Result<()> {
 fn bar(p: f32, width: usize) -> String {
     let filled = (p.clamp(0.0, 1.0) * width as f32).round() as usize;
     format!("{}{} {:>3.0}%", "━".repeat(filled), "─".repeat(width - filled), p * 100.0)
+}
+
+fn meditation_cmd(args: &[String]) -> Result<()> {
+    const USAGE: &str =
+        "uso: focus meditacion agregar <url> <minutos> | listar | borrar <nombre> | reproducir <nombre>";
+    let rest = args.get(1..).unwrap_or(&[]);
+    match args.first().map(String::as_str) {
+        Some("agregar") => {
+            let [url, minutes] = rest else { bail!("uso: focus meditacion agregar <url> <minutos>") };
+            let minutes: u32 = minutes.parse().map_err(|_| anyhow::anyhow!("minutos inválidos: {minutes}"))?;
+            meditation::Category::try_from(minutes)?; // fail before downloading anything
+            let req = AddMeditationRequest { url: url.clone(), name: None, minutes };
+            let entry = download::add_meditation(&req, progress_printer())?;
+            eprintln!();
+            println!(
+                "✓ {} ({}, {:.0} MB) → {} min · {}",
+                entry.name,
+                meditation::clock(entry.duration),
+                entry.bytes as f64 / 1e6,
+                entry.minutes.minutes(),
+                entry.id
+            );
+            let _ = client::oneshot(Some(Command::Reload), false);
+            Ok(())
+        }
+        Some("listar") => {
+            let all = meditation::all_meditations()?;
+            if all.is_empty() {
+                println!("no hay meditaciones todavía (focus meditacion agregar <url> <minutos>)");
+            }
+            for (cat, items) in meditation::group(&all) {
+                println!("\n{}", cat.label());
+                for m in items {
+                    println!(
+                        "  {}{:<44} {}  {}",
+                        if m.available { " " } else { "☁" },
+                        m.name,
+                        meditation::clock(m.duration),
+                        m.id
+                    );
+                }
+            }
+            Ok(())
+        }
+        Some("borrar") => {
+            let all = meditation::all_meditations()?;
+            let m = meditation::find(&all, &rest.join(" "))?;
+            // The daemon (if it's up) also stops it when it's playing.
+            if client::oneshot(Some(Command::DeleteMeditation { id: m.id.clone() }), false)?.is_none() {
+                let mut manifest = meditation::load_manifest()?;
+                manifest.meditations.retain(|e| e.id != m.id);
+                meditation::save_manifest(&manifest)?;
+                let _ = std::fs::remove_file(paths::meditations_dir().join(&m.file));
+            }
+            println!("✓ «{}» borrada", m.name);
+            Ok(())
+        }
+        Some("reproducir") => {
+            let all = meditation::all_meditations()?;
+            let m = meditation::find(&all, &rest.join(" "))?;
+            if !m.available {
+                bail!("«{}» no está en esta compu: corré `focus sync`", m.name);
+            }
+            client::oneshot(Some(Command::PlayMeditation { id: m.id.clone() }), true)?;
+            println!("▶ {} ({})", m.name, meditation::clock(m.duration));
+            Ok(())
+        }
+        _ => bail!("{USAGE}"),
+    }
+}
+
+/// Progress callback for the CLI downloads: one line per stage with a bar.
+fn progress_printer() -> impl FnMut(&str, f32) {
+    let mut last_stage = String::new();
+    move |stage, p| {
+        use std::io::Write;
+        if stage != last_stage {
+            if !last_stage.is_empty() {
+                eprintln!();
+            }
+            last_stage = stage.to_string();
+        }
+        if p >= 0.0 {
+            eprint!("\r  {stage:<14} {}", bar(p, 30));
+        } else {
+            eprint!("\r  {stage}…");
+        }
+        let _ = std::io::stderr().flush();
+    }
 }

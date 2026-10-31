@@ -7,10 +7,13 @@ use serde::Deserialize;
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Folder holding sounds.toml, presets.toml and sounds/.
+    /// Folder holding sounds.toml, meditations.toml, presets.toml, sounds/ and meditations/.
     pub library: Option<PathBuf>,
-    /// rclone destination for the .opus files.
+    /// rclone destination for the sound .opus files.
     pub remote: Option<String>,
+    /// rclone destination for the meditation .opus files. By default, a `meditations` folder next
+    /// to the one in `remote`.
+    pub meditations_remote: Option<String>,
     /// Opus bitrate in kbps used by `focus add`.
     pub bitrate: Option<u32>,
 }
@@ -132,6 +135,10 @@ fn update_sounds_toml(dir: &std::path::Path) {
 
 pub fn sounds_dir() -> PathBuf {
     library_dir().join("sounds")
+}
+
+pub fn meditations_dir() -> PathBuf {
+    library_dir().join("meditations")
 }
 
 #[cfg(unix)]

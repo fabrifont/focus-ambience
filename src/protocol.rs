@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::library::{Preset, Sound, Theme, Visual};
+use crate::meditation::Meditation;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -39,6 +40,17 @@ pub enum Command {
         name: String,
     },
     Add(AddRequest),
+    AddMeditation(AddMeditationRequest),
+    DeleteMeditation {
+        id: String,
+    },
+    /// Start a meditation from the beginning (replacing the one that's playing, if any).
+    PlayMeditation {
+        id: String,
+    },
+    /// Pause / resume the meditation.
+    ToggleMeditation,
+    StopMeditation,
     Reload,
     /// Ask the daemon to push level updates for the animations.
     Watch {
@@ -55,6 +67,14 @@ pub struct AddRequest {
     pub visual: Option<Visual>,
     /// Keep only the first N minutes (for nature sounds that loop anyway).
     pub trim: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddMeditationRequest {
+    pub url: String,
+    pub name: Option<String>,
+    /// Duration category chosen by hand (5, 10, 15, 20, 25, 30, 40 or 60).
+    pub minutes: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,12 +97,25 @@ pub struct State {
     pub master: f32,
     pub timer: Option<TimerState>,
     pub downloads: Vec<Download>,
+    #[serde(default)]
+    pub meditations: Vec<Meditation>,
+    /// The meditation loaded in the player (playing or paused); gone once it finishes.
+    #[serde(default)]
+    pub meditation: Option<MeditationPlayback>,
 }
 
 impl State {
     pub fn is_playing(&self) -> bool {
-        !self.paused && !self.active.is_empty()
+        (!self.paused && !self.active.is_empty()) || self.meditation.as_ref().is_some_and(|m| !m.paused)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeditationPlayback {
+    pub id: String,
+    pub position_secs: u64,
+    pub total_secs: u64,
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,4 +131,7 @@ pub struct Download {
     /// 0..1, or negative when unknown.
     pub progress: f32,
     pub error: Option<String>,
+    /// A meditation download (the focus screen only lists sounds).
+    #[serde(default)]
+    pub meditation: bool,
 }

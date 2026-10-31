@@ -16,12 +16,16 @@ use crate::audio::engine::Engine;
 use crate::audio::sources::{self, OpusFile, Source};
 use crate::download;
 use crate::library::{self, Preset, Presets, Sound, SoundKind};
+use crate::meditation::{self, Meditation};
 use crate::paths;
-use crate::protocol::{AddRequest, Command, Download, Event, State, TimerState};
+use crate::protocol::{AddMeditationRequest, Command, Download, Event, MeditationPlayback, State, TimerState};
 
 const IDLE_EXIT: Duration = Duration::from_secs(60);
 const TIMER_FADE: f32 = 30.0;
 const LEVELS_EVERY: Duration = Duration::from_millis(66);
+/// After the decoder hits the end of a meditation the ring buffer still holds up to a second of
+/// audio; wait this long before letting go of the layer.
+const MEDITATION_DRAIN: Duration = Duration::from_millis(1500);
 
 /// What survives between runs (volumes and where each long track was left).
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -50,9 +54,32 @@ struct Timer {
     total: Duration,
 }
 
+/// The meditation loaded in the player. It plays once, through the engine, as its own layer.
+struct Playback {
+    id: String,
+    /// Engine layer id; a fresh one per start so a fading-out layer never mixes with the new one.
+    layer: String,
+    total: Duration,
+    /// Time already played before the current run (pausing keeps it).
+    played: Duration,
+    /// When the current run started; `None` while paused.
+    since: Option<Instant>,
+    /// When the decoder reached the end of the file.
+    ended_at: Option<Instant>,
+}
+
+impl Playback {
+    fn position(&self) -> Duration {
+        (self.played + self.since.map_or(Duration::ZERO, |t| t.elapsed())).min(self.total)
+    }
+}
+
 struct Daemon {
     engine: Engine,
     sounds: Vec<Sound>,
+    meditations: Vec<Meditation>,
+    playback: Option<Playback>,
+    playback_seq: u64,
     presets: Presets,
     volumes: BTreeMap<String, f32>,
     positions: BTreeMap<String, u64>,
@@ -94,6 +121,9 @@ pub fn run() -> Result<()> {
     let mut d = Daemon {
         engine: Engine::new()?,
         sounds: library::all_sounds().unwrap_or_default(),
+        meditations: meditation::all_meditations().unwrap_or_default(),
+        playback: None,
+        playback_seq: 0,
         presets: library::load_presets(),
         volumes: persisted.volumes,
         positions: persisted.positions,
@@ -229,6 +259,7 @@ impl Daemon {
             Command::StopAll => {
                 self.active.clear();
                 self.paused = false;
+                self.stop_meditation();
             }
             Command::Timer { minutes } => {
                 self.timer = minutes.filter(|&m| m > 0).map(|m| {
@@ -263,7 +294,15 @@ impl Daemon {
                 self.presets.presets.retain(|p| p.name != name);
                 self.save_presets(format!("preset «{name}» borrado"));
             }
-            Command::Add(req) => self.start_download(req),
+            Command::Add(req) => {
+                let name = req.name.clone();
+                self.start_download(req.url.clone(), name, false, move |p| download::add(&req, p).map(|e| e.name));
+            }
+            Command::AddMeditation(req) => self.add_meditation(req),
+            Command::DeleteMeditation { id } => self.delete_meditation(&id),
+            Command::PlayMeditation { id } => self.play_meditation(&id),
+            Command::ToggleMeditation => self.toggle_meditation(),
+            Command::StopMeditation => self.stop_meditation(),
             Command::Reload => self.reload(),
             Command::Watch { levels } => {
                 if let Some(c) = self.clients.get_mut(&client) {
@@ -376,7 +415,9 @@ impl Daemon {
             let ev = Event::Levels { master, layers };
             self.send_watchers(&ev);
         }
-        if self.timer.is_some() && !self.clients.is_empty() && self.last_state.elapsed() >= Duration::from_secs(1) {
+        self.tick_meditation();
+        let progressing = self.timer.is_some() || self.playback.as_ref().is_some_and(|p| p.since.is_some());
+        if progressing && !self.clients.is_empty() && self.last_state.elapsed() >= Duration::from_secs(1) {
             self.broadcast_state();
         }
 
@@ -408,6 +449,13 @@ impl Daemon {
                 remaining_secs: t.end.saturating_duration_since(Instant::now()).as_secs(),
             }),
             downloads: self.downloads.iter().map(|(_, d)| d.clone()).collect(),
+            meditations: self.meditations.clone(),
+            meditation: self.playback.as_ref().map(|p| MeditationPlayback {
+                id: p.id.clone(),
+                position_secs: p.position().as_secs(),
+                total_secs: p.total.as_secs(),
+                paused: p.since.is_none(),
+            }),
         }
     }
 
@@ -416,6 +464,124 @@ impl Daemon {
             self.sounds = s;
         }
         self.presets = library::load_presets();
+        if let Ok(m) = meditation::all_meditations() {
+            self.meditations = m;
+        }
+    }
+
+    fn add_meditation(&mut self, req: AddMeditationRequest) {
+        if let Err(e) = meditation::Category::try_from(req.minutes) {
+            self.notice(format!("✗ {e}"));
+            return;
+        }
+        let name = req.name.clone();
+        self.start_download(req.url.clone(), name, true, move |p| download::add_meditation(&req, p).map(|e| e.name));
+    }
+
+    fn delete_meditation(&mut self, id: &str) {
+        let Some(m) = self.meditations.iter().find(|m| m.id == id).cloned() else { return };
+        if self.playback.as_ref().is_some_and(|p| p.id == id) {
+            self.stop_meditation();
+        }
+        let res = meditation::load_manifest().and_then(|mut manifest| {
+            manifest.meditations.retain(|e| e.id != id);
+            meditation::save_manifest(&manifest)
+        });
+        match res {
+            Ok(()) => {
+                let _ = std::fs::remove_file(paths::meditations_dir().join(&m.file));
+                self.reload();
+                self.notice(format!("«{}» borrada", m.name));
+            }
+            Err(e) => self.notice(format!("no pude borrar «{}»: {e}", m.name)),
+        }
+    }
+
+    /// Start a meditation from the beginning, replacing whatever was loaded.
+    fn play_meditation(&mut self, id: &str) {
+        let Some(m) = self.meditations.iter().find(|m| m.id == id).cloned() else {
+            self.notice("esa meditación no existe".into());
+            return;
+        };
+        if !m.available {
+            self.notice(format!("«{}» no está en esta compu: corré `focus sync`", m.name));
+            return;
+        }
+        self.stop_meditation();
+        self.playback_seq += 1;
+        let playback = Playback {
+            id: m.id.clone(),
+            layer: format!("meditation:{}:{}", m.id, self.playback_seq),
+            total: Duration::from_secs(m.duration),
+            played: Duration::ZERO,
+            since: None,
+            ended_at: None,
+        };
+        self.playback = Some(playback);
+        self.start_meditation_layer(&m);
+    }
+
+    /// Hand the loaded meditation to the engine from where it was left.
+    fn start_meditation_layer(&mut self, m: &Meditation) {
+        let Some(p) = self.playback.as_mut() else { return };
+        let start = p.played.as_secs() * sources::SAMPLE_RATE as u64;
+        let path = paths::meditations_dir().join(&m.file);
+        // Volume is the master's job; the voice goes in at full level.
+        let res = self
+            .engine
+            .play(&p.layer, 1.0, || -> Result<Box<dyn Source>> { Ok(Box::new(OpusFile::open_once(&path, start)?)) });
+        match res {
+            Ok(()) => {
+                p.since = Some(Instant::now());
+                p.ended_at = None;
+                self.engine.set_fade(1.0);
+            }
+            Err(e) => {
+                self.playback = None;
+                self.notice(format!("no pude reproducir «{}»: {e}", m.name));
+            }
+        }
+    }
+
+    fn toggle_meditation(&mut self) {
+        let Some(p) = self.playback.as_mut() else { return };
+        if p.since.is_some() {
+            p.played = p.position();
+            p.since = None;
+            self.engine.stop(&p.layer);
+        } else if let Some(m) = self.meditations.iter().find(|m| m.id == p.id).cloned() {
+            self.playback_seq += 1;
+            p.layer = format!("meditation:{}:{}", p.id, self.playback_seq);
+            self.start_meditation_layer(&m);
+        }
+    }
+
+    fn stop_meditation(&mut self) {
+        if let Some(p) = self.playback.take() {
+            self.engine.stop(&p.layer);
+        }
+    }
+
+    /// A meditation plays once: when the file runs out, let the last second drain and let go.
+    fn tick_meditation(&mut self) {
+        let Some(p) = self.playback.as_mut() else { return };
+        if p.since.is_none() {
+            return;
+        }
+        if p.ended_at.is_none() && self.engine.has_ended(&p.layer) {
+            p.ended_at = Some(Instant::now());
+        }
+        // The clock check covers a decoder that never reports the end.
+        let drained = p.ended_at.is_some_and(|t| t.elapsed() >= MEDITATION_DRAIN);
+        let overdue = p.played + p.since.map_or(Duration::ZERO, |t| t.elapsed()) > p.total + Duration::from_secs(5);
+        if drained || overdue {
+            let name = self.meditations.iter().find(|m| m.id == p.id).map(|m| m.name.clone());
+            self.stop_meditation();
+            if let Some(name) = name {
+                self.notice(format!("«{name}» terminó"));
+            }
+            self.broadcast_state();
+        }
     }
 
     fn save_presets(&mut self, ok: String) {
@@ -437,26 +603,32 @@ impl Daemon {
         }
     }
 
-    fn start_download(&mut self, req: AddRequest) {
-        if self.downloads.iter().any(|(u, d)| *u == req.url && d.error.is_none()) {
+    /// Runs `job` on its own thread, reporting progress to the clients. The job returns the
+    /// display name of what it added.
+    fn start_download<F>(&mut self, url: String, name: Option<String>, meditation: bool, job: F)
+    where
+        F: FnOnce(&mut dyn FnMut(&str, f32)) -> Result<String> + Send + 'static,
+    {
+        if self.downloads.iter().any(|(u, d)| *u == url && d.error.is_none()) {
             return;
         }
-        self.downloads.retain(|(u, _)| *u != req.url);
-        let name = req.name.clone().unwrap_or_else(|| req.url.clone());
-        self.downloads.push((req.url.clone(), Download { name, stage: "en cola".into(), progress: -1.0, error: None }));
+        self.downloads.retain(|(u, _)| *u != url);
+        let name = name.unwrap_or_else(|| url.clone());
+        self.downloads
+            .push((url.clone(), Download { name, stage: "en cola".into(), progress: -1.0, error: None, meditation }));
         let tx = self.tx.clone();
         thread::spawn(move || {
-            let url = req.url.clone();
             let ptx = tx.clone();
+            let purl = url.clone();
             let mut last = (String::new(), -1.0f32);
-            let res = download::add(&req, |stage, p| {
+            let res = job(&mut |stage, p| {
                 // Don't flood clients: only report whole-percent changes.
                 if stage != last.0 || (p - last.1).abs() >= 0.01 {
                     last = (stage.to_string(), p);
-                    let _ = ptx.send(Msg::Progress(url.clone(), stage.to_string(), p));
+                    let _ = ptx.send(Msg::Progress(purl.clone(), stage.to_string(), p));
                 }
             });
-            let _ = tx.send(Msg::Finished(url, res.map(|e| e.name).map_err(|e| format!("{e:#}"))));
+            let _ = tx.send(Msg::Finished(url, res.map_err(|e| format!("{e:#}"))));
         });
     }
 

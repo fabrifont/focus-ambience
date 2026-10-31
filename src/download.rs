@@ -6,8 +6,9 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 use crate::library::{self, ManifestEntry};
+use crate::meditation::{self, Category, MeditationEntry};
 use crate::paths;
-use crate::protocol::AddRequest;
+use crate::protocol::{AddMeditationRequest, AddRequest};
 
 /// Seconds blended between the end and the start so the loop has no seam.
 const SEAM: f64 = 3.0;
@@ -40,12 +41,35 @@ pub fn clean_title(t: &str) -> String {
     t.trim_matches(|c: char| " -–,.:".contains(c)).to_string()
 }
 
-/// Download, trim, bake the loop seam, encode to Opus and add to the manifest.
-/// `progress(stage, fraction)` is called as work advances; fraction < 0 means unknown.
-pub fn add(req: &AddRequest, mut progress: impl FnMut(&str, f32)) -> Result<ManifestEntry> {
+/// How the audio ends up: sounds loop forever, meditations play once from start to finish.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Optionally trimmed, with a crossfade baked in so the loop has no seam.
+    Loop { trim: Option<u32> },
+    /// The whole video, untouched: no trim, no crossfade.
+    Once,
+}
+
+struct Encoded {
+    id: String,
+    name: String,
+    file: String,
+    sha256: String,
+    bytes: u64,
+    duration: u64,
+}
+
+/// Download, encode to Opus into `dir` and hash. Doesn't touch any manifest.
+fn fetch(
+    url: &str,
+    name: Option<&str>,
+    dir: &Path,
+    mode: Mode,
+    mut progress: impl FnMut(&str, f32),
+) -> Result<Encoded> {
     progress("buscando video", -1.0);
-    let meta = fetch_meta(&req.url)?;
-    let name = req.name.clone().unwrap_or_else(|| clean_title(&meta.title));
+    let meta = fetch_meta(url)?;
+    let name = name.map_or_else(|| clean_title(&meta.title), str::to_string);
     let mut id = library::slugify(&name);
     id.truncate(48);
     let id = id.trim_end_matches('-').to_string();
@@ -53,39 +77,46 @@ pub fn add(req: &AddRequest, mut progress: impl FnMut(&str, f32)) -> Result<Mani
         bail!("no pude armar un id a partir de '{name}'");
     }
 
-    let dir = paths::sounds_dir();
     let tmp = dir.join(format!(".tmp-{id}"));
     std::fs::create_dir_all(&tmp)?;
-    let result = (|| -> Result<ManifestEntry> {
-        let src = download_audio(&req.url, &tmp, &mut progress)?;
+    let result = (|| -> Result<Encoded> {
+        let src = download_audio(url, &tmp, &mut progress)?;
         let mut len = probe_duration(&src)?;
-        if let Some(m) = req.trim {
+        if let Mode::Loop { trim: Some(m) } = mode {
             len = len.min(m as f64 * 60.0);
         }
         let file = format!("{id}.opus");
         let partial = tmp.join(&file);
-        encode(&src, &partial, len, &mut progress)?;
-        if len > SEAM * 10.0 {
+        let seam = matches!(mode, Mode::Loop { .. });
+        encode(&src, &partial, len, seam, &mut progress)?;
+        if seam && len > SEAM * 10.0 {
             len -= SEAM; // the seam crossfade overlaps tail and head
         }
         progress("verificando", -1.0);
         let (sha256, bytes) = hash_file(&partial)?;
         std::fs::rename(&partial, dir.join(&file))?;
-        Ok(ManifestEntry {
-            id: id.clone(),
-            name: name.clone(),
-            theme: req.theme,
-            visual: req.visual,
-            url: req.url.clone(),
-            file,
-            sha256,
-            duration: len.round() as u64,
-            bytes,
-            trim: req.trim,
-        })
+        Ok(Encoded { id: id.clone(), name: name.clone(), file, sha256, bytes, duration: len.round() as u64 })
     })();
     let _ = std::fs::remove_dir_all(&tmp);
-    let entry = result?;
+    result
+}
+
+/// Download, trim, bake the loop seam, encode to Opus and add to the manifest.
+/// `progress(stage, fraction)` is called as work advances; fraction < 0 means unknown.
+pub fn add(req: &AddRequest, progress: impl FnMut(&str, f32)) -> Result<ManifestEntry> {
+    let e = fetch(&req.url, req.name.as_deref(), &paths::sounds_dir(), Mode::Loop { trim: req.trim }, progress)?;
+    let entry = ManifestEntry {
+        id: e.id,
+        name: e.name,
+        theme: req.theme,
+        visual: req.visual,
+        url: req.url.clone(),
+        file: e.file,
+        sha256: e.sha256,
+        duration: e.duration,
+        bytes: e.bytes,
+        trim: req.trim,
+    };
 
     let mut manifest = library::load_manifest()?;
     // Re-adding a sound replaces it in place, so the list order stays put.
@@ -96,6 +127,27 @@ pub fn add(req: &AddRequest, mut progress: impl FnMut(&str, f32)) -> Result<Mani
     // So installed binaries pick up this entry once a release embeds the manifest.
     manifest.version += 1;
     library::save_manifest(&manifest)?;
+    Ok(entry)
+}
+
+/// Download a guided meditation as-is (no loop seam, no trimming) and add it to the manifest in
+/// the category chosen by hand.
+pub fn add_meditation(req: &AddMeditationRequest, progress: impl FnMut(&str, f32)) -> Result<MeditationEntry> {
+    let category = Category::try_from(req.minutes)?;
+    let e = fetch(&req.url, req.name.as_deref(), &paths::meditations_dir(), Mode::Once, progress)?;
+    let entry = MeditationEntry {
+        id: e.id,
+        name: e.name,
+        minutes: category,
+        url: req.url.clone(),
+        file: e.file,
+        sha256: e.sha256,
+        duration: e.duration,
+        bytes: e.bytes,
+    };
+    let mut manifest = meditation::load_manifest()?;
+    meditation::upsert(&mut manifest, entry.clone());
+    meditation::save_manifest(&manifest)?;
     Ok(entry)
 }
 
@@ -155,10 +207,13 @@ fn probe_duration(path: &Path) -> Result<f64> {
     String::from_utf8_lossy(&out.stdout).trim().parse().context("ffprobe no devolvió una duración")
 }
 
-fn encode(src: &Path, dst: &Path, len: f64, progress: &mut impl FnMut(&str, f32)) -> Result<()> {
+/// `seam`: bake the loop crossfade (sounds); otherwise keep the audio whole (meditations).
+fn encode(src: &Path, dst: &Path, len: f64, seam: bool, progress: &mut impl FnMut(&str, f32)) -> Result<()> {
     let bitrate = paths::config().bitrate.unwrap_or(paths::DEFAULT_BITRATE);
     let base = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo";
-    let filter = if len > SEAM * 10.0 {
+    let filter = if !seam {
+        format!("[0:a]{base}[out]")
+    } else if len > SEAM * 10.0 {
         // Output = [SEAM, len-SEAM] followed by tail crossfaded into head. It ends exactly where it
         // starts (original t=SEAM), so looping is seamless.
         let (x, end) = (SEAM, len);

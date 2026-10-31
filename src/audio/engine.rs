@@ -42,6 +42,9 @@ struct LayerCtl {
     /// Peak of the last processed block, after gain.
     level: AtomicF32,
     removing: AtomicBool,
+    /// Set by the feeder when a non-looping source has been decoded to its end (the ring buffer
+    /// still holds up to a second of it).
+    ended: AtomicBool,
     /// Set by the callback once the fade-out finished and it let go of the layer.
     done: AtomicBool,
 }
@@ -142,6 +145,7 @@ impl Engine {
             target: AtomicF32::new(curve(volume)),
             level: AtomicF32::new(0.0),
             removing: AtomicBool::new(false),
+            ended: AtomicBool::new(false),
             done: AtomicBool::new(false),
         });
         let (producer, consumer) = RingBuffer::new(RING);
@@ -168,6 +172,11 @@ impl Engine {
             ctl.removing.store(true, Ordering::Relaxed);
             ctl.target.set(0.0);
         }
+    }
+
+    /// A non-looping layer whose source has been decoded to the end.
+    pub fn has_ended(&self, id: &str) -> bool {
+        self.layers.get(id).is_some_and(|c| c.ended.load(Ordering::Relaxed))
     }
 
     pub fn set_master(&self, v: f32) {
@@ -236,6 +245,9 @@ fn feeder(rx: Receiver<FeedLayer>, positions: Arc<Mutex<HashMap<String, u64>>>) 
             let buf = &mut scratch[..free];
             l.source.fill(buf);
             let _ = l.producer.push_partial_slice(buf);
+            if l.source.finished() {
+                l.ctl.ended.store(true, Ordering::Relaxed);
+            }
             if let Some(p) = l.source.position()
                 && let Ok(mut map) = positions.lock()
             {
