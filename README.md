@@ -44,10 +44,18 @@ focus timer 50              # 50 min y fade-out con aviso
 focus quit                  # apaga el audio en background
 focus add <url> --theme skyrim
 focus add <url> --theme nature --visual rain --trim 60
+focus meditacion agregar <url> 10   # baja una meditación y la pone en la categoría de 10 min
+focus meditacion listar
+focus meditacion reproducir "Calma guiada"
+focus meditacion borrar "Calma guiada"
 focus help
 ```
 
-En la interfaz:
+Las categorías de duración son 5, 10, 15, 20, 25, 30, 40 y 60 minutos (1 hora); se eligen a mano. Una meditación se baja entera (sin recorte ni crossfade de loop) y se escucha una sola vez; al terminar se detiene sola.
+
+Al abrir `focus` aparece el menú de inicio: `↑↓` mueven, `Enter` elige, `1`-`4` van directo, `q` sale. «Continuar» y «Elegir otra rutina» todavía no están (llegan con las rutinas). «Ir a Focus» abre la interfaz de focus de abajo; `Esc` vuelve al menú sin cortar el sonido. «Configuración» → «Meditaciones» lista las meditaciones agrupadas por duración: `Enter` reproduce o pausa (con el tiempo transcurrido), `a` agrega desde un link de YouTube y pide la categoría, `d` borra (con confirmación), `Esc` vuelve.
+
+En Focus:
 
 - `␣`/`Enter` enciende o apaga el sonido seleccionado · `←→` (o `hl`) ajustan su volumen · `↑↓` (o `jk`), `g`/`G` mueven el cursor.
 - `Tab` cambia entre el panel de sonidos y el de presets; en presets, `Enter` carga el preset seleccionado y `d` lo borra (con confirmación).
@@ -57,7 +65,7 @@ En la interfaz:
 
 ## Sincronizar entre compus
 
-`library/sounds.toml` (qué sonidos hay, con su hash) y `library/presets.toml` van en git. Los `.opus` van a Google Drive:
+`library/sounds.toml` (qué sonidos hay, con su hash), `library/meditations.toml` (las meditaciones y su categoría) y `library/presets.toml` van en git. Los `.opus` van a Google Drive: los sonidos en `sounds/` y las meditaciones en `meditations/`, una al lado de la otra:
 
 ```sh
 rclone config               # una vez: crear un remote "gdrive" de tipo Google Drive
@@ -68,6 +76,7 @@ El destino se cambia en `~/.config/focus-ambience/config.toml`:
 
 ```toml
 remote = "gdrive:focus-ambience/sounds"
+# meditations_remote = "gdrive:focus-ambience/meditations"   # por defecto, junto a `remote`
 bitrate = 160               # kbps de los .opus nuevos
 # library = "/otra/ruta"    # por defecto, library/ de este repo
 ```
