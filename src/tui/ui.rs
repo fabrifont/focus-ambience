@@ -5,7 +5,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
-use super::app::{ADD_THEMES, App, Item, Pane, Popup, TIMER_CHOICES};
+use super::app::{ADD_THEMES, App, Item, Pane, Popup, Screen, TIMER_CHOICES};
 use super::font;
 use super::theme::{self, Palette, Rgb};
 use crate::library::Theme;
@@ -19,6 +19,9 @@ pub fn areas(area: Rect) -> [Rect; 3] {
 }
 
 pub fn draw(f: &mut Frame, app: &App) {
+    if app.screen != Screen::Focus {
+        return super::menu::draw(f, app);
+    }
     let pal = app.palette;
     let area = f.area();
     f.render_widget(Block::new().style(Style::new().bg(pal.bg.c()).fg(pal.fg.c())), area);
@@ -40,7 +43,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_sounds(f, body, app);
     }
     draw_footer(f, footer, app);
-    draw_popup(f, app);
+    draw_popup(f, app, &pal);
 }
 
 fn elapsed(app: &App) -> f32 {
@@ -372,15 +375,15 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(Line::from(right)), r);
 }
 
-fn popup_area(area: Rect, w: u16, h: u16) -> Rect {
+pub(super) fn popup_area(area: Rect, w: u16, h: u16) -> Rect {
     let w = w.min(area.width.saturating_sub(2));
     let h = h.min(area.height.saturating_sub(2));
     Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
 }
 
-fn draw_popup(f: &mut Frame, app: &App) {
+pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
     let Some(popup) = &app.popup else { return };
-    let pal = app.palette;
+    let pal = *pal;
     let dim = Style::new().fg(pal.dim.c());
     let fg = Style::new().fg(pal.fg.c());
     let acc = Style::new().fg(pal.accent.c());
@@ -529,6 +532,7 @@ fn draw_popup(f: &mut Frame, app: &App) {
                     row("tab", "sonidos ⇄ presets"),
                     row("a", "agregar sonido de YouTube"),
                     row("ctrl+v", "pegar un link abre «agregar»"),
+                    row("esc", "volver al menú de inicio"),
                     row("q", "salir (pregunta si dejar sonando)"),
                     row("Q", "apagar todo y salir"),
                 ],

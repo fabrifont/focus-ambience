@@ -6,7 +6,35 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::scene::{Emitter, Scene};
 use super::theme::{self, Palette};
 use crate::library::{Sound, Theme};
-use crate::protocol::{AddRequest, Command, State};
+use crate::meditation::{self, Category, Meditation};
+use crate::protocol::{AddMeditationRequest, AddRequest, Command, State};
+
+/// Which screen of the v2 flow is showing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Screen {
+    /// Menú de inicio.
+    Home,
+    /// La TUI de focus de siempre.
+    Focus,
+    Config,
+    Meditations,
+}
+
+pub const HOME_ITEMS: [&str; 4] = ["Continuar", "Elegir otra rutina", "Ir a Focus", "Configuración"];
+pub const CONFIG_ITEMS: [&str; 4] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"];
+
+/// Dialogs of the meditations screen.
+pub enum MedPopup {
+    /// First the link, then (`category` set) the duration category.
+    Add {
+        url: String,
+        category: Option<usize>,
+    },
+    Delete {
+        id: String,
+        name: String,
+    },
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -42,6 +70,11 @@ pub enum Item {
 }
 
 pub struct App {
+    pub screen: Screen,
+    pub home_cursor: usize,
+    pub config_cursor: usize,
+    pub med_cursor: usize,
+    pub med_popup: Option<MedPopup>,
     pub state: State,
     pub connected: bool,
     pub pane: Pane,
@@ -71,6 +104,11 @@ pub enum Exit {
 impl App {
     pub fn new() -> Self {
         Self {
+            screen: Screen::Home,
+            home_cursor: 0,
+            config_cursor: 0,
+            med_cursor: 0,
+            med_popup: None,
             state: State::default(),
             connected: false,
             pane: Pane::Sounds,
@@ -90,7 +128,7 @@ impl App {
 
     pub fn items(&self) -> Vec<Item> {
         let mut v: Vec<Item> = (0..self.state.sounds.len()).map(Item::Sound).collect();
-        v.extend((0..self.state.downloads.len()).map(Item::Download));
+        v.extend((0..self.state.downloads.len()).filter(|&i| !self.state.downloads[i].meditation).map(Item::Download));
         v
     }
 
@@ -99,6 +137,15 @@ impl App {
             Some(Item::Sound(i)) => self.state.sounds.get(*i),
             _ => None,
         }
+    }
+
+    /// Meditations in the order the grouped list shows them.
+    pub fn meditations(&self) -> Vec<&Meditation> {
+        meditation::display_order(&self.state.meditations)
+    }
+
+    pub fn selected_meditation(&self) -> Option<&Meditation> {
+        self.meditations().get(self.med_cursor).copied()
     }
 
     pub fn is_active(&self, id: &str) -> bool {
@@ -114,6 +161,7 @@ impl App {
         let n = self.items().len();
         self.cursor = self.cursor.min(n.saturating_sub(1));
         self.preset_cursor = self.preset_cursor.min(self.state.presets.len().saturating_sub(1));
+        self.med_cursor = self.med_cursor.min(self.state.meditations.len().saturating_sub(1));
     }
 
     pub fn set_levels(&mut self, layers: Vec<(String, f32)>) {
@@ -154,6 +202,13 @@ impl App {
 
     /// Advance animations by `dt` seconds.
     pub fn animate(&mut self, dt: f32, scene_w: u16, scene_h: u16) {
+        if self.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs() >= 4) {
+            self.notice = None;
+        }
+        // The menus are still: nothing to move, nothing to spend CPU on.
+        if self.screen != Screen::Focus {
+            return;
+        }
         // Palette follows the dominant theme of what's playing.
         let weights: Vec<(Palette, f32)> = if self.state.paused {
             Vec::new()
@@ -188,7 +243,140 @@ impl App {
 
     /// Whether the next frames will look different (keeps idle CPU near zero).
     pub fn animating(&self) -> bool {
-        self.playing() || self.scene.busy() || self.palette != theme::idle()
+        self.screen == Screen::Focus && (self.playing() || self.scene.busy() || self.palette != theme::idle())
+    }
+
+    /// Change screen. The daemon only streams audio levels while the focus scene needs them.
+    pub fn go(&mut self, screen: Screen) {
+        if (self.screen == Screen::Focus) != (screen == Screen::Focus) {
+            self.send(Command::Watch { levels: screen == Screen::Focus });
+        }
+        self.screen = screen;
+    }
+
+    fn request_quit(&mut self) {
+        if self.playing() {
+            self.popup = Some(Popup::Quit);
+        } else {
+            self.exit = Some(Exit::Quit);
+        }
+    }
+
+    fn home_key(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Up | KeyCode::Char('k') => self.home_cursor = self.home_cursor.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => self.home_cursor = (self.home_cursor + 1).min(HOME_ITEMS.len() - 1),
+            KeyCode::Char(c @ '1'..='4') => self.choose_home(c as usize - '1' as usize),
+            KeyCode::Enter => self.choose_home(self.home_cursor),
+            KeyCode::Char('q') => self.request_quit(),
+            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
+            _ => {}
+        }
+    }
+
+    fn choose_home(&mut self, i: usize) {
+        self.home_cursor = i;
+        match i {
+            0 | 1 => self.notify(format!("«{}» todavía no está: llega con las rutinas", HOME_ITEMS[i])),
+            2 => self.go(Screen::Focus),
+            _ => self.go(Screen::Config),
+        }
+    }
+
+    fn config_key(&mut self, k: KeyEvent) {
+        match k.code {
+            KeyCode::Up | KeyCode::Char('k') => self.config_cursor = self.config_cursor.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.config_cursor = (self.config_cursor + 1).min(CONFIG_ITEMS.len() - 1)
+            }
+            KeyCode::Enter => match self.config_cursor {
+                1 => self.go(Screen::Meditations),
+                i => self.notify(format!("«{}» todavía no está", CONFIG_ITEMS[i])),
+            },
+            KeyCode::Esc => self.go(Screen::Home),
+            KeyCode::Char('q') => self.request_quit(),
+            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
+            _ => {}
+        }
+    }
+
+    fn meditations_key(&mut self, k: KeyEvent) {
+        let n = self.state.meditations.len();
+        match k.code {
+            KeyCode::Up | KeyCode::Char('k') => self.med_cursor = self.med_cursor.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => self.med_cursor = (self.med_cursor + 1).min(n.saturating_sub(1)),
+            KeyCode::Home | KeyCode::Char('g') => self.med_cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => self.med_cursor = n.saturating_sub(1),
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(m) = self.selected_meditation() {
+                    let id = m.id.clone();
+                    let loaded = self.state.meditation.as_ref().is_some_and(|p| p.id == id);
+                    self.send(if loaded { Command::ToggleMeditation } else { Command::PlayMeditation { id } });
+                }
+            }
+            KeyCode::Char('a') => self.med_popup = Some(MedPopup::Add { url: String::new(), category: None }),
+            KeyCode::Char('d') | KeyCode::Delete => {
+                if let Some(m) = self.selected_meditation() {
+                    self.med_popup = Some(MedPopup::Delete { id: m.id.clone(), name: m.name.clone() });
+                }
+            }
+            KeyCode::Esc => self.go(Screen::Config),
+            KeyCode::Char('q') => self.request_quit(),
+            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
+            _ => {}
+        }
+    }
+
+    fn med_popup_key(&mut self, k: KeyEvent) {
+        let Some(popup) = self.med_popup.take() else { return };
+        self.med_popup = match popup {
+            MedPopup::Delete { id, name } => match k.code {
+                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+                    self.send(Command::DeleteMeditation { id });
+                    None
+                }
+                KeyCode::Esc | KeyCode::Char('n') => None,
+                _ => Some(MedPopup::Delete { id, name }),
+            },
+            MedPopup::Add { mut url, category: None } => match k.code {
+                KeyCode::Esc => None,
+                KeyCode::Enter if url.trim().starts_with("http") => {
+                    Some(MedPopup::Add { url: url.trim().to_string(), category: Some(0) })
+                }
+                KeyCode::Enter => {
+                    self.notify("pegá el link de YouTube (empieza con http)");
+                    Some(MedPopup::Add { url, category: None })
+                }
+                KeyCode::Backspace => {
+                    url.pop();
+                    Some(MedPopup::Add { url, category: None })
+                }
+                KeyCode::Char(c) => {
+                    url.push(c);
+                    Some(MedPopup::Add { url, category: None })
+                }
+                _ => Some(MedPopup::Add { url, category: None }),
+            },
+            MedPopup::Add { url, category: Some(c) } => {
+                let n = Category::ALL.len();
+                match k.code {
+                    KeyCode::Esc => Some(MedPopup::Add { url, category: None }),
+                    KeyCode::Up | KeyCode::Left | KeyCode::Char('k' | 'h') => {
+                        Some(MedPopup::Add { url, category: Some(c.saturating_sub(1)) })
+                    }
+                    KeyCode::Down | KeyCode::Right | KeyCode::Char('j' | 'l') => {
+                        Some(MedPopup::Add { url, category: Some((c + 1).min(n - 1)) })
+                    }
+                    KeyCode::Enter => {
+                        let minutes = Category::ALL[c].minutes();
+                        self.send(Command::AddMeditation(AddMeditationRequest { url, name: None, minutes }));
+                        self.notify("descarga en marcha: podés seguir usando la app");
+                        None
+                    }
+                    _ => Some(MedPopup::Add { url, category: Some(c) }),
+                }
+            }
+        };
     }
 
     fn send(&mut self, c: Command) {
@@ -206,6 +394,17 @@ impl App {
 
     pub fn paste(&mut self, text: &str) {
         let text = text.trim();
+        if self.screen != Screen::Focus {
+            match &mut self.med_popup {
+                Some(MedPopup::Add { url, category: None }) => url.push_str(text),
+                None if self.screen == Screen::Meditations && text.starts_with("http") => {
+                    // Pasting a link on the meditations screen jumps straight to picking the category.
+                    self.med_popup = Some(MedPopup::Add { url: text.into(), category: Some(0) });
+                }
+                _ => {}
+            }
+            return;
+        }
         match &mut self.popup {
             Some(Popup::Add(f)) => match f.field {
                 0 => f.url.push_str(text),
@@ -237,16 +436,22 @@ impl App {
             self.popup_key(k);
             return;
         }
+        if self.screen != Screen::Focus && self.med_popup.is_some() {
+            self.med_popup_key(k);
+            return;
+        }
+        match self.screen {
+            Screen::Home => return self.home_key(k),
+            Screen::Config => return self.config_key(k),
+            Screen::Meditations => return self.meditations_key(k),
+            Screen::Focus => {}
+        }
         let items = self.items().len();
         match k.code {
-            KeyCode::Char('q') => {
-                if self.playing() {
-                    self.popup = Some(Popup::Quit);
-                } else {
-                    self.exit = Some(Exit::Quit);
-                }
-            }
+            KeyCode::Char('q') => self.request_quit(),
             KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
+            // Leaving Focus goes back to the home menu; the sound keeps playing.
+            KeyCode::Esc => self.go(Screen::Home),
             KeyCode::Char('?') => self.popup = Some(Popup::Help),
             KeyCode::Tab | KeyCode::BackTab => {
                 self.pane = if self.pane == Pane::Sounds { Pane::Presets } else { Pane::Sounds };
