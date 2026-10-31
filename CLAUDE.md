@@ -40,6 +40,7 @@ src/
     sources.rs   ruidos, binaural, lector Ogg/Opus con loop y seek
   download.rs    yt-dlp -> ffmpeg (crossfade del loop horneado) -> .opus + sha256
   sync.rs        rclone copy hacia/desde el remoto
+  setup.rs       primera vez: baja rclone (curl + unzip/tar, SHA256 oficial) y crea el remote de Drive (scope drive.file); lo usan `focus setup` y `focus sync`
   tui/           app (estado + teclas), ui (layout), scene (animaciones), theme (paletas)
 ```
 

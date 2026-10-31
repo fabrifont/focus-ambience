@@ -18,7 +18,7 @@ En los dos sistemas hacen falta además, en el `PATH` (o en `~/.local/bin` en Li
 - `yt-dlp`: busca el título y baja el audio de YouTube (`focus add`).
 - `ffmpeg`: recorta el audio bajado, le hornea el crossfade del loop y lo codifica a Opus; yt-dlp también lo usa (`--ffmpeg-location`) para remuxear mientras baja.
 - `ffprobe`: mide la duración del audio bajado antes de codificarlo.
-- `rclone`: sincroniza los `.opus` con Google Drive (`focus sync`).
+- `rclone`: sincroniza los `.opus` con Google Drive (`focus sync`). Si falta, `focus sync` / `focus setup` lo bajan solos (ver abajo); necesitan `curl` y `unzip` (en Windows, `curl.exe` y `tar.exe`, que ya vienen).
 - Node o Deno: para que `yt-dlp` pueda bajar de YouTube a velocidad normal.
 
 ## Instalación
@@ -60,9 +60,13 @@ En la interfaz:
 `library/sounds.toml` (qué sonidos hay, con su hash) y `library/presets.toml` van en git. Los `.opus` van a Google Drive:
 
 ```sh
-rclone config               # una vez: crear un remote "gdrive" de tipo Google Drive
 focus sync                  # baja lo que falte y sube lo nuevo
 ```
+
+La primera vez `focus sync` prepara todo solo (también se puede hacer a mano con `focus setup`):
+
+1. Si no hay `rclone`, lo baja de downloads.rclone.org, verifica el SHA256 contra el `SHA256SUMS` oficial de esa versión y lo instala en `~/.local/bin` (en Windows, `%APPDATA%\focus-ambience\bin`).
+2. Si el remote (`gdrive` por defecto) no existe, lo crea y abre el navegador para que inicies sesión en Google. Usa el permiso `drive.file`: la app solo ve lo que ella misma sube. Si el remote ya existe, no se toca.
 
 El destino se cambia en `~/.config/focus-ambience/config.toml`:
 

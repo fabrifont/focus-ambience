@@ -29,8 +29,8 @@ fn rclone(from: &str, to: &str, only: Option<&[String]>) -> Result<()> {
     let status = cmd.status().context("no se pudo ejecutar rclone (¿está instalado?)")?;
     if !status.success() {
         bail!(
-            "rclone falló. Si es la primera vez, configurá Google Drive con `rclone config` \
-             (remote llamado \"gdrive\") o cambiá `remote` en {}",
+            "rclone falló. Si cambiaste de cuenta o el login venció, probá `focus setup`; \
+             el remote se elige con `remote` en {}",
             paths::config_dir().join("config.toml").display()
         );
     }
@@ -38,6 +38,7 @@ fn rclone(from: &str, to: &str, only: Option<&[String]>) -> Result<()> {
 }
 
 pub fn run(dir: Direction) -> Result<()> {
+    crate::setup::prepare()?;
     let local = paths::sounds_dir();
     std::fs::create_dir_all(&local)?;
     let local = local.to_string_lossy().to_string();
