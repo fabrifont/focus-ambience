@@ -154,9 +154,21 @@ pub fn log_file() -> PathBuf {
     state_dir().join("daemon.log")
 }
 
-/// Resolve an external tool, preferring ~/.local/bin (where the up-to-date yt-dlp lives).
+/// Where focus installs tools it downloads itself (rclone): ~/.local/bin, or the app folder on
+/// Windows (which has no such convention).
+#[cfg(unix)]
+pub fn bin_dir() -> PathBuf {
+    home().join(".local/bin")
+}
+
+#[cfg(windows)]
+pub fn bin_dir() -> PathBuf {
+    data_dir().join("bin")
+}
+
+/// Resolve an external tool, preferring `bin_dir()` (where the up-to-date yt-dlp lives).
 pub fn tool(name: &str) -> PathBuf {
-    let local = home().join(".local/bin").join(exe(name));
+    let local = bin_dir().join(exe(name));
     if local.exists() { local } else { PathBuf::from(name) }
 }
 

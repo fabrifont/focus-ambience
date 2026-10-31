@@ -5,6 +5,7 @@ mod download;
 mod library;
 mod paths;
 mod protocol;
+mod setup;
 mod sync;
 mod tui;
 
@@ -30,7 +31,9 @@ USO
       --theme <tema>         skyrim | lotr | starwars | nature | other
       --visual <efecto>      rain | snow | fireflies | stars | embers | leaves
       --trim <min>           guarda solo los primeros N minutos
-  focus sync [pull|push]     sincroniza los .opus con Google Drive (rclone)
+  focus setup                instala rclone y conecta Google Drive (una vez)
+  focus sync [pull|push]     sincroniza los .opus con Google Drive (rclone);
+                             la primera vez hace el `setup` solo
   focus verify               compara los archivos con el manifest
 ";
 
@@ -80,6 +83,7 @@ fn run() -> Result<()> {
         Some("status") => status(),
         Some("list") => list(),
         Some("add") => add(rest),
+        Some("setup") => setup::run(),
         Some("sync") => sync::run(match rest.first().map(String::as_str) {
             Some("pull") => sync::Direction::Pull,
             Some("push") => sync::Direction::Push,
