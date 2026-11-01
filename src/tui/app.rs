@@ -67,6 +67,15 @@ pub enum MedPopup {
     },
 }
 
+/// Modo deep work de Focus (`d`): solo el reloj grande, sin atajos a la vista.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Deep {
+    Off,
+    On,
+    /// El temporizador llegó a cero estando en el modo: «¡Buen trabajo!».
+    Done,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
     Sounds,
@@ -163,6 +172,7 @@ pub struct App {
     pub state: State,
     pub connected: bool,
     pub pane: Pane,
+    pub deep: Deep,
     pub cursor: usize,
     pub preset_cursor: usize,
     pub popup: Option<Popup>,
@@ -212,6 +222,7 @@ impl App {
             state: State::default(),
             connected: false,
             pane: Pane::Sounds,
+            deep: Deep::Off,
             cursor: 0,
             preset_cursor: 0,
             popup: None,
@@ -266,6 +277,14 @@ impl App {
     }
 
     pub fn set_state(&mut self, s: State) {
+        match (self.deep, self.state.timer.as_ref(), s.timer.as_ref()) {
+            // El daemon avisa cada segundo: si el timer desaparece con ≤2 s por delante, llegó a cero
+            // (y no lo cancelaron).
+            (Deep::On, Some(old), None) if old.remaining_secs <= 2 => self.deep = Deep::Done,
+            // Si en la pantalla final se arranca otro timer, la sesión sigue.
+            (Deep::Done, _, Some(_)) => self.deep = Deep::On,
+            _ => {}
+        }
         self.state = s;
         let n = self.items().len();
         self.cursor = self.cursor.min(n.saturating_sub(1));
@@ -362,12 +381,16 @@ impl App {
         if (self.screen == Screen::Focus) != (screen == Screen::Focus) {
             self.send(Command::Watch { levels: screen == Screen::Focus });
         }
+        if screen != Screen::Focus {
+            self.deep = Deep::Off;
+        }
         self.screen = screen;
     }
 
     /// Entra a Focus mostrando la ventanita de tiempo y preset (siempre, venga de donde venga).
     pub fn enter_focus(&mut self) {
         self.go(Screen::Focus);
+        self.deep = Deep::Off;
         self.popup = Some(Popup::Intro(Intro::Time { minutes: self.focus_minutes, typed: false }));
     }
 
@@ -790,6 +813,7 @@ impl App {
             // Leaving Focus goes back to the home menu; the sound keeps playing.
             KeyCode::Esc => self.go(Screen::Home),
             KeyCode::Char('?') => self.popup = Some(Popup::Help),
+            KeyCode::Char('d') => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
             KeyCode::Tab | KeyCode::BackTab => {
                 self.pane = if self.pane == Pane::Sounds { Pane::Presets } else { Pane::Sounds };
             }

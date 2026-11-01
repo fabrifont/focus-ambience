@@ -5,7 +5,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
-use super::app::{ADD_THEMES, App, Intro, Item, Pane, Popup, Screen, TIMER_CHOICES};
+use super::app::{ADD_THEMES, App, Deep, Intro, Item, Pane, Popup, Screen, TIMER_CHOICES};
 use super::font;
 use super::theme::{self, Palette, Rgb};
 use crate::library::Theme;
@@ -14,7 +14,11 @@ pub fn scene_height(area: Rect) -> u16 {
     (area.height * 2 / 5).clamp(7, 13).min(area.height.saturating_sub(6))
 }
 
-pub fn areas(area: Rect) -> [Rect; 3] {
+/// Con deep work la escena ocupa toda la pantalla salvo la última fila (la de la ayuda).
+pub fn areas(area: Rect, deep: bool) -> [Rect; 3] {
+    if deep {
+        return Layout::vertical([Constraint::Min(1), Constraint::Length(0), Constraint::Length(1)]).areas(area);
+    }
     Layout::vertical([Constraint::Length(scene_height(area)), Constraint::Min(3), Constraint::Length(1)]).areas(area)
 }
 
@@ -25,10 +29,17 @@ pub fn draw(f: &mut Frame, app: &App) {
     let pal = app.palette;
     let area = f.area();
     f.render_widget(Block::new().style(Style::new().bg(pal.bg.c()).fg(pal.fg.c())), area);
-    let [scene, body, footer] = areas(area);
+    let deep = app.deep != Deep::Off;
+    let [scene, body, footer] = areas(area, deep);
 
     let emitters = app.emitters();
     app.scene.draw(f.buffer_mut(), scene, &pal, &emitters);
+    if deep {
+        draw_deep(f.buffer_mut(), scene, app);
+        draw_deep_footer(f, footer, app);
+        draw_popup(f, app, &pal);
+        return;
+    }
     draw_overlay(f.buffer_mut(), scene, app);
 
     let body = body.inner(ratatui::layout::Margin { horizontal: 1, vertical: 0 });
@@ -61,38 +72,22 @@ fn draw_overlay(buf: &mut Buffer, area: Rect, app: &App) {
         }
         None => ("FOCUS".to_string(), None),
     };
-    let (width, glyphs) = font::render(&text);
+    let (width, glyphs) = font::render(&text, false);
     let block_h = font::HEIGHT as u16 + 2;
     if area.height < block_h || area.width < width as u16 + 2 {
         return;
     }
     let x0 = area.x + (area.width - width as u16) / 2;
     let y0 = area.y + (area.height - block_h) / 2;
-    // Clear a margin around the text so particles don't muddle it.
-    let clear = |buf: &mut Buffer, x0: u16, x1: u16, y: u16| {
-        for x in x0.max(area.x)..x1.min(area.x + area.width) {
-            buf[(x, y)].set_char(' ');
-        }
-    };
-    for y in y0.saturating_sub(1).max(area.y)..(y0 + font::HEIGHT as u16 + 1).min(area.y + area.height) {
-        clear(buf, x0.saturating_sub(3), x0 + width as u16 + 3, y);
-    }
-    // A soft highlight sweeps across the letters every few seconds.
-    let sweep = (t * 0.12).fract() * 2.2 - 0.6;
-    for (gx, rows) in glyphs {
-        for (ry, row) in rows.iter().enumerate() {
-            for (cx, ch) in row.chars().enumerate() {
-                if ch == ' ' {
-                    continue;
-                }
-                let k = (gx + cx) as f32 / width.max(1) as f32;
-                let glow = (-(k - sweep).powi(2) * 25.0).exp();
-                let color = pal.accent.lerp(pal.accent2, k).lerp(pal.fg, glow * 0.55);
-                let pos = (x0 + (gx + cx) as u16, y0 + ry as u16);
-                buf[pos].set_char(ch).set_fg(color.c());
-            }
-        }
-    }
+    clear_rows(
+        buf,
+        area,
+        x0.saturating_sub(3),
+        x0 + width as u16 + 3,
+        y0.saturating_sub(1),
+        y0 + font::HEIGHT as u16 + 1,
+    );
+    draw_glyphs(buf, &pal, t, (x0, y0), width, &glyphs);
 
     let sub_y = y0 + font::HEIGHT as u16 + 1;
     if let Some(p) = progress {
@@ -122,9 +117,96 @@ fn draw_overlay(buf: &mut Buffer, area: Rect, app: &App) {
     let sw = sub.chars().count() as u16;
     let sx = area.x + (area.width.saturating_sub(sw)) / 2;
     if sub_y + 1 < area.y + area.height {
-        clear(buf, sx.saturating_sub(2), sx + sw + 2, sub_y + 1);
+        clear_rows(buf, area, sx.saturating_sub(2), sx + sw + 2, sub_y + 1, sub_y + 2);
         buf.set_string(sx, sub_y + 1, &sub, Style::new().fg(color.c()));
     }
+}
+
+/// Blank a margin of the scene so particles don't muddle the text (rows `y0..y1`, columns `x0..x1`).
+fn clear_rows(buf: &mut Buffer, area: Rect, x0: u16, x1: u16, y0: u16, y1: u16) {
+    for y in y0.max(area.y)..y1.min(area.y + area.height) {
+        for x in x0.max(area.x)..x1.min(area.x + area.width) {
+            buf[(x, y)].set_char(' ');
+        }
+    }
+}
+
+/// Paint glyph rows with the accent gradient; a soft highlight sweeps across every few seconds.
+fn draw_glyphs(
+    buf: &mut Buffer,
+    pal: &Palette,
+    t: f32,
+    (x0, y0): (u16, u16),
+    width: usize,
+    glyphs: &[(usize, Vec<&'static str>)],
+) {
+    let sweep = (t * 0.12).fract() * 2.2 - 0.6;
+    for (gx, rows) in glyphs {
+        for (ry, row) in rows.iter().enumerate() {
+            for (cx, ch) in row.chars().enumerate() {
+                if ch == ' ' {
+                    continue;
+                }
+                let k = (gx + cx) as f32 / width.max(1) as f32;
+                let glow = (-(k - sweep).powi(2) * 25.0).exp();
+                let color = pal.accent.lerp(pal.accent2, k).lerp(pal.fg, glow * 0.55);
+                let pos = (x0 + (gx + cx) as u16, y0 + ry as u16);
+                buf[pos].set_char(ch).set_fg(color.c());
+            }
+        }
+    }
+}
+
+/// Deep work: only the big clock (or the big wordmark without a timer); when the session is over, the farewell.
+fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
+    let pal = app.palette;
+    let t = elapsed(app);
+    if app.deep == Deep::Done {
+        let lines =
+            [("¡Buen trabajo!", pal.fg.lerp(pal.accent, 0.5), true), ("presioná d para volver", pal.dim, false)];
+        let y0 = area.y + area.height.saturating_sub(3) / 2;
+        for (i, (text, color, bold)) in lines.iter().enumerate() {
+            let text = truncate(text, area.width as usize);
+            let w = text.chars().count() as u16;
+            let x = area.x + (area.width - w) / 2;
+            let y = y0 + 2 * i as u16;
+            if y >= area.y + area.height {
+                continue;
+            }
+            clear_rows(buf, area, x.saturating_sub(2), x + w + 2, y, y + 1);
+            let style = Style::new().fg(color.c());
+            buf.set_string(x, y, &text, if *bold { style.add_modifier(Modifier::BOLD) } else { style });
+        }
+        return;
+    }
+    let text = match &app.state.timer {
+        Some(tm) => format!("{}:{:02}", tm.remaining_secs / 60, tm.remaining_secs % 60),
+        None => "FOCUS".to_string(),
+    };
+    // The big font if it fits, the small one otherwise.
+    for big in [true, false] {
+        let h = if big { font::BIG_HEIGHT } else { font::HEIGHT } as u16;
+        let (width, glyphs) = font::render(&text, big);
+        if area.height < h || area.width < width as u16 {
+            continue;
+        }
+        let x0 = area.x + (area.width - width as u16) / 2;
+        let y0 = area.y + (area.height - h) / 2;
+        clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + h + 1);
+        draw_glyphs(buf, &pal, t, (x0, y0), width, &glyphs);
+        return;
+    }
+}
+
+/// Deep work footer: nothing but the help key.
+fn draw_deep_footer(f: &mut Frame, area: Rect, app: &App) {
+    let pal = app.palette;
+    let line = Line::from(vec![
+        Span::raw(" "),
+        Span::styled("?", Style::new().fg(pal.accent.c())),
+        Span::styled(" ayuda", Style::new().fg(pal.dim.c())),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
 }
 
 fn header(label: &str, icon: &str, color: Rgb, pal: &Palette, width: u16, bold: bool) -> Line<'static> {
@@ -621,6 +703,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                     row("p", "pausar / seguir todo"),
                     row("x", "apagar todo"),
                     row("t", "temporizador"),
+                    row("d", if app.deep == Deep::Off { "modo deep work" } else { "salir del modo deep work" }),
                     row("tab", "sonidos ⇄ presets"),
                     row("enter", "en presets: cargar el preset"),
                     row("esc", "volver al menú de inicio"),

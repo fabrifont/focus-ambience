@@ -62,7 +62,8 @@ pub fn run() -> Result<()> {
             let dt = (now - last).as_secs_f32().min(0.25);
             last = now;
             let size = terminal.size()?;
-            let [scene, _, _] = ui::areas(ratatui::layout::Rect::new(0, 0, size.width, size.height));
+            let [scene, _, _] =
+                ui::areas(ratatui::layout::Rect::new(0, 0, size.width, size.height), app.deep != app::Deep::Off);
             app.animate(dt, scene.width, scene.height);
             terminal.draw(|f| ui::draw(f, &app))?;
 
@@ -128,7 +129,7 @@ mod tests {
         setup(&mut app);
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
         for _ in 0..60 {
-            let [scene, _, _] = ui::areas(ratatui::layout::Rect::new(0, 0, w, h));
+            let [scene, _, _] = ui::areas(ratatui::layout::Rect::new(0, 0, w, h), app.deep != app::Deep::Off);
             app.animate(0.05, scene.width, scene.height);
         }
         term.draw(|f| ui::draw(f, &app)).unwrap();
@@ -1561,5 +1562,141 @@ mod tests {
         assert!(app.editor.is_some());
         press(&mut app, "q");
         assert!(app.popup.is_none() && app.exit.is_none());
+    }
+
+    // ------------------------------------------------- modo deep work
+
+    fn focus_app() -> App {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        app.key(key(ratatui::crossterm::event::KeyCode::Esc)); // saltea la ventanita
+        app.outbox.clear();
+        app
+    }
+
+    fn with_timer(app: &mut App, remaining_secs: u64) {
+        let mut s = app.state.clone();
+        s.timer = Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs });
+        app.set_state(s);
+    }
+
+    fn without_timer(app: &mut App) {
+        let mut s = app.state.clone();
+        s.timer = None;
+        app.set_state(s);
+    }
+
+    #[test]
+    fn d_toggles_deep_work_in_focus() {
+        let mut app = focus_app();
+        assert_eq!(app.deep, app::Deep::Off);
+        press(&mut app, "d");
+        assert_eq!(app.deep, app::Deep::On);
+        press(&mut app, "d");
+        assert_eq!(app.deep, app::Deep::Off);
+        assert!(app.outbox.is_empty(), "d no manda nada al daemon");
+    }
+
+    #[test]
+    fn d_does_nothing_in_the_intro_popup() {
+        let mut app = app_with_presets();
+        press(&mut app, "3d");
+        assert_eq!(app.deep, app::Deep::Off);
+        assert!(intro(&app).is_some());
+    }
+
+    #[test]
+    fn deep_work_keeps_sound_keys_and_quit_keys() {
+        let mut app = focus_app();
+        press(&mut app, "d");
+        press(&mut app, "p");
+        assert!(matches!(app.outbox.last(), Some(Command::PauseAll)));
+        press(&mut app, "+");
+        assert!(matches!(app.outbox.last(), Some(Command::SetMaster { .. })));
+        press(&mut app, "q");
+        assert!(matches!(app.popup, Some(app::Popup::ConfirmQuit)));
+        app.key(key(ratatui::crossterm::event::KeyCode::Esc));
+        app.key(key(ratatui::crossterm::event::KeyCode::Esc));
+        assert_eq!(app.screen, app::Screen::Home);
+        assert_eq!(app.deep, app::Deep::Off, "al salir de Focus se sale del modo");
+    }
+
+    #[test]
+    fn reaching_zero_in_deep_work_ends_the_session_and_d_goes_back() {
+        let mut app = focus_app();
+        with_timer(&mut app, 5);
+        press(&mut app, "d");
+        with_timer(&mut app, 1);
+        without_timer(&mut app);
+        assert_eq!(app.deep, app::Deep::Done);
+        press(&mut app, "d");
+        assert_eq!(app.deep, app::Deep::Off);
+        assert_eq!(app.screen, app::Screen::Focus);
+    }
+
+    #[test]
+    fn reaching_zero_outside_deep_work_changes_nothing() {
+        let mut app = focus_app();
+        with_timer(&mut app, 1);
+        without_timer(&mut app);
+        assert_eq!(app.deep, app::Deep::Off);
+    }
+
+    #[test]
+    fn cancelling_the_timer_in_deep_work_does_not_end_the_session() {
+        let mut app = focus_app();
+        with_timer(&mut app, 1200);
+        press(&mut app, "d");
+        without_timer(&mut app);
+        assert_eq!(app.deep, app::Deep::On);
+    }
+
+    #[test]
+    fn a_new_timer_on_the_final_screen_resumes_the_session() {
+        let mut app = focus_app();
+        app.deep = app::Deep::Done;
+        with_timer(&mut app, 600);
+        assert_eq!(app.deep, app::Deep::On);
+    }
+
+    #[test]
+    fn deep_work_shows_only_the_big_clock_and_the_help_hint() {
+        let mut app = focus_app();
+        with_timer(&mut app, 1873);
+        press(&mut app, "d");
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("? ayuda"), "{t}");
+        for s in ["encender", "volumen", "timer", "presets", "salir", "vol "] {
+            assert!(!t.contains(s), "no debería verse «{s}» en:\n{t}");
+        }
+        // 31:13 en dígitos de 5 filas: la primera fila del 3 es «█████».
+        assert!(t.contains("█████"), "{t}");
+        assert!(!t.contains("31:13"));
+    }
+
+    #[test]
+    fn deep_work_without_a_timer_shows_the_big_focus_word() {
+        let mut app = focus_app();
+        press(&mut app, "d");
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("████ "), "{t}");
+        assert!(t.contains("? ayuda"));
+    }
+
+    #[test]
+    fn the_final_screen_says_well_done_and_how_to_go_back() {
+        let mut app = focus_app();
+        app.deep = app::Deep::Done;
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("¡Buen trabajo!"), "{t}");
+        assert!(t.contains("presioná d para volver"), "{t}");
+    }
+
+    #[test]
+    fn help_lists_the_deep_work_key() {
+        let mut app = focus_app();
+        press(&mut app, "d?");
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("salir del modo deep work"), "{t}");
     }
 }
