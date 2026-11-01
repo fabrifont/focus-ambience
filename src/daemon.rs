@@ -729,6 +729,11 @@ impl Daemon {
     }
 
     fn broadcast_state(&mut self) {
+        // Nobody listening: don't build and encode a state (tens of KB) for nothing.
+        if self.clients.is_empty() {
+            self.last_state = Instant::now();
+            return;
+        }
         let ev = Event::State(Box::new(self.state()));
         self.broadcast(&ev);
         self.last_state = Instant::now();

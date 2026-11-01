@@ -200,6 +200,22 @@ mod tests {
     }
 
     #[test]
+    fn shown_volume_starts_at_the_real_one_and_then_eases_towards_it() {
+        let mut app = app_with_sounds();
+        app.go(app::Screen::Focus);
+        app.animate(0.05, 80, 20);
+        assert!(app.state.sounds.iter().all(|s| app.shown_volume[&s.id] == app.volume(&s.id)));
+        app.state.volumes.insert("lluvia".into(), 1.0);
+        app.animate(0.05, 80, 20);
+        let shown = app.shown_volume["lluvia"];
+        assert!(shown > 0.5 && shown < 1.0, "{shown}");
+        for _ in 0..100 {
+            app.animate(0.05, 80, 20);
+        }
+        assert!((app.shown_volume["lluvia"] - 1.0).abs() < 0.001);
+    }
+
+    #[test]
     fn snapshot() {
         println!(
             "{}",
