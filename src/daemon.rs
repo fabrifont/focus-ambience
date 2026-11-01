@@ -44,6 +44,37 @@ enum Msg {
     Finished(String, Result<String, String>),
 }
 
+/// Keeps the ambient sounds quiet while a meditation plays and gives them back afterwards.
+/// Only what it paused itself is resumed: if the ambient was already paused (a routine does that
+/// on start) or the user resumed it by hand, it stays as is.
+#[derive(Default)]
+struct AmbientHold {
+    was_meditating: bool,
+    held: bool,
+}
+
+impl AmbientHold {
+    /// Returns whether `paused` changed.
+    fn update(&mut self, meditating: bool, has_ambient: bool, paused: &mut bool) -> bool {
+        let before = *paused;
+        if self.held && !*paused {
+            self.held = false; // the user brought the ambient back during the meditation
+        }
+        if meditating && !self.was_meditating && has_ambient && !*paused {
+            *paused = true;
+            self.held = true;
+        }
+        if !meditating {
+            if self.held && *paused {
+                *paused = false;
+            }
+            self.held = false;
+        }
+        self.was_meditating = meditating;
+        *paused != before
+    }
+}
+
 struct Client {
     stream: UnixStream,
     levels: bool,
@@ -85,6 +116,7 @@ struct Daemon {
     positions: BTreeMap<String, u64>,
     active: Vec<String>,
     paused: bool,
+    ambient_hold: AmbientHold,
     master: f32,
     timer: Option<Timer>,
     downloads: Vec<(String, Download)>,
@@ -129,6 +161,7 @@ pub fn run() -> Result<()> {
         positions: persisted.positions,
         active: Vec::new(),
         paused: false,
+        ambient_hold: AmbientHold::default(),
         master: persisted.master.unwrap_or(0.8),
         timer: None,
         downloads: Vec::new(),
@@ -315,8 +348,19 @@ impl Daemon {
                 return;
             }
         }
+        self.hold_ambient();
         self.apply();
         self.broadcast_state();
+    }
+
+    /// Pause the ambient while a meditation is playing, resume it when it stops or pauses.
+    fn hold_ambient(&mut self) -> bool {
+        let meditating = self.playback.as_ref().is_some_and(|p| p.since.is_some());
+        let changed = self.ambient_hold.update(meditating, !self.active.is_empty(), &mut self.paused);
+        if changed {
+            self.engine.set_fade(1.0);
+        }
+        changed
     }
 
     fn volume(&self, id: &str) -> f32 {
@@ -416,6 +460,10 @@ impl Daemon {
             self.send_watchers(&ev);
         }
         self.tick_meditation();
+        if self.hold_ambient() {
+            self.apply();
+            self.broadcast_state();
+        }
         let progressing = self.timer.is_some() || self.playback.as_ref().is_some_and(|p| p.since.is_some());
         if progressing && !self.clients.is_empty() && self.last_state.elapsed() >= Duration::from_secs(1) {
             self.broadcast_state();
@@ -701,4 +749,47 @@ fn toast(title: &str, body: &str) {
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meditation_pauses_the_ambient_and_gives_it_back() {
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        assert!(hold.update(true, true, &mut paused) && paused, "al empezar se pausa");
+        assert!(!hold.update(true, true, &mut paused) && paused, "mientras suena sigue pausado");
+        assert!(hold.update(false, true, &mut paused) && !paused, "al terminar vuelve");
+        assert!(!hold.update(false, true, &mut paused) && !paused);
+    }
+
+    #[test]
+    fn pausing_the_meditation_resumes_the_ambient_and_resuming_pauses_it_again() {
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        hold.update(true, true, &mut paused);
+        hold.update(false, true, &mut paused); // meditación en pausa
+        assert!(!paused);
+        hold.update(true, true, &mut paused); // reanuda
+        assert!(paused);
+    }
+
+    #[test]
+    fn ambient_that_was_already_paused_or_absent_is_left_alone() {
+        let (mut hold, mut paused) = (AmbientHold::default(), true);
+        assert!(!hold.update(true, true, &mut paused) && paused);
+        assert!(!hold.update(false, true, &mut paused) && paused, "no lo reanuda: no lo pausó él");
+
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        assert!(!hold.update(true, false, &mut paused) && !paused, "sin ambiente no hay nada que pausar");
+    }
+
+    #[test]
+    fn ambient_resumed_by_hand_during_the_meditation_stays_on() {
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        hold.update(true, true, &mut paused);
+        paused = false; // el usuario lo reanuda
+        assert!(!hold.update(true, true, &mut paused) && !paused);
+        assert!(!hold.update(false, true, &mut paused) && !paused);
+    }
 }
