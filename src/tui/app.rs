@@ -280,7 +280,8 @@ impl App {
         match (self.deep, self.state.timer.as_ref(), s.timer.as_ref()) {
             // El daemon avisa cada segundo: si el timer desaparece con ≤2 s por delante, llegó a cero
             // (y no lo cancelaron).
-            (Deep::On, Some(old), None) if old.remaining_secs <= 2 => self.deep = Deep::Done,
+            // Un timer en pausa que se cancela no llegó a cero.
+            (Deep::On, Some(old), None) if old.remaining_secs <= 2 && !old.paused => self.deep = Deep::Done,
             // Si en la pantalla final se arranca otro timer, la sesión sigue.
             (Deep::Done, _, Some(_)) => self.deep = Deep::On,
             _ => {}
@@ -884,6 +885,14 @@ impl App {
             }
             KeyCode::Char('p') => self.send(Command::PauseAll),
             KeyCode::Char('x') => self.send(Command::StopAll),
+            // La `p` ya pausa los sonidos: el reloj se pausa con `r` y el audio no se toca.
+            KeyCode::Char('r') => {
+                if self.state.timer.is_some() {
+                    self.send(Command::ToggleTimerPause);
+                } else {
+                    self.notify("no hay timer");
+                }
+            }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 self.state.master = (self.state.master + 0.05).min(1.0);
                 self.send(Command::SetMaster { volume: self.state.master });

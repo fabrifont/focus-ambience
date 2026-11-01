@@ -124,7 +124,8 @@ fn status() -> Result<()> {
         );
     }
     if let Some(t) = state.timer {
-        println!("⏱ {}:{:02}", t.remaining_secs / 60, t.remaining_secs % 60);
+        let pause = if t.paused { " ⏸ en pausa" } else { "" };
+        println!("⏱ {}:{:02}{pause}", t.remaining_secs / 60, t.remaining_secs % 60);
     }
     Ok(())
 }

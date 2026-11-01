@@ -68,6 +68,7 @@ fn elapsed(app: &App) -> f32 {
 fn draw_overlay(buf: &mut Buffer, area: Rect, app: &App) {
     let pal = app.palette;
     let t = elapsed(app);
+    let timer_paused = app.state.timer.as_ref().is_some_and(|t| t.paused);
     let (text, progress) = match &app.state.timer {
         Some(tm) => {
             let s = tm.remaining_secs;
@@ -109,7 +110,9 @@ fn draw_overlay(buf: &mut Buffer, area: Rect, app: &App) {
         .filter_map(|id| app.state.sounds.iter().find(|s| s.id == *id))
         .map(|s| s.name.as_str())
         .collect();
-    let (sub, color) = if names.is_empty() {
+    let (sub, color) = if timer_paused {
+        ("⏸  timer en pausa · r para seguir".to_string(), pal.accent2)
+    } else if names.is_empty() {
         ("elegí un sonido y apretá espacio".to_string(), pal.dim)
     } else if app.state.paused {
         ("⏸  en pausa · p para seguir".to_string(), pal.dim.lerp(pal.fg, 0.4))
@@ -186,6 +189,7 @@ fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
         Some(tm) => format!("{}:{:02}", tm.remaining_secs / 60, tm.remaining_secs % 60),
         None => "FOCUS".to_string(),
     };
+    let paused = app.state.timer.as_ref().is_some_and(|t| t.paused);
     // The same font as the normal clock, at most 2x (a bit bigger than the normal clock), smaller if it doesn't fit.
     let fits = |k: usize| {
         let (width, glyphs) = font::render(&text, k);
@@ -200,6 +204,14 @@ fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
     let y0 = area.y + (area.height - h) / 2;
     clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + h + 1);
     draw_glyphs(buf, &pal, t, (x0, y0), width, &glyphs);
+    if paused {
+        let label = truncate("⏸  en pausa", area.width as usize);
+        let w = label.chars().count() as u16;
+        let y = y0 + h;
+        if y < area.y + area.height {
+            buf.set_string(area.x + (area.width - w) / 2, y, &label, Style::new().fg(pal.accent2.c()));
+        }
+    }
 }
 
 /// Deep work footer: nothing but the help key.
@@ -433,6 +445,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             ("←→", " volumen  "),
             ("p", " pausa  "),
             ("t", " timer  "),
+            ("r", " reloj  "),
             ("?", " ayuda  "),
             ("q", " salir"),
         ]
@@ -706,6 +719,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                     row("+ -", "volumen general"),
                     row("p", "pausar / seguir todo"),
                     row("x", "apagar todo"),
+                    row("r", "pausar / seguir el timer (el sonido sigue)"),
                     row("t", "temporizador"),
                     row("d", if app.deep == Deep::Off { "modo deep work" } else { "salir del modo deep work" }),
                     row("tab", "sonidos ⇄ presets"),
