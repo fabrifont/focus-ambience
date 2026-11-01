@@ -18,7 +18,7 @@ En los dos sistemas hacen falta además, en el `PATH` (o en `~/.local/bin` en Li
 - `yt-dlp`: busca el título y baja el audio de YouTube (`focus add`).
 - `ffmpeg`: recorta el audio bajado, le hornea el crossfade del loop y lo codifica a Opus; yt-dlp también lo usa (`--ffmpeg-location`) para remuxear mientras baja.
 - `ffprobe`: mide la duración del audio bajado antes de codificarlo.
-- `rclone`: sincroniza los `.opus` con Google Drive (`focus sync`).
+- `rclone`: sincroniza los `.opus` y las listas (`.toml`) con Google Drive (`focus sync`).
 - Node o Deno: para que `yt-dlp` pueda bajar de YouTube a velocidad normal.
 
 ## Instalación
@@ -57,7 +57,7 @@ Al abrir `focus` aparece el menú de inicio: `↑↓` mueven, `Enter` elige, `1`
 
 ### Rutinas
 
-Una rutina es un nombre, una lista ordenada de **tareas** (un texto, como «Preparar mate») y, aparte, una **meditación** opcional (como mucho una): de **duración fija** (una de las categorías) o **libre** (se elige al hacerla). En la rutina en curso la meditación es un paso más, al final de la lista. Las rutinas guardadas con pasos de meditación (formato viejo) se migran al leerlas: la primera pasa a ser el ajuste y las demás se descartan. Se guardan en `library/routines.toml`, que va en git junto a los presets; la última usada se recuerda en el estado local (`ui.toml`).
+Una rutina es un nombre, una lista ordenada de **tareas** (un texto, como «Preparar mate») y, aparte, una **meditación** opcional (como mucho una): de **duración fija** (una de las categorías) o **libre** (se elige al hacerla). En la rutina en curso la meditación es un paso más, al final de la lista. Las rutinas guardadas con pasos de meditación (formato viejo) se migran al leerlas: la primera pasa a ser el ajuste y las demás se descartan. Se guardan en `library/routines.toml`, que viaja por Drive con `focus sync`, igual que las demás listas; la última usada se recuerda en el estado local (`ui.toml`).
 
 - «Continuar "<rutina>"» (opción 1 del menú) arranca la última rutina usada. Sin rutinas dice «Crear mi primera rutina».
 - «Elegir otra rutina» (y Configuración → Rutinas) abre la lista: `Enter` empieza (en Configuración edita), `n` nueva, `e` editar, `d` borrar con confirmación, `Esc` vuelve.
@@ -76,11 +76,11 @@ En Focus:
 
 ## Sincronizar entre compus
 
-`library/sounds.toml` (qué sonidos hay, con su hash), `library/meditations.toml` (las meditaciones y su categoría) y `library/presets.toml` van en git. Los `.opus` van a Google Drive: los sonidos en `sounds/` y las meditaciones en `meditations/`, una al lado de la otra:
+En git no hay listas. `sounds.toml` (qué sonidos hay, con su hash), `presets.toml`, `meditations.toml` (las meditaciones y su categoría) y `routines.toml` viven en Drive, en la carpeta `library` del remote, y en la carpeta `library` local (por defecto `~/.local/share/focus-ambience/library`). Los `.opus` también van a Drive: los sonidos en `sounds/` y las meditaciones en `meditations/`, una al lado de la otra. La app no trae sonidos ni presets de fábrica: arranca vacía hasta el primer `focus sync`, y un archivo que falta se trata como lista vacía (se crea al guardar algo). En cada sync gana la copia más nueva de cada lista.
 
 ```sh
 rclone config               # una vez: crear un remote "gdrive" de tipo Google Drive
-focus sync                  # baja lo que falte y sube lo nuevo (.opus, rutinas y manifiesto de meditaciones)
+focus sync                  # baja lo que falte y sube lo nuevo (.opus y las 4 listas)
 ```
 
 El destino se cambia en `~/.config/focus-ambience/config.toml`:
@@ -89,5 +89,5 @@ El destino se cambia en `~/.config/focus-ambience/config.toml`:
 remote = "gdrive:focus-ambience/sounds"
 # meditations_remote = "gdrive:focus-ambience/meditations"   # por defecto, junto a `remote`
 bitrate = 160               # kbps de los .opus nuevos
-# library = "/otra/ruta"    # por defecto, library/ de este repo
+# library = "/otra/ruta"    # por defecto, ~/.local/share/focus-ambience/library
 ```

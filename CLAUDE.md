@@ -22,9 +22,9 @@ Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido
   - El daemon se cierra solo tras ~60 s sin clientes y sin nada sonando.
 - Temporizador simple (no pomodoro): al terminar, fade-out + notificación de escritorio, **sin sonido**.
 - Agregar sonidos: `focus add <url>` y también desde la TUI.
-- Versionado: el manifest (`library/sounds.toml`) y los presets (`library/presets.toml`) van en git; los `.opus` (`library/sounds/`, gitignored) se sincronizan con Google Drive vía rclone (`focus sync`, que también sube/baja `routines.toml` y `meditations.toml` a la carpeta `library` del remote, gana el más nuevo). Repo GitHub **privado** (el audio tiene copyright).
+- Versionado: en git no hay ninguna lista. `sounds.toml`, `presets.toml`, `meditations.toml` y `routines.toml` (`library/*.toml`, gitignored) viven solo en Drive y en la carpeta de datos local (`~/.local/share/focus-ambience/library`, o `FOCUS_LIBRARY` / `library` de config.toml); `focus sync` los sube/baja a la carpeta `library` del remote (gana el más nuevo, `--update`). Los `.opus` también van por Drive. La app arranca vacía y sin presets de fábrica hasta el primer sync; un `.toml` que falta es lista vacía en memoria y se crea recién al guardar algo (nunca crear archivos vacíos al arrancar: el sync podría pisar con ellos). Repo GitHub **privado** (el audio tiene copyright).
 - Diseño v2 (cerrado): `docs/diseno/v2-estructura-y-rutina.md` manda. La TUI abre en un menú de inicio (Continuar, Elegir otra rutina, Ir a Focus, Configuración); `Esc` vuelve un paso; al salir de Focus se vuelve al menú. Etapas 1 y 2 hechas: meditaciones y rutinas. Faltan sonidos ambientales y presets en Configuración, y la ventanita de tiempo/preset al entrar a Focus (hoy, al terminar una rutina se entra a Focus directo; hay un `TODO(etapa 3)` en `finish_run`).
-- Meditaciones: biblioteca aparte de los sonidos (`library/meditations.toml` en git, `library/meditations/*.opus` gitignored, sync en `.../meditations` del remote). Categoría de duración fija elegida a mano (5, 10, 15, 20, 25, 30, 40, 60). Se bajan enteras (sin crossfade ni recorte) y suenan una vez, sin loop.
+- Meditaciones: biblioteca aparte de los sonidos (`library/meditations.toml` y `library/meditations/*.opus`, ambos gitignored y por Drive, sync en `.../meditations` del remote). Categoría de duración fija elegida a mano (5, 10, 15, 20, 25, 30, 40, 60). Se bajan enteras (sin crossfade ni recorte) y suenan una vez, sin loop.
 - El usuario pidió que le pregunten las decisiones con opciones, salvo la selección de videos (elegir directo, él revisa después).
 
 ## Arquitectura
@@ -32,9 +32,9 @@ Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido
 ```
 src/
   main.rs        CLI (dispatch de subcomandos)
-  paths.rs       rutas: library, socket, estado, log; config opcional
+  paths.rs       rutas: library (carpeta de datos local), socket, estado, log; config opcional
   library.rs     manifest de sonidos, presets, fuentes generadas
-  routine.rs     rutinas (`library/routines.toml`, en git) y última rutina usada (`ui.toml` en el estado local)
+  routine.rs     rutinas (`library/routines.toml`, por Drive) y última rutina usada (`ui.toml` en el estado local)
   meditation.rs  manifest de meditaciones, categorías, agrupado, elección al azar (pick_random)
   protocol.rs    mensajes JSON-lines cliente <-> daemon
   client.rs      conectar al daemon (lanzándolo si no existe)
