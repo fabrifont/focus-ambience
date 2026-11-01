@@ -175,9 +175,20 @@ pub fn ensure_rclone() -> Result<()> {
     Ok(())
 }
 
+/// Every rclone remote `focus sync` talks to (sounds, meditations and library), once each.
 pub fn ensure_remote() -> Result<()> {
-    let remote = paths::config().remote.unwrap_or_else(|| paths::DEFAULT_REMOTE.to_string());
-    let Some(name) = remote_name(&remote) else { return Ok(()) };
+    let mut names: Vec<String> = Vec::new();
+    for remote in [crate::sync::remote(), crate::sync::meditations_remote(), crate::sync::data_remote()] {
+        if let Some(name) = remote_name(&remote)
+            && !names.iter().any(|n| n == name)
+        {
+            names.push(name.to_string());
+        }
+    }
+    names.iter().try_for_each(|name| ensure_one_remote(name))
+}
+
+fn ensure_one_remote(name: &str) -> Result<()> {
     let out = Command::new(paths::tool("rclone")).arg("listremotes").output().context("no se pudo ejecutar rclone")?;
     if !out.status.success() {
         bail!("rclone listremotes falló: {}", String::from_utf8_lossy(&out.stderr).trim());
