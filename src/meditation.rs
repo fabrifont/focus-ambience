@@ -166,8 +166,6 @@ pub fn display_order(items: &[Meditation]) -> Vec<&Meditation> {
 
 /// Elige una meditación al azar puro (puede repetirse) de la categoría. Solo cuentan las que
 /// ya están en esta compu. `None` si la categoría no tiene ninguna.
-// La usa la rutina (etapa siguiente); por ahora solo la ejercitan los tests.
-#[allow(dead_code)]
 pub fn pick_random<'a>(items: &'a [Meditation], category: Category, rng: &mut fastrand::Rng) -> Option<&'a Meditation> {
     let candidates: Vec<&Meditation> = items.iter().filter(|m| m.category == category && m.available).collect();
     if candidates.is_empty() {

@@ -6,6 +6,7 @@ mod library;
 mod meditation;
 mod paths;
 mod protocol;
+mod routine;
 mod sync;
 mod tui;
 
