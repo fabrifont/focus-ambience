@@ -95,8 +95,6 @@ pub struct Run {
     /// Las tareas y, al final, la meditación.
     pub steps: Vec<Step>,
     pub marks: Vec<Mark>,
-    /// Pasos marcados, en orden, para `u`.
-    pub history: Vec<usize>,
     pub cursor: usize,
     pub picks: Vec<Option<Pick>>,
     pub chooser: Option<Chooser>,
@@ -500,7 +498,6 @@ impl App {
         self.last_dirty = true;
         self.run = Some(Run {
             marks: vec![Mark::Pending; steps.len()],
-            history: Vec::new(),
             cursor: 0,
             picks,
             chooser: None,
@@ -533,9 +530,8 @@ impl App {
         match k.code {
             KeyCode::Up | KeyCode::Char('k') => run.cursor = run.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => run.cursor = (run.cursor + 1).min(n - 1),
-            KeyCode::Char(' ') => self.mark(Mark::Done),
+            KeyCode::Char(' ') => self.toggle_mark(),
             KeyCode::Char('s') => self.mark(Mark::Skipped),
-            KeyCode::Char('u') => self.undo_mark(),
             KeyCode::Char('q') => self.request_quit(),
             KeyCode::Enter => self.run_enter(),
             KeyCode::Esc => {
@@ -546,15 +542,24 @@ impl App {
         }
     }
 
+    /// Espacio: marca hecho un paso pendiente; en uno ya marcado (hecho o salteado) lo vuelve a pendiente.
+    fn toggle_mark(&mut self) {
+        let Some(run) = self.run.as_mut() else { return };
+        if run.marks[run.cursor] == Mark::Pending {
+            self.mark(Mark::Done);
+        } else {
+            run.marks[run.cursor] = Mark::Pending;
+        }
+    }
+
     fn mark(&mut self, mark: Mark) {
         let Some(run) = self.run.as_mut() else { return };
         let i = run.cursor;
         if run.marks[i] != Mark::Pending {
-            self.notify("ese paso ya está marcado: u deshace la última marca");
+            self.notify("ese paso ya está marcado: espacio lo desmarca");
             return;
         }
         run.marks[i] = mark;
-        run.history.push(i);
         let skip_playing = mark == Mark::Skipped && run.playing_step == Some(i);
         if skip_playing {
             run.playing_step = None;
@@ -566,17 +571,6 @@ impl App {
         } else if let Some(next) = (i + 1..run.marks.len()).find(|&j| run.marks[j] == Mark::Pending) {
             // Cómodo para ir marcando en orden; se puede volver a cualquier paso con ↑↓.
             run.cursor = next;
-        }
-    }
-
-    fn undo_mark(&mut self) {
-        let Some(run) = self.run.as_mut() else { return };
-        match run.history.pop() {
-            Some(i) => {
-                run.marks[i] = Mark::Pending;
-                run.cursor = i;
-            }
-            None => self.notify("no hay nada para deshacer"),
         }
     }
 

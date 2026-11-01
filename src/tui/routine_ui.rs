@@ -200,9 +200,8 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
     View {
         lines,
         hints: &[
-            ("␣", " hecho  "),
+            ("␣", " marca/desmarca  "),
             ("s", " saltear  "),
-            ("u", " deshacer  "),
             ("Enter", " play/pausa  "),
             ("↑↓", " mover  "),
             ("Esc", " menú"),

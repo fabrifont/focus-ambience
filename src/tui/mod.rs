@@ -1379,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_go_in_any_order_count_and_undo_without_asking() {
+    fn marks_go_in_any_order_and_count() {
         let mut app = app_with_routines();
         press(&mut app, "1");
         assert!(screen_text(&app, 80, 24).contains("0 de 4 listos"));
@@ -1390,23 +1390,47 @@ mod tests {
         press(&mut app, "s"); // saltea el 2
         let t = screen_text(&app, 80, 24);
         assert!(t.contains("2 de 4 listos") && t.contains("salteado"), "{t}");
-        press(&mut app, "u");
-        assert!(screen_text(&app, 80, 24).contains("1 de 4 listos"));
-        assert_eq!(app.run.as_ref().unwrap().cursor, 1, "u vuelve al paso deshecho");
-        press(&mut app, "uu");
-        assert!(app.notice.as_ref().unwrap().0.contains("nada para deshacer"));
-        assert!(screen_text(&app, 80, 24).contains("0 de 4 listos"));
         assert!(app.popup.is_none() && app.med_popup.is_none());
     }
 
     #[test]
-    fn a_marked_step_is_not_marked_twice() {
+    fn space_unmarks_done_and_skipped_steps_and_keeps_the_cursor() {
+        let mut app = app_with_routines();
+        press(&mut app, "1 s"); // 0 hecho, 1 salteado; el cursor queda en el 2
+        assert_eq!(app.run.as_ref().unwrap().done_count(), 2);
+        app.key(key(Up)); // sobre el salteado
+        press(&mut app, " ");
+        let run = app.run.as_ref().unwrap();
+        assert_eq!(run.marks[1], routines::Mark::Pending);
+        assert_eq!(run.cursor, 1, "desmarcar no avanza");
+        app.key(key(Up)); // sobre el hecho
+        press(&mut app, " ");
+        let run = app.run.as_ref().unwrap();
+        assert_eq!(run.marks[0], routines::Mark::Pending);
+        assert_eq!(run.cursor, 0);
+        assert!(screen_text(&app, 80, 24).contains("0 de 4 listos"));
+    }
+
+    #[test]
+    fn u_does_nothing_in_a_running_routine() {
+        let mut app = app_with_routines();
+        press(&mut app, "1 u");
+        assert_eq!(app.run.as_ref().unwrap().done_count(), 1);
+        assert!(app.notice.is_none());
+        assert!(!screen_text(&app, 80, 24).contains("deshac"));
+    }
+
+    #[test]
+    fn skip_on_a_marked_step_only_points_to_space() {
         let mut app = app_with_routines();
         press(&mut app, "1 ");
         app.key(key(Up));
         press(&mut app, "s");
-        assert_eq!(app.run.as_ref().unwrap().done_count(), 1);
-        assert!(app.notice.is_some());
+        let run = app.run.as_ref().unwrap();
+        assert_eq!(run.done_count(), 1);
+        assert_eq!(run.marks[0], routines::Mark::Done);
+        let n = &app.notice.as_ref().unwrap().0;
+        assert!(n.contains("espacio") && !n.contains("u "), "{n}");
     }
 
     #[test]
