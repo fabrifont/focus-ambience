@@ -62,15 +62,25 @@ fn editor_view(app: &App, pal: &Palette, width: usize) -> View {
     let name = if ed.routine.name.is_empty() { "(sin nombre)" } else { ed.routine.name.as_str() };
     let mut lines = vec![title(&format!("Editar · {}", trunc(name, width.saturating_sub(12))), pal), Line::raw("")];
     let mut selected = lines.len();
-    for (i, s) in ed.routine.steps.iter().enumerate() {
+    for (i, t) in ed.routine.tasks.iter().enumerate() {
         if i == ed.cursor {
             selected = lines.len();
         }
-        lines.push(row(i == ed.cursor, format!("{}  ", i + 1), &trunc(&s.label(), width.saturating_sub(10)), pal));
+        lines.push(row(i == ed.cursor, format!("{}  ", i + 1), &trunc(t, width.saturating_sub(10)), pal));
     }
-    if ed.routine.steps.is_empty() {
-        lines.push(Line::styled("Sin pasos todavía. Apretá a para agregar uno.", dim));
+    if ed.routine.tasks.is_empty() {
+        lines.push(Line::styled("Sin tareas todavía. Apretá a para agregar una.", dim));
     }
+    // La meditación no es un paso de la lista: es un ajuste aparte, siempre al final.
+    lines.push(Line::raw(""));
+    let med = match ed.routine.meditation {
+        None => "Meditación · no".to_string(),
+        Some(m) => routine::meditation_label(m.minutes),
+    };
+    if ed.cursor >= ed.routine.tasks.len() {
+        selected = lines.len();
+    }
+    lines.push(row(ed.cursor >= ed.routine.tasks.len(), String::new(), &med, pal));
     if ed.dirty() {
         lines.push(Line::raw(""));
         lines.push(Line::styled("cambios sin guardar", dim));
@@ -78,7 +88,7 @@ fn editor_view(app: &App, pal: &Palette, width: usize) -> View {
     View {
         lines,
         hints: &[
-            ("a", " agregar  "),
+            ("a", " tarea  "),
             ("Enter", " editar  "),
             ("K/J", " mover  "),
             ("d", " borrar  "),
@@ -94,24 +104,35 @@ fn step_view(app: &App, pal: &Palette) -> View {
     let dim = Style::new().fg(pal.dim.c());
     let acc = Style::new().fg(pal.accent.c());
     let fg = Style::new().fg(pal.fg.c());
-    let mut lines = vec![title("Paso · Meditación", pal), Line::raw("")];
+    let mut lines = vec![title("Meditación de la rutina", pal), Line::raw("")];
     if let Some(d) = app.editor.as_ref().and_then(|e| e.step.as_ref()) {
         let pick = |on: bool| if on { acc.add_modifier(Modifier::BOLD) } else { dim };
         let mark = |field: usize| Span::styled(if d.field == field { "> " } else { "  " }, acc);
+        let cursor = |on: bool| Span::styled(if on { "> " } else { "  " }, acc);
         lines.push(Line::from(vec![
             mark(0),
-            Span::styled("Modo:      ", dim),
-            Span::styled(if d.free { "  " } else { "> " }, acc),
-            Span::styled("Duración fija     ", pick(!d.free)),
-            Span::styled(if d.free { "> " } else { "  " }, acc),
-            Span::styled("Duración libre", pick(d.free)),
+            Span::styled("Meditación: ", dim),
+            cursor(d.enabled),
+            Span::styled("Sí     ", pick(d.enabled)),
+            cursor(!d.enabled),
+            Span::styled("No", pick(!d.enabled)),
         ]));
-        let dur = if d.free {
-            Span::styled("se elige en el momento", dim)
-        } else {
-            Span::styled(Category::ALL[d.cat].label(), fg)
-        };
-        lines.push(Line::from(vec![mark(1), Span::styled("Duración:  ", dim), Span::raw("  "), dur]));
+        if d.enabled {
+            lines.push(Line::from(vec![
+                mark(1),
+                Span::styled("Modo:       ", dim),
+                cursor(!d.free),
+                Span::styled("Duración fija     ", pick(!d.free)),
+                cursor(d.free),
+                Span::styled("Duración libre", pick(d.free)),
+            ]));
+            let dur = if d.free {
+                Span::styled("se elige en el momento", dim)
+            } else {
+                Span::styled(Category::ALL[d.cat].label(), fg)
+            };
+            lines.push(Line::from(vec![mark(2), Span::styled("Duración:   ", dim), Span::raw("  "), dur]));
+        }
     }
     View {
         lines,
@@ -142,7 +163,7 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
         Line::raw(""),
     ];
     let mut selected = lines.len();
-    for (i, step) in run.routine.steps.iter().enumerate() {
+    for (i, step) in run.steps.iter().enumerate() {
         let sel = i == run.cursor;
         if sel {
             selected = lines.len();
@@ -201,7 +222,7 @@ fn step_text(run: &Run, i: usize, step: &Step) -> String {
 fn step_extra(app: &App, run: &Run, i: usize, pal: &Palette) -> Vec<Line<'static>> {
     let dim = Style::new().fg(pal.dim.c());
     let acc = Style::new().fg(pal.accent.c());
-    let Step::Meditation { minutes } = &run.routine.steps[i] else { return vec![] };
+    let Step::Meditation { minutes } = &run.steps[i] else { return vec![] };
     let indent = "       ";
     match (&run.picks[i], minutes) {
         (Some(p), _) => {
@@ -289,27 +310,15 @@ pub fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
             l.push(keys(&[("Enter", "listo"), ("Esc", "cancelar")]));
             (" tarea ", l)
         }
-        EdPopup::Kind { sel } => {
-            let mut l = vec![Line::raw(""), Line::styled("  ¿Qué paso querés agregar?", dim), Line::raw("")];
-            for (i, label) in ["Tarea", "Meditación"].iter().enumerate() {
-                l.push(Line::from(vec![
-                    Span::styled(if i == *sel { "  > " } else { "    " }, acc),
-                    Span::styled(*label, if i == *sel { fg.add_modifier(Modifier::BOLD) } else { dim }),
-                ]));
-            }
-            l.push(Line::raw(""));
-            l.push(keys(&[("↑↓", "mover"), ("Enter", "elegir"), ("Esc", "cancelar")]));
-            (" agregar paso ", l)
-        }
         EdPopup::DeleteStep { at } => {
-            let label = routine.steps.get(*at).map(Step::label).unwrap_or_default();
+            let label = routine.tasks.get(*at).cloned().unwrap_or_default();
             let l = vec![
                 Line::raw(""),
-                Line::styled(format!("  ¿Borrar el paso «{}»?", trunc(&label, 30)), fg),
+                Line::styled(format!("  ¿Borrar la tarea «{}»?", trunc(&label, 30)), fg),
                 Line::raw(""),
                 keys(&[("s", "sí, borrar"), ("Esc", "no")]),
             ];
-            (" borrar paso ", l)
+            (" borrar tarea ", l)
         }
         EdPopup::Unsaved => {
             let l = vec![

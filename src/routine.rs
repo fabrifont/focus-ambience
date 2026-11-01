@@ -1,4 +1,4 @@
-//! Rutinas: una lista ordenada de pasos (tareas de texto o meditaciones). Viven en
+//! Rutinas: una lista ordenada de tareas de texto y, aparte, una meditación opcional. Viven en
 //! `library/routines.toml` (en git, igual que los presets); la última usada se recuerda aparte,
 //! en el estado local de la TUI.
 
@@ -11,26 +11,20 @@ use crate::library::write_atomic;
 use crate::meditation::Category;
 use crate::paths;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+/// Un paso de la rutina en curso: las tareas, y al final la meditación si la rutina tiene.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Step {
     /// Un texto, como "Preparar mate".
     Task { text: String },
     /// `minutes` fijo, o `None` para elegir la duración en el momento.
-    Meditation {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        minutes: Option<Category>,
-    },
+    Meditation { minutes: Option<Category> },
 }
 
-impl Step {
-    /// Cómo se ve el paso en el editor: "Preparar mate", "Meditación · 10 min fija".
-    pub fn label(&self) -> String {
-        match self {
-            Step::Task { text } => text.clone(),
-            Step::Meditation { minutes: Some(c) } => format!("Meditación · {} fija", short(*c)),
-            Step::Meditation { minutes: None } => "Meditación · duración libre".to_string(),
-        }
+/// "Meditación · 10 min fija" o "Meditación · duración libre".
+pub fn meditation_label(minutes: Option<Category>) -> String {
+    match minutes {
+        Some(c) => format!("Meditación · {} fija", short(c)),
+        None => "Meditación · duración libre".to_string(),
     }
 }
 
@@ -42,26 +36,83 @@ pub fn short(c: Category) -> String {
     }
 }
 
+/// La meditación de una rutina (como mucho una): `minutes` fijo, o `None` para elegir al hacerla.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct MeditationSetting {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<Category>,
+}
+
+/// Cómo se escribe un paso en el archivo. Las meditaciones como paso son del formato viejo: al
+/// leer, la primera pasa a ser el ajuste de la rutina y las demás se descartan.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum FileStep {
+    Task {
+        text: String,
+    },
+    Meditation {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minutes: Option<Category>,
+    },
+}
+
+#[derive(Serialize, Deserialize)]
+struct FileRoutine {
+    name: String,
+    #[serde(default, rename = "step")]
+    steps: Vec<FileStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    meditation: Option<MeditationSetting>,
+}
+
+impl From<FileRoutine> for Routine {
+    fn from(f: FileRoutine) -> Routine {
+        let mut meditation = f.meditation;
+        let mut tasks = Vec::new();
+        for step in f.steps {
+            match step {
+                FileStep::Task { text } => tasks.push(text),
+                FileStep::Meditation { minutes } => {
+                    meditation.get_or_insert(MeditationSetting { minutes });
+                }
+            }
+        }
+        Routine { name: f.name, tasks, meditation }
+    }
+}
+
+impl From<Routine> for FileRoutine {
+    fn from(r: Routine) -> FileRoutine {
+        let steps = r.tasks.into_iter().map(|text| FileStep::Task { text }).collect();
+        FileRoutine { name: r.name, steps, meditation: r.meditation }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "FileRoutine", into = "FileRoutine")]
 pub struct Routine {
     pub name: String,
-    #[serde(default, rename = "step")]
-    pub steps: Vec<Step>,
+    /// Las tareas, en orden.
+    pub tasks: Vec<String>,
+    /// Ajuste aparte de las tareas: como mucho una meditación por rutina.
+    pub meditation: Option<MeditationSetting>,
 }
 
 impl Routine {
-    pub fn meditations(&self) -> usize {
-        self.steps.iter().filter(|s| matches!(s, Step::Meditation { .. })).count()
+    /// Los pasos de la rutina en curso: las tareas y, al final, la meditación.
+    pub fn run_steps(&self) -> Vec<Step> {
+        let tasks = self.tasks.iter().map(|text| Step::Task { text: text.clone() });
+        let meditation = self.meditation.map(|m| Step::Meditation { minutes: m.minutes });
+        tasks.chain(meditation).collect()
     }
 
     /// "4 pasos · 1 meditación" para la lista.
     pub fn summary(&self) -> String {
-        let n = self.steps.len();
+        let n = self.tasks.len() + usize::from(self.meditation.is_some());
         let mut s = format!("{n} {}", if n == 1 { "paso" } else { "pasos" });
-        match self.meditations() {
-            0 => {}
-            1 => s.push_str(" · 1 meditación"),
-            m => s.push_str(&format!(" · {m} meditaciones")),
+        if self.meditation.is_some() {
+            s.push_str(" · 1 meditación");
         }
         s
     }
@@ -73,8 +124,9 @@ pub struct Routines {
     pub routines: Vec<Routine>,
 }
 
-const HEADER: &str = "# Rutinas. Cada paso es una tarea (`text`) o una meditación (`minutes` = la categoría:\n\
-# 5, 10, 15, 20, 25, 30, 40 o 60; sin `minutes` la duración se elige en el momento).\n\
+const HEADER: &str = "# Rutinas. Cada paso es una tarea (`text`). La meditación es un ajuste aparte, como mucho una\n\
+# por rutina: `[routine.meditation]` con `minutes` = la categoría (5, 10, 15, 20, 25, 30, 40 o 60);\n\
+# sin `minutes` la duración se elige en el momento. Sin ese bloque, la rutina no tiene meditación.\n\
 # Este archivo va en git.\n\n";
 
 fn path() -> PathBuf {
@@ -141,11 +193,8 @@ mod tests {
         Routines {
             routines: vec![Routine {
                 name: "Mañana de estudio".into(),
-                steps: vec![
-                    Step::Task { text: "Preparar mate".into() },
-                    Step::Meditation { minutes: Some(cat(10)) },
-                    Step::Meditation { minutes: None },
-                ],
+                tasks: vec!["Preparar mate".into(), "Abrir el material".into()],
+                meditation: Some(MeditationSetting { minutes: Some(cat(10)) }),
             }],
         }
     }
@@ -153,29 +202,61 @@ mod tests {
     #[test]
     fn roundtrips_through_toml() {
         let text = render(&sample()).unwrap();
-        assert!(text.contains("kind = \"meditation\""), "{text}");
+        assert!(text.contains("[routine.meditation]") && text.contains("minutes = 10"), "{text}");
         let back = parse(&text).unwrap();
         assert_eq!(back.routines, sample().routines);
     }
 
     #[test]
-    fn free_meditation_has_no_minutes_in_the_file() {
-        let text = render(&sample()).unwrap();
-        assert_eq!(text.matches("minutes = ").count(), 1, "{text}");
+    fn free_meditation_is_an_empty_block_and_no_meditation_is_no_block() {
+        let mut r = sample();
+        r.routines[0].meditation = Some(MeditationSetting { minutes: None });
+        let text = render(&r).unwrap();
+        let body = text.strip_prefix(HEADER).unwrap();
+        assert!(body.contains("[routine.meditation]") && !body.contains("minutes = "), "{body}");
+        assert_eq!(parse(&text).unwrap().routines, r.routines);
+        r.routines[0].meditation = None;
+        let text = render(&r).unwrap();
+        let body = text.strip_prefix(HEADER).unwrap();
+        assert!(!body.contains("meditation"), "{body}");
+        assert_eq!(parse(&text).unwrap().routines, r.routines);
     }
 
     #[test]
     fn parses_a_hand_written_file() {
         let r = parse(
             "[[routine]]\nname = \"A\"\n[[routine.step]]\nkind = \"task\"\ntext = \"x\"\n\
-             [[routine.step]]\nkind = \"meditation\"\nminutes = 25\n",
+             [routine.meditation]\nminutes = 25\n",
         )
         .unwrap();
-        assert_eq!(r.routines[0].steps[1], Step::Meditation { minutes: Some(cat(25)) });
+        assert_eq!(r.routines[0].tasks, vec!["x"]);
+        assert_eq!(r.routines[0].meditation, Some(MeditationSetting { minutes: Some(cat(25)) }));
+    }
+
+    #[test]
+    fn old_meditation_steps_migrate_first_wins_and_the_rest_are_dropped() {
+        let r = parse(
+            "[[routine]]\nname = \"A\"\n\
+             [[routine.step]]\nkind = \"task\"\ntext = \"x\"\n\
+             [[routine.step]]\nkind = \"meditation\"\nminutes = 20\n\
+             [[routine.step]]\nkind = \"task\"\ntext = \"y\"\n\
+             [[routine.step]]\nkind = \"meditation\"\n\
+             [[routine]]\nname = \"B\"\n[[routine.step]]\nkind = \"meditation\"\n",
+        )
+        .unwrap();
+        assert_eq!(r.routines[0].tasks, vec!["x", "y"]);
+        assert_eq!(r.routines[0].meditation, Some(MeditationSetting { minutes: Some(cat(20)) }));
+        assert_eq!(r.routines[1].meditation, Some(MeditationSetting { minutes: None }));
+        assert!(r.routines[1].tasks.is_empty());
+        // Al guardar queda en el formato nuevo.
+        let text = render(&r).unwrap();
+        assert_eq!(text.matches("kind = \"meditation\"").count(), 0, "{text}");
+        assert_eq!(parse(&text).unwrap().routines, r.routines);
     }
 
     #[test]
     fn rejects_a_category_that_does_not_exist() {
+        assert!(parse("[[routine]]\nname = \"A\"\n[routine.meditation]\nminutes = 7\n").is_err());
         assert!(parse("[[routine]]\nname = \"A\"\n[[routine.step]]\nkind = \"meditation\"\nminutes = 7\n").is_err());
     }
 
@@ -185,20 +266,28 @@ mod tests {
     }
 
     #[test]
-    fn summary_counts_steps_and_meditations() {
+    fn run_steps_put_the_meditation_last() {
+        let steps = sample().routines[0].run_steps();
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0], Step::Task { text: "Preparar mate".into() });
+        assert_eq!(steps[2], Step::Meditation { minutes: Some(cat(10)) });
+    }
+
+    #[test]
+    fn summary_counts_steps_and_meditation() {
         let r = &sample().routines[0];
-        assert_eq!(r.summary(), "3 pasos · 2 meditaciones");
-        let one = Routine { name: "x".into(), steps: vec![Step::Meditation { minutes: None }] };
+        assert_eq!(r.summary(), "3 pasos · 1 meditación");
+        let one = Routine { name: "x".into(), tasks: vec![], meditation: Some(MeditationSetting::default()) };
         assert_eq!(one.summary(), "1 paso · 1 meditación");
-        let none = Routine { name: "x".into(), steps: vec![Step::Task { text: "a".into() }] };
+        let none = Routine { name: "x".into(), tasks: vec!["a".into()], meditation: None };
         assert_eq!(none.summary(), "1 paso");
     }
 
     #[test]
     fn labels_match_the_editor_sketch() {
-        assert_eq!(Step::Meditation { minutes: Some(cat(10)) }.label(), "Meditación · 10 min fija");
-        assert_eq!(Step::Meditation { minutes: Some(cat(60)) }.label(), "Meditación · 1 hora fija");
-        assert_eq!(Step::Meditation { minutes: None }.label(), "Meditación · duración libre");
+        assert_eq!(meditation_label(Some(cat(10))), "Meditación · 10 min fija");
+        assert_eq!(meditation_label(Some(cat(60))), "Meditación · 1 hora fija");
+        assert_eq!(meditation_label(None), "Meditación · duración libre");
     }
 
     #[test]

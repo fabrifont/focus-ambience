@@ -7,11 +7,11 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use super::app::{App, Screen};
 use crate::meditation::{self, Category};
 use crate::protocol::Command;
-use crate::routine::{self, Routine, Step};
+use crate::routine::{self, MeditationSetting, Routine, Step};
 
 /// Largo máximo de un nombre o de una tarea.
 const MAX_TEXT: usize = 80;
-/// Categoría con la que arranca un paso de meditación nuevo.
+/// Categoría con la que arranca una meditación recién activada.
 const DEFAULT_CATEGORY: usize = 1; // 10 minutos
 
 // ---------------------------------------------------------------- lista
@@ -28,10 +28,7 @@ pub enum EdPopup {
         text: String,
         new: bool,
     },
-    Kind {
-        sel: usize,
-    },
-    /// `at`: paso que se está editando (`None` = paso nuevo).
+    /// `at`: tarea que se está editando (`None` = tarea nueva).
     Task {
         text: String,
         at: Option<usize>,
@@ -43,13 +40,14 @@ pub enum EdPopup {
     Unsaved,
 }
 
-/// El paso de meditación que se está armando en su pantalla.
-pub struct StepDraft {
-    pub at: Option<usize>,
+/// El ajuste de meditación que se está armando en su pantalla.
+pub struct MeditationDraft {
+    /// ¿La rutina tiene meditación?
+    pub enabled: bool,
     pub free: bool,
     /// Índice en `Category::ALL`.
     pub cat: usize,
-    /// 0 = modo, 1 = duración.
+    /// 0 = meditación sí/no, 1 = modo, 2 = duración.
     pub field: usize,
 }
 
@@ -60,7 +58,7 @@ pub struct Editor {
     pub routine: Routine,
     pub cursor: usize,
     pub popup: Option<EdPopup>,
-    pub step: Option<StepDraft>,
+    pub step: Option<MeditationDraft>,
 }
 
 impl Editor {
@@ -94,6 +92,8 @@ pub struct Chooser {
 
 pub struct Run {
     pub routine: Routine,
+    /// Las tareas y, al final, la meditación.
+    pub steps: Vec<Step>,
     pub marks: Vec<Mark>,
     /// Pasos marcados, en orden, para `u`.
     pub history: Vec<usize>,
@@ -228,7 +228,7 @@ impl App {
         if !self.routines_writable() {
             return;
         }
-        let empty = Routine { name: String::new(), steps: Vec::new() };
+        let empty = Routine { name: String::new(), tasks: Vec::new(), meditation: None };
         self.open_editor(None, empty, Some(EdPopup::Name { text: String::new(), new: true }));
     }
 
@@ -249,39 +249,42 @@ impl App {
         if ed.popup.is_some() {
             return self.editor_popup_key(k);
         }
-        let n = ed.routine.steps.len();
+        // Las tareas y, después, la fila del ajuste de meditación.
+        let n = ed.routine.tasks.len();
+        let on_meditation = ed.cursor >= n;
         match k.code {
             KeyCode::Up | KeyCode::Char('k') => ed.cursor = ed.cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => ed.cursor = (ed.cursor + 1).min(n.saturating_sub(1)),
-            KeyCode::Char('a') => ed.popup = Some(EdPopup::Kind { sel: 0 }),
+            KeyCode::Down | KeyCode::Char('j') => ed.cursor = (ed.cursor + 1).min(n),
+            KeyCode::Char('a') => ed.popup = Some(EdPopup::Task { text: String::new(), at: None }),
             KeyCode::Char('r') => {
                 ed.popup = Some(EdPopup::Name { text: ed.routine.name.clone(), new: false });
             }
-            KeyCode::Enter if n > 0 => match &ed.routine.steps[ed.cursor] {
-                Step::Task { text } => {
-                    ed.popup = Some(EdPopup::Task { text: text.clone(), at: Some(ed.cursor) });
-                }
-                Step::Meditation { minutes } => {
-                    let cat = minutes.and_then(|c| Category::ALL.iter().position(|a| *a == c));
-                    let draft = StepDraft {
-                        at: Some(ed.cursor),
-                        free: minutes.is_none(),
-                        cat: cat.unwrap_or(DEFAULT_CATEGORY),
-                        field: 0,
-                    };
-                    ed.step = Some(draft);
-                    self.go(Screen::RoutineStep);
-                }
-            },
-            KeyCode::Char('K') if ed.cursor > 0 => {
-                ed.routine.steps.swap(ed.cursor, ed.cursor - 1);
+            KeyCode::Enter if on_meditation => {
+                let m = ed.routine.meditation;
+                let cat = m.and_then(|m| m.minutes).and_then(|c| Category::ALL.iter().position(|a| *a == c));
+                ed.step = Some(MeditationDraft {
+                    enabled: m.is_some(),
+                    free: m.is_some_and(|m| m.minutes.is_none()),
+                    cat: cat.unwrap_or(DEFAULT_CATEGORY),
+                    field: 0,
+                });
+                self.go(Screen::RoutineStep);
+            }
+            KeyCode::Enter => {
+                let text = ed.routine.tasks[ed.cursor].clone();
+                ed.popup = Some(EdPopup::Task { text, at: Some(ed.cursor) });
+            }
+            KeyCode::Char('K') if !on_meditation && ed.cursor > 0 => {
+                ed.routine.tasks.swap(ed.cursor, ed.cursor - 1);
                 ed.cursor -= 1;
             }
             KeyCode::Char('J') if ed.cursor + 1 < n => {
-                ed.routine.steps.swap(ed.cursor, ed.cursor + 1);
+                ed.routine.tasks.swap(ed.cursor, ed.cursor + 1);
                 ed.cursor += 1;
             }
-            KeyCode::Char('d') | KeyCode::Delete if n > 0 => ed.popup = Some(EdPopup::DeleteStep { at: ed.cursor }),
+            KeyCode::Char('d') | KeyCode::Delete if !on_meditation => {
+                ed.popup = Some(EdPopup::DeleteStep { at: ed.cursor });
+            }
             KeyCode::Char('g') => drop(self.save_editor()),
             KeyCode::Char('q') => self.request_quit(),
             KeyCode::Esc => {
@@ -301,8 +304,8 @@ impl App {
         let name = ed.routine.name.trim().to_string();
         let problem = if name.is_empty() {
             Some("la rutina necesita un nombre: apretá r")
-        } else if ed.routine.steps.is_empty() {
-            Some("agregá al menos un paso con a")
+        } else if ed.routine.tasks.is_empty() && ed.routine.meditation.is_none() {
+            Some("agregá al menos una tarea con a, o activá la meditación")
         } else if routine::name_taken(&self.routines, &name, ed.index) {
             Some("ya hay otra rutina con ese nombre: apretá r para cambiarlo")
         } else {
@@ -361,24 +364,16 @@ impl App {
                     Some(EdPopup::Name { text, new })
                 }
             },
-            EdPopup::Kind { sel } => match k.code {
-                KeyCode::Esc => None,
-                KeyCode::Up | KeyCode::Char('k') => Some(EdPopup::Kind { sel: 0 }),
-                KeyCode::Down | KeyCode::Char('j') => Some(EdPopup::Kind { sel: 1 }),
-                KeyCode::Char(c @ ('1' | '2')) => return self.add_step_of_kind(c == '2'),
-                KeyCode::Enter => return self.add_step_of_kind(sel == 1),
-                _ => Some(EdPopup::Kind { sel }),
-            },
             EdPopup::Task { mut text, at } => match k.code {
                 KeyCode::Esc => None,
                 KeyCode::Enter if text.trim().is_empty() => Some(EdPopup::Task { text, at }),
                 KeyCode::Enter => {
-                    let step = Step::Task { text: text.trim().to_string() };
+                    let task = text.trim().to_string();
                     match at {
-                        Some(i) => ed.routine.steps[i] = step,
+                        Some(i) => ed.routine.tasks[i] = task,
                         None => {
-                            ed.routine.steps.push(step);
-                            ed.cursor = ed.routine.steps.len() - 1;
+                            ed.routine.tasks.push(task);
+                            ed.cursor = ed.routine.tasks.len() - 1;
                         }
                     }
                     None
@@ -390,8 +385,8 @@ impl App {
             },
             EdPopup::DeleteStep { at } => match k.code {
                 KeyCode::Char('s' | 'y') | KeyCode::Enter => {
-                    ed.routine.steps.remove(at);
-                    ed.cursor = ed.cursor.min(ed.routine.steps.len().saturating_sub(1));
+                    ed.routine.tasks.remove(at);
+                    ed.cursor = ed.cursor.min(ed.routine.tasks.len());
                     None
                 }
                 KeyCode::Esc | KeyCode::Char('n') => None,
@@ -413,42 +408,29 @@ impl App {
         };
     }
 
-    fn add_step_of_kind(&mut self, meditation: bool) {
-        let Some(ed) = self.editor.as_mut() else { return };
-        if meditation {
-            ed.step = Some(StepDraft { at: None, free: false, cat: DEFAULT_CATEGORY, field: 0 });
-            self.go(Screen::RoutineStep);
-        } else {
-            ed.popup = Some(EdPopup::Task { text: String::new(), at: None });
-        }
-    }
-
-    // ------------------------------------------- paso de meditación
+    // ------------------------------------------- ajuste de meditación
 
     pub fn step_key(&mut self, k: KeyEvent) {
         let Some(ed) = self.editor.as_mut() else { return self.go(Screen::Routines) };
         let Some(d) = ed.step.as_mut() else { return self.go(Screen::RoutineEditor) };
         let n = Category::ALL.len();
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => d.field = 0,
-            KeyCode::Down | KeyCode::Char('j') => d.field = 1,
+            KeyCode::Up | KeyCode::Char('k') => d.field = d.field.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => d.field = (d.field + 1).min(2),
             KeyCode::Left | KeyCode::Char('h') | KeyCode::Right | KeyCode::Char('l') => {
                 let right = matches!(k.code, KeyCode::Right | KeyCode::Char('l'));
-                if d.field == 0 {
-                    d.free = !d.free;
-                } else if !d.free {
-                    d.cat = if right { (d.cat + 1).min(n - 1) } else { d.cat.saturating_sub(1) };
+                match d.field {
+                    0 => d.enabled = !d.enabled,
+                    1 if d.enabled => d.free = !d.free,
+                    2 if d.enabled && !d.free => {
+                        d.cat = if right { (d.cat + 1).min(n - 1) } else { d.cat.saturating_sub(1) };
+                    }
+                    _ => {}
                 }
             }
             KeyCode::Enter => {
-                let step = Step::Meditation { minutes: (!d.free).then(|| Category::ALL[d.cat]) };
-                match d.at {
-                    Some(i) => ed.routine.steps[i] = step,
-                    None => {
-                        ed.routine.steps.push(step);
-                        ed.cursor = ed.routine.steps.len() - 1;
-                    }
-                }
+                ed.routine.meditation =
+                    d.enabled.then(|| MeditationSetting { minutes: (!d.free).then(|| Category::ALL[d.cat]) });
                 ed.step = None;
                 self.go(Screen::RoutineEditor);
             }
@@ -482,12 +464,12 @@ impl App {
 
     pub fn start_run(&mut self, i: usize) {
         let Some(routine) = self.routines.get(i).cloned() else { return };
-        if routine.steps.is_empty() {
+        let steps = routine.run_steps();
+        if steps.is_empty() {
             self.notify("esa rutina no tiene pasos: editala con e");
             return;
         }
-        let picks: Vec<Option<Pick>> = routine
-            .steps
+        let picks: Vec<Option<Pick>> = steps
             .iter()
             .map(|s| match s {
                 Step::Meditation { minutes: Some(c) } => self.pick_for(*c),
@@ -505,13 +487,14 @@ impl App {
         self.last_routine = Some(routine.name.clone());
         self.last_dirty = true;
         self.run = Some(Run {
-            marks: vec![Mark::Pending; routine.steps.len()],
+            marks: vec![Mark::Pending; steps.len()],
             history: Vec::new(),
             cursor: 0,
             picks,
             chooser: None,
             playing_step: None,
             muted_ambient,
+            steps,
             routine,
         });
         self.go(Screen::RoutineRun);
@@ -596,7 +579,7 @@ impl App {
     fn run_enter(&mut self) {
         let Some(run) = self.run.as_mut() else { return };
         let i = run.cursor;
-        if !matches!(run.routine.steps[i], Step::Meditation { .. }) {
+        if !matches!(run.steps[i], Step::Meditation { .. }) {
             return;
         }
         match run.picks[i].clone() {
@@ -613,7 +596,7 @@ impl App {
 
     fn open_chooser(&mut self, step: usize) {
         let cats = self.available_categories();
-        let sel = match &self.run.as_ref().expect("in a run").routine.steps[step] {
+        let sel = match &self.run.as_ref().expect("in a run").steps[step] {
             Step::Meditation { minutes: Some(c) } => cats.iter().position(|a| a >= c).unwrap_or(0),
             _ => 0,
         };
