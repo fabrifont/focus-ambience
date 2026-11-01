@@ -78,8 +78,12 @@ pub fn run() -> Result<()> {
             let dt = (now - last).as_secs_f32().min(0.25);
             last = now;
             let size = terminal.size()?;
-            let [scene, _, _] =
-                ui::areas(ratatui::layout::Rect::new(0, 0, size.width, size.height), app.deep != app::Deep::Off);
+            let full = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+            let scene = if app.screen == app::Screen::Focus {
+                ui::areas(full, app.deep != app::Deep::Off)[0]
+            } else {
+                menu::band_area(full)
+            };
             app.animate(dt, scene.width, scene.height);
             terminal.draw(|f| ui::draw(f, &app))?;
 
@@ -559,7 +563,7 @@ mod tests {
         let mut app = app_with_sounds();
         open_sounds(&mut app);
         let t = screen_text(&app, 80, 24);
-        for s in ["Sonidos ambientales", "Templo Jedi", "Lluvia", "☁ Fuego", "agregar desde YouTube", "borrar"] {
+        for s in ["Templo Jedi", "Lluvia", "☁ Fuego", "agregar desde YouTube", "borrar"] {
             assert!(t.contains(s), "falta «{s}» en:\n{t}");
         }
         assert!(!t.contains("Ruido blanco") && !t.contains("Binaural"), "los generados no se listan:\n{t}");
@@ -669,7 +673,7 @@ mod tests {
         let mut app = app_with_sounds_and_presets();
         open_presets(&mut app);
         let t = screen_text(&app, 90, 24);
-        for s in ["Presets", "Templo Jedi", "Ruido marrón 30%", "Lluvia y fuego", "n nuevo", "d borrar"] {
+        for s in ["Templo Jedi", "Ruido marrón 30%", "Lluvia y fuego", "n nuevo", "d borrar"] {
             assert!(t.contains(s), "falta «{s}» en:\n{t}");
         }
         app.key(key(Esc));
@@ -713,7 +717,7 @@ mod tests {
         sent(&mut app);
         open_builder(&mut app);
         let t = screen_text(&app, 90, 30);
-        for s in ["Nuevo preset", "Templo Jedi", "Lluvia", "Ruido blanco", "Binaural", " 70%", "g guardar"] {
+        for s in ["Elegí los sonidos", "Templo Jedi", "Lluvia", "Ruido blanco", "Binaural", " 70%", "g guardar"] {
             assert!(t.contains(s), "falta «{s}» en:\n{t}");
         }
         assert!(sent(&mut app).iter().all(|c| matches!(c, Command::Watch { .. })), "no manda comandos de audio");
@@ -1023,10 +1027,10 @@ mod tests {
         app.screen = app::Screen::Meditations;
         let t = screen_text(&app, 80, 20);
         let pos = |s: &str| t.find(s).unwrap_or_else(|| panic!("falta «{s}» en:\n{t}"));
-        assert!(pos("5 minutos") < pos("Respiración 4-7-8"));
-        assert!(pos("Respiración 4-7-8") < pos("10 minutos"));
-        assert!(pos("10 minutos") < pos("Calma guiada"));
-        assert!(!t.contains("20 minutos"), "las categorías vacías no se muestran");
+        assert!(pos("5 MINUTOS") < pos("Respiración 4-7-8"));
+        assert!(pos("Respiración 4-7-8") < pos("10 MINUTOS"));
+        assert!(pos("10 MINUTOS") < pos("Calma guiada"));
+        assert!(!t.contains("20 MINUTOS"), "las categorías vacías no se muestran");
         assert!(t.contains("agregar desde YouTube"));
     }
 
@@ -1637,15 +1641,32 @@ mod tests {
     }
 
     #[test]
-    fn enter_does_nothing_in_a_running_routine() {
+    fn enter_on_a_task_step_toggles_the_mark() {
+        use crate::tui::routines::Mark;
         let mut app = app_with_routines();
         press(&mut app, "1");
         app.key(key(Enter));
-        assert_eq!(app.run.as_ref().unwrap().done_count(), 0);
-        app.run.as_mut().unwrap().cursor = 3;
+        assert_eq!(app.run.as_ref().unwrap().marks[0], Mark::Done);
+        app.key(key(Up));
         app.key(key(Enter));
-        assert!(sent(&mut app).is_empty());
-        assert!(app.run.as_ref().unwrap().chooser.is_none());
+        assert_eq!(app.run.as_ref().unwrap().marks[0], Mark::Pending);
+    }
+
+    #[test]
+    fn enter_on_the_meditation_step_starts_and_pauses_but_never_marks() {
+        let mut app = app_with_routines();
+        press(&mut app, "1jjj");
+        app.key(key(Enter));
+        let id = match sent(&mut app).pop() {
+            Some(Command::PlayMeditation { id }) => id,
+            other => panic!("salió {other:?}"),
+        };
+        assert_eq!(app.run.as_ref().unwrap().done_count(), 0);
+        app.state.meditation =
+            Some(crate::protocol::MeditationPlayback { id, position_secs: 10, total_secs: 600, paused: false });
+        app.key(key(Enter));
+        assert!(matches!(sent(&mut app).pop(), Some(Command::ToggleMeditation)));
+        assert_eq!(app.run.as_ref().unwrap().done_count(), 0);
     }
 
     #[test]
@@ -1868,6 +1889,27 @@ mod tests {
         press(&mut app, "r");
         assert_eq!(pause_cmds(&mut app), 1, "también en deep work");
         assert!(app.outbox.iter().all(|c| !matches!(c, Command::PauseAll | Command::StopAll)));
+    }
+
+    #[test]
+    fn zero_restarts_sounds_only_on_the_focus_main_view() {
+        let mut app = focus_app();
+        press(&mut app, "0");
+        assert!(matches!(sent(&mut app).as_slice(), [Command::RestartSounds]));
+        // En el menú de inicio no es de Focus.
+        app.key(key(ratatui::crossterm::event::KeyCode::Esc));
+        app.outbox.clear();
+        press(&mut app, "0");
+        assert!(app.outbox.iter().all(|c| !matches!(c, Command::RestartSounds)));
+    }
+
+    #[test]
+    fn zero_in_the_custom_minutes_popup_stays_a_digit() {
+        let mut app = focus_app();
+        app.popup = Some(app::Popup::Timer { sel: 0, custom: Some(String::new()) });
+        press(&mut app, "50");
+        assert!(matches!(&app.popup, Some(app::Popup::Timer { custom: Some(s), .. }) if s == "50"));
+        assert!(app.outbox.iter().all(|c| !matches!(c, Command::RestartSounds)));
     }
 
     #[test]
@@ -2142,5 +2184,440 @@ mod tests {
             Some(routines::EdPopup::Name { text, .. }) => assert!(text.is_empty()),
             _ => panic!("popup de nombre"),
         }
+    }
+
+    // ------------------------------------------------------- rediseño v3
+
+    /// Like `screen_text`, but with the star band animated for a while, as the real loop does.
+    fn v3_text(app: &mut App, w: u16, h: u16) -> String {
+        let band = menu::band_area(ratatui::layout::Rect::new(0, 0, w, h));
+        for _ in 0..60 {
+            app.animate(0.05, band.width, band.height);
+        }
+        screen_text(app, w, h)
+    }
+
+    /// The three rows of a title in block letters, as they must appear on screen.
+    fn title_rows(title: &str) -> Vec<String> {
+        let (w, glyphs) = font::render(title, 1);
+        (0..font::HEIGHT)
+            .map(|r| {
+                let mut row = vec![' '; w];
+                for (x, rows) in &glyphs {
+                    for (i, c) in rows[r].chars().enumerate() {
+                        row[x + i] = c;
+                    }
+                }
+                row.into_iter().collect::<String>().trim().to_string()
+            })
+            .collect()
+    }
+
+    fn has_block_title(t: &str, title: &str) -> bool {
+        let rows = title_rows(title);
+        let lines: Vec<&str> = t.lines().collect();
+        lines.windows(3).any(|w| w.iter().zip(&rows).all(|(l, r)| l.contains(r.as_str())))
+    }
+
+    const TITLES: [&str; 9] = [
+        "WORKHUB",
+        "CONFIGURACIÓN",
+        "RUTINAS",
+        "EDITAR",
+        "MEDITACIONES",
+        "SONIDOS",
+        "PRESETS",
+        "NUEVO PRESET",
+        "RUTINA",
+    ];
+
+    #[test]
+    fn every_title_renders_with_the_font() {
+        for title in TITLES {
+            for c in title.chars().filter(|c| *c != ' ') {
+                let g = font::glyph(c);
+                assert!(g.iter().any(|r| r.contains(['█', '▀', '▄'])), "falta la letra {c} de {title}");
+                assert!(g.iter().all(|r| r.chars().count() == g[0].chars().count()), "{c} desparejo");
+            }
+            let (w, _) = font::render(title, 1);
+            assert!(w <= 60, "{title} mide {w} columnas");
+        }
+    }
+
+    #[test]
+    fn each_screen_shows_its_title_in_block_letters() {
+        let mut shown: Vec<(&str, String)> = Vec::new();
+        let mut at = |title, mut app: App| shown.push((title, v3_text(&mut app, 100, 30)));
+        at("WORKHUB", app_with_routines());
+        let mut app = app_with_routines();
+        press(&mut app, "4");
+        at("CONFIGURACIÓN", app);
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        at("RUTINAS", app);
+        let mut app = app_with_routines();
+        press(&mut app, "2e");
+        at("EDITAR", app);
+        let mut app = app_with_routines();
+        press(&mut app, "2ejjj");
+        app.key(key(Enter));
+        assert_eq!(app.screen, app::Screen::RoutineStep);
+        at("EDITAR", app);
+        let mut app = app_with_meditations();
+        app.screen = app::Screen::Meditations;
+        at("MEDITACIONES", app);
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        at("SONIDOS", app);
+        let mut app = app_with_sounds_and_presets();
+        open_presets(&mut app);
+        at("PRESETS", app);
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        at("NUEVO PRESET", app);
+        let mut app = app_with_routines();
+        press(&mut app, "1");
+        at("RUTINA", app);
+        for (title, t) in shown {
+            assert!(has_block_title(&t, title), "falta el título {title} en:\n{t}");
+        }
+    }
+
+    #[test]
+    fn a_title_that_does_not_fit_is_plain_uppercase() {
+        // 20 columnas: CONFIGURACIÓN en letras de bloque mide 51.
+        let mut app = app_with_routines();
+        press(&mut app, "4");
+        let t = v3_text(&mut app, 24, 30);
+        assert!(t.contains("CONFIGURACIÓN") && !has_block_title(&t, "CONFIGURACIÓN"), "{t}");
+        // Y con el alto justo para el menú, el título grande cede el lugar a la lista.
+        let t = v3_text(&mut app_with_routines(), 60, 11);
+        assert!(t.contains("WORKHUB") && !has_block_title(&t, "WORKHUB"), "{t}");
+    }
+
+    #[test]
+    fn a_small_terminal_hides_the_band_but_keeps_the_block_title() {
+        let stars = |t: &str| t.chars().filter(|c| "·∙✦✧".contains(*c)).count();
+        let big = v3_text(&mut app_with_routines(), 100, 30);
+        assert!(stars(&big) > 5, "la franja tiene que tener estrellas:\n{big}");
+        let small = v3_text(&mut app_with_routines(), 100, 16);
+        assert_eq!(stars(&small), 0, "sin franja no hay estrellas:\n{small}");
+        assert!(has_block_title(&small, "WORKHUB"), "{small}");
+        assert!(small.contains("Elegir otra rutina") && small.contains("salir"), "{small}");
+    }
+
+    #[test]
+    fn lists_are_centered_as_a_block_keeping_their_columns() {
+        let t = v3_text(&mut app_with_routines(), 100, 30);
+        let col = |needle: &str| {
+            let line = t.lines().find(|l| l.contains(needle)).unwrap_or_else(|| panic!("falta {needle}:\n{t}"));
+            line.chars()
+                .take_while(|c| !needle.starts_with(*c) || !line[line.find(needle).unwrap()..].starts_with(needle))
+                .count()
+        };
+        // «> 1  Continuar…» y «  2  Elegir…»: el «>» y los números en columna.
+        let (sel, second, third) = (col("> 1"), col("2  Elegir"), col("3  Ir a Focus"));
+        assert_eq!(sel + 2, second);
+        assert_eq!(second, third);
+        // El bloque queda al medio: el margen izquierdo es parecido al derecho.
+        let widest = t
+            .lines()
+            .filter(|l| l.contains(" Continuar") || l.contains("Configuración"))
+            .map(|l| l.trim_end().chars().count())
+            .max()
+            .unwrap();
+        let (left, right) = (sel, 100 - widest);
+        assert!(left.abs_diff(right) <= 2 && left > 20, "izq {left} der {right}:\n{t}");
+        // Los atajos van centrados abajo.
+        let keys = t.lines().find(|l| l.contains("1-4 directo")).unwrap();
+        let (l, r) = (keys.chars().take_while(|c| *c == ' ').count(), 100 - keys.trim_end().chars().count());
+        assert!(l.abs_diff(r) <= 2, "{keys:?}");
+    }
+
+    #[test]
+    fn the_selected_row_keeps_its_mark_on_every_list() {
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        assert!(
+            v3_text(&mut app, 100, 30).contains("> Templo Jedi") || v3_text(&mut app, 100, 30).contains("> "),
+            "sonidos"
+        );
+        let mut app = app_with_meditations();
+        app.screen = app::Screen::Meditations;
+        assert!(v3_text(&mut app, 100, 30).contains("> "));
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        let t = v3_text(&mut app, 100, 30);
+        assert!(t.lines().any(|l| l.contains("> Mañana de estudio")), "{t}");
+        // Los resúmenes quedan en columna.
+        let sum_col =
+            |name: &str| t.lines().find(|l| l.contains(name)).map(|l| l.find("·").or(l.find("tarea"))).unwrap();
+        assert!(sum_col("Tarde").is_some());
+    }
+
+    #[test]
+    fn subsections_are_uppercase_and_dim() {
+        use ratatui::style::Color;
+        let mut app = app_with_meditations();
+        app.screen = app::Screen::Meditations;
+        let band = menu::band_area(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.animate(0.05, band.width, band.height);
+        let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        term.draw(|f| ui::draw(f, &app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let dim = theme::idle().dim.c();
+        let found = (0..30).any(|y| {
+            let line: String = (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect();
+            line.find("10 MINUTOS").is_some_and(|i| {
+                let x = line[..i].chars().count() as u16;
+                buf[(x, y)].fg == dim && buf[(x, y)].fg != Color::Reset
+            })
+        });
+        assert!(found, "10 MINUTOS en mayúsculas y color apagado");
+    }
+
+    #[test]
+    fn popups_have_a_border_and_sit_in_the_middle() {
+        let mut app = app_with_routines();
+        press(&mut app, "2d");
+        let t = v3_text(&mut app, 100, 30);
+        let lines: Vec<&str> = t.lines().collect();
+        let top = lines.iter().position(|l| l.contains('╭')).unwrap_or_else(|| panic!("sin borde:\n{t}"));
+        let bottom = lines.iter().position(|l| l.contains('╰')).unwrap();
+        assert!(lines[top].contains('╮') && lines[bottom].contains('╯'));
+        assert!(lines[top + 1..bottom].iter().all(|l| l.contains('│')));
+        let (l, r) =
+            (lines[top].chars().take_while(|c| *c != '╭').count(), 100 - lines[top].trim_end().chars().count());
+        assert!(l.abs_diff(r) <= 1, "{l} {r}");
+        let (up, down) = (top, 30 - 1 - bottom);
+        assert!(up.abs_diff(down) <= 1, "{up} {down}");
+    }
+
+    #[test]
+    fn the_running_routine_shows_rutina_its_name_and_the_meditation_with_its_bar() {
+        let mut app = app_with_routines();
+        press(&mut app, "1");
+        let t = v3_text(&mut app, 100, 30);
+        assert!(has_block_title(&t, "RUTINA") && !has_block_title(&t, "WORKHUB"), "{t}");
+        assert!(t.contains("Mañana de estudio") && t.contains("0 de 4 listos") && t.contains('✿'), "{t}");
+        assert!(!t.contains('━'), "sin meditación sonando no hay barra");
+        start_meditation(&mut app);
+        app.state.meditation.as_mut().unwrap().position_secs = 192;
+        let t = v3_text(&mut app, 100, 30);
+        assert!(t.contains("╌") && t.contains('━') && t.contains("▶ 03:12 / 10:00"), "{t}");
+        // La barra queda justo debajo del paso de meditación.
+        let lines: Vec<&str> = t.lines().collect();
+        let i = lines.iter().position(|l| l.contains("✿")).unwrap();
+        assert!(lines[i + 1].contains('━'), "{t}");
+    }
+
+    #[test]
+    fn the_meditation_step_uses_the_second_accent() {
+        let mut app = app_with_routines();
+        press(&mut app, "1");
+        let band = menu::band_area(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.animate(0.05, band.width, band.height);
+        let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        term.draw(|f| ui::draw(f, &app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let pal = theme::idle();
+        let hit =
+            (0..30).flat_map(|y| (0..100).map(move |x| (x, y))).find(|&(x, y)| buf[(x, y)].symbol() == "✿").unwrap();
+        assert_eq!(buf[hit].fg, pal.accent2.c());
+    }
+
+    #[test]
+    fn notices_and_keys_sit_in_their_rows_at_the_bottom() {
+        let mut app = app_with_routines();
+        app.notify("Meditación agregada");
+        let t = v3_text(&mut app, 100, 30);
+        let lines: Vec<&str> = t.lines().collect();
+        assert!(lines[28].contains("Meditación agregada"), "{t}");
+        assert!(lines[29].contains("↑↓ mover"), "{t}");
+    }
+
+    #[test]
+    fn focus_keeps_its_own_look() {
+        let t = render(100, 30, |_| {});
+        assert!(has_block_title(&t, "FOCUS") && !has_block_title(&t, "WORKHUB"), "{t}");
+        assert!(!t.contains('✦') && !t.contains('✧') && !t.contains('╌'), "la franja calma es solo de los menús:\n{t}");
+        let deep = render(100, 30, |a| a.deep = app::Deep::On);
+        assert!(deep.contains("? ayuda") && !deep.contains('✦') && !deep.contains('╌'), "{deep}");
+    }
+
+    #[test]
+    fn the_band_costs_nothing_extra_while_idle() {
+        let mut app = app_with_routines();
+        let band = menu::band_area(ratatui::layout::Rect::new(0, 0, 100, 30));
+        for _ in 0..100 {
+            app.animate(0.25, band.width, band.height);
+        }
+        assert!(!app.band.busy() && !app.animating(), "la franja no pide cuadros rápidos");
+    }
+
+    // ------------------------------------------------ espacio = Enter
+
+    /// Configuración > Rutinas (lista abierta desde Configuración), y después `keys`.
+    fn from_config(app: &mut App, keys: &str) {
+        press(app, "4");
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter));
+        press(app, keys);
+    }
+
+    /// Todo lo que se ve o se manda después de una tecla.
+    fn fingerprint(app: &mut App) -> String {
+        let out = sent(app);
+        let exit = (app.exit == Some(app::Exit::Quit), app.exit == Some(app::Exit::Detach));
+        format!("{:?}|{out:?}|{exit:?}|{}", app.screen, screen_text(app, 80, 24))
+    }
+
+    /// Prepara dos apps iguales, aprieta Enter en una y espacio en la otra y compara. También
+    /// exige que Enter haga algo, para que el caso no pase por no hacer nada.
+    fn same_as_enter(name: &str, setup: impl Fn(&mut App)) {
+        use ratatui::crossterm::event::KeyCode::Enter;
+        let build = || {
+            let mut app = app_with_routines();
+            app.routines[0].meditation = setting(Some(5)); // una sola, sin azar
+            let mut st = app.state.clone();
+            st.presets = vec![Preset { name: "Rivendell".into(), layers: [("noise-brown".to_string(), 0.3)].into() }];
+            st.sounds = library::all_sounds().unwrap();
+            app.set_state(st);
+            setup(&mut app);
+            sent(&mut app);
+            app
+        };
+        let (mut a, mut b) = (build(), build());
+        let before = fingerprint(&mut build());
+        a.key(key(Enter));
+        press(&mut b, " ");
+        let (fa, fb) = (fingerprint(&mut a), fingerprint(&mut b));
+        assert_ne!(fa, before, "{name}: Enter no hizo nada");
+        assert_eq!(fa, fb, "{name}: espacio y Enter difieren");
+    }
+
+    #[test]
+    fn space_and_enter_do_the_same_everywhere_outside_text_fields() {
+        use app::Popup;
+        use ratatui::crossterm::event::KeyCode::Esc;
+        same_as_enter("inicio", |_| {});
+        same_as_enter("configuración", |a| press(a, "4"));
+        same_as_enter("antes de arrancar: tiempo", |a| a.enter_focus());
+        same_as_enter("antes de arrancar: sonidos", |a| {
+            a.enter_focus();
+            a.key(key(Enter));
+        });
+        same_as_enter("salir (sonando)", |a| a.popup = Some(Popup::Quit));
+        same_as_enter("salir (en silencio)", |a| a.popup = Some(Popup::ConfirmQuit));
+        same_as_enter("borrar sonido", |a| {
+            a.popup = Some(Popup::DeleteSound { id: "lluvia".into(), name: "Lluvia".into() })
+        });
+        same_as_enter("borrar preset", |a| a.popup = Some(Popup::DeletePreset { name: "Rivendell".into() }));
+        same_as_enter("descartar preset", |a| a.popup = Some(Popup::DiscardPreset));
+        same_as_enter("rutinas: empezar", |a| press(a, "2"));
+        same_as_enter("rutinas: editar", |a| from_config(a, ""));
+        same_as_enter("rutinas: borrar", |a| press(a, "2d"));
+        same_as_enter("editor: abrir tarea", |a| from_config(a, "e"));
+        same_as_enter("editor: ajuste de meditación", |a| from_config(a, "ejjj"));
+        same_as_enter("editor: borrar tarea", |a| from_config(a, "ed"));
+        same_as_enter("editor: sin guardar", |a| {
+            from_config(a, "ea");
+            press(a, "x");
+            a.key(key(Enter));
+            a.key(key(Esc));
+        });
+        same_as_enter("ajuste de meditación", |a| from_config(a, "ejjj"));
+        same_as_enter("rutina en curso: elegir duración", |a| {
+            a.routines[0].meditation = setting(Some(20));
+            press(a, "1jjj");
+        });
+        same_as_enter("rutina en curso: tarea", |a| press(a, "1"));
+        same_as_enter("rutina en curso: meditación", |a| press(a, "1jjj"));
+        same_as_enter("meditaciones: borrar", |a| {
+            a.screen = app::Screen::Meditations;
+            press(a, "d");
+        });
+        same_as_enter("meditaciones: categoría", |a| {
+            a.screen = app::Screen::Meditations;
+            press(a, "a");
+            a.paste("https://youtu.be/abc");
+            a.key(key(Enter));
+        });
+    }
+
+    #[test]
+    fn space_saves_the_meditation_setting_like_enter() {
+        // Dentro del ajuste de meditación Enter guarda y vuelve al editor; espacio igual.
+        let mut a = app_with_routines();
+        from_config(&mut a, "ejjj");
+        a.key(key(Enter));
+        assert_eq!(a.screen, app::Screen::RoutineStep);
+        press(&mut a, " ");
+        assert_eq!(a.screen, app::Screen::RoutineEditor);
+    }
+
+    #[test]
+    fn space_still_types_in_every_text_field() {
+        use crate::tui::routines::EdPopup;
+        use app::Popup;
+        // Nombre de la rutina.
+        let mut app = app_with_routines();
+        from_config(&mut app, "er");
+        press(&mut app, "a b");
+        match &app.editor.as_ref().unwrap().popup {
+            Some(EdPopup::Name { text, .. }) => assert!(text.ends_with("a b"), "{text}"),
+            _ => panic!("falta el nombre"),
+        }
+        // Texto de la tarea.
+        let mut app = app_with_routines();
+        from_config(&mut app, "ea");
+        press(&mut app, "a b");
+        match &app.editor.as_ref().unwrap().popup {
+            Some(EdPopup::Task { text, .. }) => assert_eq!(text, "a b"),
+            _ => panic!("falta la tarea"),
+        }
+        // Nombre del preset.
+        let mut app = app_with_routines();
+        app.popup = Some(Popup::SavePreset { name: String::new() });
+        press(&mut app, "a b");
+        assert!(matches!(&app.popup, Some(Popup::SavePreset { name }) if name == "a b"));
+        // Link de la meditación.
+        let mut app = app_with_meditations();
+        app.screen = app::Screen::Meditations;
+        press(&mut app, "a");
+        press(&mut app, "a b");
+        assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, category: None }) if url == "a b"));
+        // Formulario de sonido: url y nombre escriben; tema y recorte lo ignoran como antes.
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        press(&mut app, "a");
+        let field = |app: &App| match &app.popup {
+            Some(Popup::Add(f)) => (f.field, f.url.clone(), f.name.clone(), f.trim.clone(), f.theme),
+            _ => panic!("falta el formulario"),
+        };
+        press(&mut app, "a b");
+        assert_eq!(field(&app).1, "a b");
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab));
+        press(&mut app, "c d");
+        assert_eq!(field(&app).2, "c d");
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab));
+        let theme = field(&app).4;
+        press(&mut app, " ");
+        assert_eq!(field(&app).0, 2, "espacio no avanza de campo");
+        assert_eq!(field(&app).4, theme);
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab));
+        press(&mut app, "1 2");
+        let f = field(&app);
+        assert_eq!((f.0, f.3.as_str()), (3, "12"));
+        assert!(sent(&mut app).is_empty());
+    }
+
+    #[test]
+    fn space_is_still_ignored_in_the_custom_timer_minutes() {
+        use app::Popup;
+        let mut app = app_with_routines();
+        app.popup = Some(Popup::Timer { sel: 0, custom: Some(String::new()) });
+        press(&mut app, "5 5");
+        assert!(matches!(&app.popup, Some(Popup::Timer { custom: Some(s), .. }) if s == "55"));
+        assert!(sent(&mut app).is_empty(), "espacio no confirma");
     }
 }

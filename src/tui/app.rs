@@ -183,6 +183,8 @@ pub struct App {
     pub shown_volume: HashMap<String, f32>,
     pub palette: Palette,
     pub scene: Scene,
+    /// The calm starfield band of every screen but Focus.
+    pub band: Scene,
     pub started: Instant,
     pub outbox: Vec<Command>,
     pub exit: Option<Exit>,
@@ -231,6 +233,7 @@ impl App {
             shown_volume: HashMap::new(),
             palette: theme::idle(),
             scene: Scene::new(),
+            band: Scene::calm(),
             started: Instant::now(),
             outbox: Vec::new(),
             exit: None,
@@ -337,8 +340,9 @@ impl App {
         if self.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs() >= 4) {
             self.notice = None;
         }
-        // The menus are still: nothing to move, nothing to spend CPU on.
+        // The menus only twinkle their stars, at the idle frame rate (`animating` stays false there).
         if self.screen != Screen::Focus {
+            self.band.update(dt, scene_w, scene_h, &[]);
             return;
         }
         // Palette follows the dominant theme of what's playing.
@@ -614,7 +618,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => b.cursor = (b.cursor + 1).min(n.saturating_sub(1)),
             KeyCode::Home => b.cursor = 0,
             KeyCode::End => b.cursor = n.saturating_sub(1),
-            KeyCode::Char(' ') | KeyCode::Enter => {
+            KeyCode::Enter => {
                 if let Some((id, available)) = current {
                     if b.picked.remove(&id) {
                         self.send(Command::SetActive { id, active: false });
@@ -664,7 +668,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => self.med_cursor = (self.med_cursor + 1).min(n.saturating_sub(1)),
             KeyCode::Home | KeyCode::Char('g') => self.med_cursor = 0,
             KeyCode::End => self.med_cursor = n.saturating_sub(1),
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter => {
                 if let Some(m) = self.selected_meditation() {
                     let id = m.id.clone();
                     let loaded = self.state.meditation.as_ref().is_some_and(|p| p.id == id);
@@ -800,15 +804,27 @@ impl App {
             )
     }
 
+    /// ¿El espacio se escribe (o se ignora) en vez de confirmar? Pasa en los campos de texto y
+    /// en los minutos del temporizador personalizado.
+    fn space_is_text(&self) -> bool {
+        self.typing() || matches!(self.popup, Some(Popup::Timer { custom: Some(_), .. }))
+    }
+
     /// Con Bloq Mayús (o Shift) las letras llegan en mayúscula: se pasan a minúscula para que
     /// los atajos anden igual, salvo en campos de texto. No hay atajos con mayúscula: los que
-    /// antes la usaban pasaron a Ctrl+letra.
+    /// antes la usaban pasaron a Ctrl+letra. El espacio es Enter en todas partes salvo en los
+    /// campos de texto, así que el resto del código solo mira Enter.
     fn normalize(&self, mut k: KeyEvent) -> KeyEvent {
-        if let KeyCode::Char(c) = k.code
-            && c.is_ascii_uppercase()
-            && !self.typing()
-        {
-            k.code = KeyCode::Char(c.to_ascii_lowercase());
+        match k.code {
+            KeyCode::Char(c) if c.is_ascii_uppercase() && !self.typing() => {
+                k.code = KeyCode::Char(c.to_ascii_lowercase());
+            }
+            KeyCode::Char(' ')
+                if !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && !self.space_is_text() =>
+            {
+                k.code = KeyCode::Enter;
+            }
+            _ => {}
         }
         k
     }
@@ -885,6 +901,7 @@ impl App {
             }
             KeyCode::Char('p') => self.send(Command::PauseAll),
             KeyCode::Char('x') => self.send(Command::StopAll),
+            KeyCode::Char('0') => self.send(Command::RestartSounds),
             // La `p` ya pausa los sonidos: el reloj se pausa con `r` y el audio no se toca.
             KeyCode::Char('r') => {
                 if self.state.timer.is_some() {
@@ -911,7 +928,7 @@ impl App {
             KeyCode::End => self.cursor = items.saturating_sub(1),
             KeyCode::Left | KeyCode::Char('h') => self.change_volume(-0.05),
             KeyCode::Right | KeyCode::Char('l') => self.change_volume(0.05),
-            KeyCode::Char(' ') | KeyCode::Enter => {
+            KeyCode::Enter => {
                 if let Some(s) = self.selected_sound() {
                     let id = s.id.clone();
                     self.send(Command::Toggle { id });
@@ -928,7 +945,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => {
                 self.preset_cursor = (self.preset_cursor + 1).min(n.saturating_sub(1))
             }
-            KeyCode::Char(' ') | KeyCode::Enter => {
+            KeyCode::Enter => {
                 if let Some(p) = self.state.presets.get(self.preset_cursor) {
                     let name = p.name.clone();
                     self.send(Command::LoadPreset { name });
@@ -1050,7 +1067,7 @@ impl App {
                         self.send(Command::Timer { minutes: Some(m) });
                         return;
                     }
-                    KeyCode::Enter | KeyCode::Char(' ') => {
+                    KeyCode::Enter => {
                         return match TIMER_CHOICES.get(sel) {
                             Some(0) => self.popup = Some(Popup::Timer { sel, custom: Some(String::new()) }),
                             Some(&m) => self.send(Command::Timer { minutes: Some(m) }),

@@ -537,7 +537,7 @@ impl App {
         match k.code {
             KeyCode::Up | KeyCode::Char('k') => run.cursor = run.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => run.cursor = (run.cursor + 1).min(n - 1),
-            KeyCode::Char(' ') => self.toggle_mark(),
+            KeyCode::Enter => self.toggle_mark(),
             KeyCode::Char('q') => self.request_quit(),
             KeyCode::Esc => {
                 self.end_run();
@@ -547,9 +547,9 @@ impl App {
         }
     }
 
-    /// Espacio: en una tarea, marca hecho un paso pendiente y en uno ya hecho lo vuelve a pendiente.
-    /// En la meditación hace lo que antes hacía Enter (arrancar, elegir duración, pausar); ese
-    /// paso se marca solo al terminar el audio y no se desmarca.
+    /// Enter/espacio: en una tarea, marca hecho un paso pendiente y en uno ya hecho lo vuelve a
+    /// pendiente. En la meditación arranca, elige duración o pausa; ese paso se marca solo al
+    /// terminar el audio y no se desmarca.
     fn toggle_mark(&mut self) {
         let Some(run) = self.run.as_mut() else { return };
         let i = run.cursor;

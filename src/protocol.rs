@@ -27,6 +27,8 @@ pub enum Command {
     /// Pause/resume everything without forgetting which layers were on.
     PauseAll,
     StopAll,
+    /// Restart from the beginning every sound that is playing right now (volumes untouched).
+    RestartSounds,
     Timer {
         minutes: Option<u32>,
     },

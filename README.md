@@ -89,6 +89,7 @@ Si elegís un preset, arranca el modo deep work.
 | `g` / `End` | Primer / último elemento (`Ctrl+G` también va al final) |
 | `p` | Pausa o reanuda los sonidos |
 | `x` | Apaga todo |
+| `0` | Reinicia desde el principio los sonidos que están sonando |
 | `t` | Temporizador: `1` 25 min, `2` 50, `3` 90, personalizado o cancelar |
 | `r` | Pausa o reanuda el temporizador (el sonido sigue) |
 | `d` | Modo deep work |
