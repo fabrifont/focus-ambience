@@ -1387,23 +1387,23 @@ mod tests {
         press(&mut app, " ");
         press(&mut app, "k");
         press(&mut app, "k");
-        press(&mut app, "s"); // saltea el 2
+        press(&mut app, " "); // marca el 2
         let t = screen_text(&app, 80, 24);
-        assert!(t.contains("2 de 4 listos") && t.contains("salteado"), "{t}");
+        assert!(t.contains("2 de 4 listos"), "{t}");
         assert!(app.popup.is_none() && app.med_popup.is_none());
     }
 
     #[test]
-    fn space_unmarks_done_and_skipped_steps_and_keeps_the_cursor() {
+    fn space_unmarks_done_steps_and_keeps_the_cursor() {
         let mut app = app_with_routines();
-        press(&mut app, "1 s"); // 0 hecho, 1 salteado; el cursor queda en el 2
+        press(&mut app, "1  "); // 0 y 1 hechos; el cursor queda en el 2
         assert_eq!(app.run.as_ref().unwrap().done_count(), 2);
-        app.key(key(Up)); // sobre el salteado
+        app.key(key(Up)); // sobre el 1, hecho
         press(&mut app, " ");
         let run = app.run.as_ref().unwrap();
         assert_eq!(run.marks[1], routines::Mark::Pending);
         assert_eq!(run.cursor, 1, "desmarcar no avanza");
-        app.key(key(Up)); // sobre el hecho
+        app.key(key(Up)); // sobre el 0, hecho
         press(&mut app, " ");
         let run = app.run.as_ref().unwrap();
         assert_eq!(run.marks[0], routines::Mark::Pending);
@@ -1421,7 +1421,7 @@ mod tests {
     }
 
     #[test]
-    fn skip_on_a_marked_step_only_points_to_space() {
+    fn s_does_nothing_in_a_running_routine() {
         let mut app = app_with_routines();
         press(&mut app, "1 ");
         app.key(key(Up));
@@ -1429,8 +1429,8 @@ mod tests {
         let run = app.run.as_ref().unwrap();
         assert_eq!(run.done_count(), 1);
         assert_eq!(run.marks[0], routines::Mark::Done);
-        let n = &app.notice.as_ref().unwrap().0;
-        assert!(n.contains("espacio") && !n.contains("u "), "{n}");
+        assert!(app.notice.is_none());
+        assert!(!screen_text(&app, 80, 24).contains("saltear"));
     }
 
     #[test]
@@ -1513,21 +1513,16 @@ mod tests {
     }
 
     #[test]
-    fn fixed_step_without_meditations_warns_and_lets_pick_another_duration_or_skip() {
+    fn fixed_step_without_meditations_warns_and_lets_pick_another_duration() {
         let mut app = app_with_routines();
         app.routines[0].meditation = setting(Some(20));
         press(&mut app, "1jjj");
         let t = screen_text(&app, 90, 24);
-        assert!(t.contains("No hay meditaciones de 20 minutos") && t.contains("s saltea"), "{t}");
+        assert!(t.contains("No hay meditaciones de 20 minutos") && t.contains("Enter elige otra duración"), "{t}");
         app.key(key(Enter));
         assert!(screen_text(&app, 90, 24).contains("¿cuánto tiempo?"));
         app.key(key(Enter)); // 5 minutos
         assert_eq!(app.run.as_ref().unwrap().picks[3].as_ref().unwrap().id, "resp");
-        // Y la otra salida: saltearlo.
-        let mut app = app_with_routines();
-        app.routines[0].meditation = setting(Some(20));
-        press(&mut app, "1jjjs");
-        assert_eq!(app.run.as_ref().unwrap().marks[3], crate::tui::routines::Mark::Skipped);
     }
 
     #[test]
@@ -1537,16 +1532,6 @@ mod tests {
             m.available = m.category != cat(5);
         }
         assert_eq!(app.available_categories(), vec![cat(10)]);
-    }
-
-    #[test]
-    fn skipping_the_playing_meditation_stops_it() {
-        let mut app = app_with_routines();
-        press(&mut app, "1jjj");
-        app.key(key(Enter));
-        sent(&mut app);
-        press(&mut app, "s");
-        assert!(matches!(sent(&mut app).as_slice(), [Command::StopMeditation]));
     }
 
     #[test]

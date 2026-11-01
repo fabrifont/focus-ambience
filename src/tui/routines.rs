@@ -73,7 +73,6 @@ impl Editor {
 pub enum Mark {
     Pending,
     Done,
-    Skipped,
 }
 
 /// La meditación que la app eligió al azar para un paso.
@@ -531,7 +530,6 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => run.cursor = run.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => run.cursor = (run.cursor + 1).min(n - 1),
             KeyCode::Char(' ') => self.toggle_mark(),
-            KeyCode::Char('s') => self.mark(Mark::Skipped),
             KeyCode::Char('q') => self.request_quit(),
             KeyCode::Enter => self.run_enter(),
             KeyCode::Esc => {
@@ -542,29 +540,15 @@ impl App {
         }
     }
 
-    /// Espacio: marca hecho un paso pendiente; en uno ya marcado (hecho o salteado) lo vuelve a pendiente.
+    /// Espacio: marca hecho un paso pendiente; en uno ya hecho lo vuelve a pendiente.
     fn toggle_mark(&mut self) {
         let Some(run) = self.run.as_mut() else { return };
-        if run.marks[run.cursor] == Mark::Pending {
-            self.mark(Mark::Done);
-        } else {
-            run.marks[run.cursor] = Mark::Pending;
-        }
-    }
-
-    fn mark(&mut self, mark: Mark) {
-        let Some(run) = self.run.as_mut() else { return };
         let i = run.cursor;
-        if run.marks[i] != Mark::Pending {
-            self.notify("ese paso ya está marcado: espacio lo desmarca");
+        if run.marks[i] == Mark::Done {
+            run.marks[i] = Mark::Pending;
             return;
         }
-        run.marks[i] = mark;
-        let skip_playing = mark == Mark::Skipped && run.playing_step == Some(i);
-        if skip_playing {
-            run.playing_step = None;
-            self.send(Command::StopMeditation);
-        }
+        run.marks[i] = Mark::Done;
         let run = self.run.as_mut().expect("still there");
         if run.marks.iter().all(|m| *m != Mark::Pending) {
             self.finish_run();

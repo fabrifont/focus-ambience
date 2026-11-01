@@ -174,7 +174,6 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
         }
         let (glyph, style) = match run.marks[i] {
             Mark::Done => ("✓ ", acc),
-            Mark::Skipped => ("– ", dim),
             Mark::Pending => ("  ", fg),
         };
         let text = trunc(&step_text(run, i, step), width.saturating_sub(24));
@@ -184,14 +183,11 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
             // Lo hecho se tacha de un vistazo: atenuado.
             _ => dim,
         };
-        let mut spans = vec![
+        let spans = vec![
             Span::styled(if sel { "> " } else { "  " }, acc),
             Span::styled(glyph, style),
             Span::styled(text, text_style),
         ];
-        if run.marks[i] == Mark::Skipped {
-            spans.push(Span::styled("   salteado", dim));
-        }
         lines.push(Line::from(spans));
         for extra in step_extra(app, run, i, pal) {
             lines.push(extra);
@@ -201,7 +197,6 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
         lines,
         hints: &[
             ("␣", " marca/desmarca  "),
-            ("s", " saltear  "),
             ("Enter", " play/pausa  "),
             ("↑↓", " mover  "),
             ("Esc", " menú"),
@@ -238,7 +233,7 @@ fn step_extra(app: &App, run: &Run, i: usize, pal: &Palette) -> Vec<Line<'static
         }
         (None, Some(c)) if run.marks[i] == Mark::Pending => vec![
             Line::styled(format!("{indent}No hay meditaciones de {} en esta compu.", c.label()), dim),
-            Line::styled(format!("{indent}Enter elige otra duración · s saltea el paso"), dim),
+            Line::styled(format!("{indent}Enter elige otra duración"), dim),
         ],
         (None, None) if run.marks[i] == Mark::Pending => {
             vec![Line::styled(format!("{indent}Enter para elegir cuánto tiempo"), dim)]

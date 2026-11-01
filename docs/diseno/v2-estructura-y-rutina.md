@@ -27,14 +27,13 @@ Solo los que sirven en una terminal (nada de animaciones, gestos ni transparenci
 - La lista de Meditaciones se abre desde Configuración.
 - Guardar y borrar presets pasa a Configuración. En Focus se saca la tecla `s`.
 - Las rutinas se borran desde Configuración y también desde "Elegir otra rutina".
-- Si un paso de duración fija se queda sin meditaciones en su categoría, la rutina avisa en ese paso y deja elegir otra duración o saltearlo.
+- Si un paso de duración fija se queda sin meditaciones en su categoría, la rutina avisa en ese paso y deja elegir otra duración.
 - La meditación se elige al azar puro: puede repetirse.
 - En Configuración > Presets, `n` arma un preset eligiendo sonidos y volumen en una vista igual a la de Focus, y se guarda con un nombre.
 - Las meditaciones van en una lista aparte de los sonidos de focus.
 - Durante la rutina no suenan sonidos de ambiente; solo suena la meditación.
-- Un paso se puede saltar con una tecla y queda marcado como salteado.
 - Los pasos se marcan en cualquier orden y en cualquier momento. En la rutina en curso la meditación aparece como un paso más, siempre al final de la lista.
-- Cuando todos los pasos quedan hechos o salteados, se entra a Focus.
+- Cuando todos los pasos quedan hechos, se entra a Focus.
 - Siempre que se entra a Focus (después de una rutina o con "Ir a Focus"), primero aparece una ventanita: pregunta cuánto tiempo va a trabajar y arranca el temporizador; después pregunta qué preset de sonidos usar, con una última opción "Sonidos personalizados" que lleva a elegirlos a mano como en Focus hoy.
 - Rutinas y meditaciones se sincronizan entre compus con `focus sync`, igual que presets y sonidos.
 - `Esc` en la ventanita de tiempo y preset no vuelve al menú: la saltea y entra directo a Focus. Si ya eligió el tiempo y aprieta `Esc` en la parte de sonidos, no arranca nada (ni temporizador) y entra a Focus como hoy.
@@ -62,7 +61,7 @@ flowchart TD
   P -->|sí/no, modo y duración| P
   P --> E
   E -->|g guardar| L
-  R -->|todo hecho o salteado| V
+  R -->|todo hecho| V
   R -->|Esc| M
   V -->|preset| F[Focus]
   V -->|Sonidos personalizados| F
@@ -75,9 +74,9 @@ flowchart TD
 
 1. Abre WorkHub y aparece el menú de inicio con la última rutina ya seleccionada.
 2. `Enter` y arranca la rutina, en silencio.
-3. Se mueve con `↑↓` entre los pasos y los marca en el orden que quiera: `␣` marca hecho (y desmarca un paso ya marcado), `s` saltear.
+3. Se mueve con `↑↓` entre los pasos y los marca en el orden que quiera: `␣` marca hecho (y desmarca un paso ya marcado).
 4. En el paso de meditación, si es de duración libre, primero elige la duración entre las categorías que tienen meditaciones; si es fija, no pregunta. La app pone una meditación al azar de esa duración y `Enter` la reproduce o pausa dentro de la app. Que termine el audio no marca el paso: lo marca él.
-5. Cuando todos quedan hechos o salteados, aparece la ventanita de Focus.
+5. Cuando todos quedan hechos, aparece la ventanita de Focus.
 6. Elige el tiempo, después el preset (o "Sonidos personalizados") y entra a Focus con el temporizador corriendo. Con `Esc` saltea la ventanita y entra directo a Focus.
 7. Al salir de Focus vuelve al menú de inicio.
 
@@ -219,12 +218,12 @@ Rutina en curso (los pasos se marcan en cualquier orden):
   Mañana de estudio                  2 de 4 listos
 
   ✓  Ordenar el escritorio
-  –  Preparar mate                  salteado
+     Preparar mate
   >  Meditación 10 min · Calma guiada (al azar)
        ▶ 03:12 / 10:00
      Abrir el material
 
-  ␣ marca/desmarca · s saltear · Enter play/pausa
+  ␣ marca/desmarca · Enter play/pausa
   ↑↓ mover · Esc menú
 ```
 
@@ -264,9 +263,9 @@ Aprobadas por Fabrizio (31/10/2026):
 
 - Sin rutinas, el menú muestra "Crear mi primera rutina" en vez de "última rutina".
 - En la ventanita, el tiempo arranca con el último valor usado y se cambia con `↑↓` o escribiéndolo.
-- En el editor, guardar es `g` (y no `s`), porque `s` es saltear en la rutina en curso.
-- `␣` sobre un paso ya marcado (hecho o salteado) lo vuelve a pendiente, sin pedir confirmación y sin mover el cursor; `s` sobre un paso marcado solo avisa que se use espacio.
-- Si un paso de duración fija se queda sin meditaciones, avisa y deja elegir otra duración o saltearlo.
+- En el editor, guardar es `g`.
+- `␣` sobre un paso ya hecho lo vuelve a pendiente, sin pedir confirmación y sin mover el cursor. No hay estado «salteado» ni tecla `s`: los pasos están pendientes o hechos.
+- Si un paso de duración fija se queda sin meditaciones, avisa y deja elegir otra duración.
 
 Rechazada: evitar repetir la meditación anterior (va al azar puro).
 
