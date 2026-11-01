@@ -183,6 +183,8 @@ pub struct App {
     pub shown_volume: HashMap<String, f32>,
     pub palette: Palette,
     pub scene: Scene,
+    /// The calm starfield band of every screen but Focus.
+    pub band: Scene,
     pub started: Instant,
     pub outbox: Vec<Command>,
     pub exit: Option<Exit>,
@@ -231,6 +233,7 @@ impl App {
             shown_volume: HashMap::new(),
             palette: theme::idle(),
             scene: Scene::new(),
+            band: Scene::calm(),
             started: Instant::now(),
             outbox: Vec::new(),
             exit: None,
@@ -337,8 +340,9 @@ impl App {
         if self.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs() >= 4) {
             self.notice = None;
         }
-        // The menus are still: nothing to move, nothing to spend CPU on.
+        // The menus only twinkle their stars, at the idle frame rate (`animating` stays false there).
         if self.screen != Screen::Focus {
+            self.band.update(dt, scene_w, scene_h, &[]);
             return;
         }
         // Palette follows the dominant theme of what's playing.

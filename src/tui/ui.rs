@@ -129,7 +129,7 @@ fn draw_overlay(buf: &mut Buffer, area: Rect, app: &App) {
 }
 
 /// Blank a margin of the scene so particles don't muddle the text (rows `y0..y1`, columns `x0..x1`).
-fn clear_rows(buf: &mut Buffer, area: Rect, x0: u16, x1: u16, y0: u16, y1: u16) {
+pub(super) fn clear_rows(buf: &mut Buffer, area: Rect, x0: u16, x1: u16, y0: u16, y1: u16) {
     for y in y0.max(area.y)..y1.min(area.y + area.height) {
         for x in x0.max(area.x)..x1.min(area.x + area.width) {
             buf[(x, y)].set_char(' ');
@@ -138,7 +138,7 @@ fn clear_rows(buf: &mut Buffer, area: Rect, x0: u16, x1: u16, y0: u16, y1: u16) 
 }
 
 /// Paint glyph rows with the accent gradient; a soft highlight sweeps across every few seconds.
-fn draw_glyphs(
+pub(super) fn draw_glyphs(
     buf: &mut Buffer,
     pal: &Palette,
     t: f32,
@@ -744,7 +744,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn truncate(s: &str, max: usize) -> String {
+pub(super) fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }

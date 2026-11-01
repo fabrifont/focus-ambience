@@ -1,9 +1,12 @@
-//! Pantallas del flujo v2: menú de inicio, Configuración y Meditaciones (las de rutinas, en
-//! `routine_ui`). Quietas y con pocos
-//! colores (uno para lo seleccionado, el resto atenuado): no se animan para no gastar CPU.
+//! Pantallas del flujo v2 (menú de inicio, Configuración, Meditaciones, Sonidos, Presets; las de
+//! rutinas, en `routine_ui`) con el diseño v3: arriba la franja de estrellas tranquilas con el título
+//! en letras de bloque, después la lista centrada como bloque, una fila de aviso y la línea de
+//! teclas. Usan siempre la paleta neutra y solo animan el titilar de las estrellas, a la
+//! velocidad de cuadros en reposo.
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
@@ -11,16 +14,93 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use super::app::{App, CONFIG_ITEMS, MedPopup, Screen};
 use super::routine_ui;
 use super::theme::{self, Palette};
-use super::ui;
+use super::{font, ui};
 use crate::meditation::{self, Category};
+
+/// Terminals shorter than this many rows hide the star band: with the 7 rows it needs, the list
+/// would be left with too little room (a 24-row terminal keeps it, a 16-row one does not).
+const BAND_MIN_TERM_HEIGHT: u16 = 20;
+
+/// Rows of the star band: a quarter of the screen, between 7 (title + a line under it + stars
+/// around) and 9. Zero in a small terminal.
+fn band_height(area: Rect) -> u16 {
+    if area.height < BAND_MIN_TERM_HEIGHT { 0 } else { (area.height / 4).clamp(7, 9) }
+}
+
+/// Where the band goes (what the animation has to be sized to); empty in a small terminal.
+pub fn band_area(area: Rect) -> Rect {
+    Rect { height: band_height(area), ..area }
+}
+
+/// What the top of a screen says: the block-letter title and an optional line under it.
+struct Header {
+    title: &'static str,
+    subtitle: Option<String>,
+}
+
+fn header(app: &App) -> Header {
+    let plain = |title| Header { title, subtitle: None };
+    let routine_name = |name: &str| (!name.is_empty()).then(|| name.to_string());
+    match app.screen {
+        Screen::Home | Screen::Focus => plain("WORKHUB"),
+        Screen::Config => plain("CONFIGURACIÓN"),
+        Screen::Meditations => plain("MEDITACIONES"),
+        Screen::Sounds => plain("SONIDOS"),
+        Screen::Presets => plain("PRESETS"),
+        Screen::PresetBuilder => plain("NUEVO PRESET"),
+        Screen::Routines => plain("RUTINAS"),
+        Screen::RoutineEditor => Header {
+            title: "EDITAR",
+            subtitle: Some(
+                app.editor
+                    .as_ref()
+                    .and_then(|e| routine_name(&e.routine.name))
+                    .unwrap_or_else(|| "(sin nombre)".to_string()),
+            ),
+        },
+        Screen::RoutineStep => Header { title: "EDITAR", subtitle: Some("Meditación de la rutina".to_string()) },
+        Screen::RoutineRun => {
+            Header { title: "RUTINA", subtitle: app.run.as_ref().and_then(|r| routine_name(&r.routine.name)) }
+        }
+    }
+}
+
+/// Rows the header takes without a band: the title (3 rows of block letters, or one of plain
+/// text when they do not fit or the terminal is too short to spare them), the line under it and a
+/// blank one.
+fn bare_header_height(area: Rect, h: &Header) -> u16 {
+    // Notice + keys + the body's margins and a few list rows.
+    const REST: u16 = 8;
+    let sub = h.subtitle.is_some() as u16;
+    let big = title_fits(h.title, area.width) && area.height >= font::HEIGHT as u16 + sub + 1 + REST;
+    (if big { font::HEIGHT as u16 } else { 1 }) + sub + 1
+}
+
+/// Whether the block letters fit in `width` columns. There is a single size of block letters (the
+/// same as FOCUS and the clock); a title that does not fit falls back to plain uppercase text.
+fn title_fits(text: &str, width: u16) -> bool {
+    font::render(text, 1).0 as u16 + 2 <= width
+}
 
 pub fn draw(f: &mut Frame, app: &App) {
     let pal = theme::idle();
     let area = f.area();
     f.render_widget(Block::new().style(Style::new().bg(pal.bg.c()).fg(pal.fg.c())), area);
-    let [body, notice, footer] =
-        Layout::vertical([Constraint::Min(3), Constraint::Length(1), Constraint::Length(1)]).areas(area);
-    let body = body.inner(ratatui::layout::Margin { horizontal: 2, vertical: 1 });
+    let head = header(app);
+    let band = band_height(area);
+    let top = if band > 0 { band } else { bare_header_height(area, &head) };
+    let [top, body, notice, footer] = Layout::vertical([
+        Constraint::Length(top.min(area.height)),
+        Constraint::Min(0),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+    if band > 0 {
+        app.band.draw(f.buffer_mut(), top, &pal, &[]);
+    }
+    draw_title(f.buffer_mut(), top, app, &head, &pal);
+    let body = body.inner(Margin { horizontal: 2, vertical: 1 });
 
     let mut routine_sel = 0;
     let (lines, hints): (Vec<Line>, &[(&str, &str)]) = match app.screen {
@@ -60,40 +140,27 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
     };
     // Keep the selected line on screen when the list is longer than the window.
-    let scroll = match app.screen {
-        Screen::Meditations => {
-            let (_, sel) = meditation_lines(app, &pal, body.width as usize);
-            (sel + 3).saturating_sub(body.height as usize) as u16
-        }
-        Screen::Sounds => {
-            let (_, sel) = sound_lines(app, &pal, body.width as usize);
-            (sel + 3).saturating_sub(body.height as usize) as u16
-        }
-        Screen::Presets => {
-            let (_, sel) = preset_lines(app, &pal, body.width as usize);
-            (sel + 3).saturating_sub(body.height as usize) as u16
-        }
-        Screen::PresetBuilder => {
-            let (_, sel) = builder_lines(app, &pal, body.width as usize);
-            (sel + 3).saturating_sub(body.height as usize) as u16
-        }
-        Screen::Routines | Screen::RoutineEditor | Screen::RoutineRun => {
-            (routine_sel + 3).saturating_sub(body.height as usize) as u16
-        }
+    let selected = match app.screen {
+        Screen::Meditations => meditation_lines(app, &pal, body.width as usize).1,
+        Screen::Sounds => sound_lines(app, &pal, body.width as usize).1,
+        Screen::Presets => preset_lines(app, &pal, body.width as usize).1,
+        Screen::PresetBuilder => builder_lines(app, &pal, body.width as usize).1,
+        Screen::Routines | Screen::RoutineEditor | Screen::RoutineRun => routine_sel,
         _ => 0,
     };
-    f.render_widget(Paragraph::new(lines).scroll((scroll, 0)), body);
+    let scroll = (selected + 2).saturating_sub(body.height as usize) as u16;
+    f.render_widget(Paragraph::new(center_block(lines, body.width)).scroll((scroll, 0)), body);
 
     if let Some((n, _)) = &app.notice {
-        let txt = Span::styled(format!("  {n}"), Style::new().fg(pal.accent2.c()));
-        f.render_widget(Paragraph::new(Line::from(txt)), notice);
+        let txt = Span::styled(n.clone(), Style::new().fg(pal.accent2.c()));
+        f.render_widget(Paragraph::new(Line::from(txt).centered()), notice);
     }
-    let mut spans = vec![Span::raw("  ")];
+    let mut spans = Vec::new();
     for (k, d) in hints {
         spans.push(Span::styled(*k, Style::new().fg(pal.accent.c())));
         spans.push(Span::styled(*d, Style::new().fg(pal.dim.c())));
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), footer);
+    f.render_widget(Paragraph::new(Line::from(spans).centered()), footer);
 
     ui::draw_popup(f, app, &pal);
     if let Some(p) = &app.med_popup {
@@ -102,8 +169,63 @@ pub fn draw(f: &mut Frame, app: &App) {
     routine_ui::draw_popup(f, app, &pal);
 }
 
-pub(super) fn title(text: &str, pal: &Palette) -> Line<'static> {
-    Line::styled(text.to_string(), Style::new().fg(pal.fg.c()).add_modifier(Modifier::BOLD))
+/// The title in block letters (plain uppercase when they do not fit) centered in `area`, with the
+/// subtitle right under it.
+fn draw_title(buf: &mut Buffer, area: Rect, app: &App, head: &Header, pal: &Palette) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let (width, glyphs) = font::render(head.title, 1);
+    let sub = head.subtitle.as_deref().map(|s| ui::truncate(s, area.width.saturating_sub(4) as usize));
+    let block = font::HEIGHT as u16 + sub.is_some() as u16;
+    let big = title_fits(head.title, area.width) && area.height >= block;
+    let rows = if big { block } else { 1 + sub.is_some() as u16 };
+    let y0 = area.y + area.height.saturating_sub(rows) / 2;
+    if big {
+        let x0 = area.x + (area.width - width as u16) / 2;
+        ui::clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + rows + 1);
+        ui::draw_glyphs(buf, pal, app.started.elapsed().as_secs_f32(), (x0, y0), width, &glyphs);
+    } else {
+        let text = ui::truncate(head.title, area.width as usize);
+        let w = text.chars().count() as u16;
+        let x = area.x + (area.width - w) / 2;
+        ui::clear_rows(buf, area, x.saturating_sub(2), x + w + 2, y0, y0 + 1);
+        buf.set_string(x, y0, &text, Style::new().fg(pal.accent.c()).add_modifier(Modifier::BOLD));
+    }
+    if let Some(sub) = sub {
+        let w = sub.chars().count() as u16;
+        let x = area.x + (area.width - w) / 2;
+        let y = y0 + rows - 1;
+        ui::clear_rows(buf, area, x.saturating_sub(2), x + w + 2, y, y + 1);
+        buf.set_string(x, y, &sub, Style::new().fg(pal.fg.c()).add_modifier(Modifier::BOLD));
+    }
+}
+
+/// Centers the lines as one block: the block sits in the middle and its rows keep their left
+/// edge together (so the "> " marks and the numbers stay in a column). Lines that are already
+/// centered (notes and empty-list messages) do not count for the block width.
+fn center_block(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
+    let widest = lines.iter().filter(|l| l.alignment.is_none()).map(Line::width).max().unwrap_or(0);
+    let pad = (width as usize).saturating_sub(widest) / 2;
+    lines
+        .into_iter()
+        .map(|mut l| {
+            if l.alignment.is_none() {
+                l.spans.insert(0, Span::raw(" ".repeat(pad)));
+            }
+            l
+        })
+        .collect()
+}
+
+/// A short centered line (dim by default) that does not take part in the list's block width.
+pub(super) fn note(text: impl Into<String>, style: Style) -> Line<'static> {
+    Line::styled(text.into(), style).centered()
+}
+
+/// Subsection heading inside a list: uppercase and dim, like the Focus headers.
+pub(super) fn section(text: &str, pal: &Palette) -> Line<'static> {
+    Line::styled(text.to_uppercase(), Style::new().fg(pal.dim.c()))
 }
 
 /// "> label" for the selected row, "  label" for the others.
@@ -121,7 +243,7 @@ pub(super) fn row(selected: bool, prefix: String, label: &str, pal: &Palette) ->
 }
 
 fn home_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
-    let mut v = vec![title("WorkHub", pal), Line::raw("")];
+    let mut v = Vec::new();
     for (i, label) in app.home_items().iter().enumerate() {
         v.push(row(i == app.home_cursor, format!("{}  ", i + 1), label, pal));
     }
@@ -129,7 +251,7 @@ fn home_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
 }
 
 fn config_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
-    let mut v = vec![title("Configuración", pal), Line::raw("")];
+    let mut v = Vec::new();
     for (i, label) in CONFIG_ITEMS.iter().enumerate() {
         v.push(row(i == app.config_cursor, String::new(), label, pal));
     }
@@ -139,11 +261,14 @@ fn config_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
 /// The meditations list grouped by duration, plus the index of the selected line.
 pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = vec![title("Meditaciones", pal), Line::raw("")];
-    let mut selected_line = v.len();
+    let mut v = Vec::new();
+    let mut selected_line = 0;
     let mut index = 0;
     for (cat, items) in meditation::group(&app.state.meditations) {
-        v.push(Line::styled(cat.label(), Style::new().fg(pal.fg.c())));
+        if !v.is_empty() {
+            v.push(Line::raw(""));
+        }
+        v.push(section(&cat.label(), pal));
         for m in items {
             let sel = index == app.med_cursor;
             if sel {
@@ -173,7 +298,7 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
         }
     }
     if app.state.meditations.is_empty() {
-        v.push(Line::styled("Todavía no hay meditaciones. Corré `focus sync` o apretá a para agregar una.", dim));
+        v.push(note("Todavía no hay meditaciones. Corré `focus sync` o apretá a para agregar una.", dim));
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| d.meditation).collect();
     if !downloads.is_empty() {
@@ -185,7 +310,7 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
             (None, p) if p >= 0.0 => format!("↓ {}  {} {:.0}%", trunc(&d.name, 30), d.stage, p * 100.0),
             _ => format!("↓ {}  {}…", trunc(&d.name, 30), d.stage),
         };
-        v.push(Line::styled(text, dim));
+        v.push(note(text, dim));
     }
     (v, selected_line)
 }
@@ -193,13 +318,16 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
 /// Downloaded sounds grouped by theme, plus the index of the selected line.
 fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = vec![title("Sonidos ambientales", pal), Line::raw("")];
-    let mut selected_line = v.len();
+    let mut v = Vec::new();
+    let mut selected_line = 0;
     let mut theme = None;
     for (index, s) in app.file_sounds().into_iter().enumerate() {
         if theme != Some(s.theme) {
+            if theme.is_some() {
+                v.push(Line::raw(""));
+            }
             theme = Some(s.theme);
-            v.push(Line::styled(s.theme.label(), Style::new().fg(pal.fg.c())));
+            v.push(section(s.theme.label(), pal));
         }
         let sel = index == app.sound_cursor;
         if sel {
@@ -209,10 +337,7 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
         v.push(row(sel, format!("  {cloud}"), &trunc(&s.name, width.saturating_sub(8)), pal));
     }
     if app.file_sounds().is_empty() {
-        v.push(Line::styled(
-            "Todavía no hay sonidos descargados. Corré `focus sync` o apretá a para agregar uno.",
-            dim,
-        ));
+        v.push(note("Todavía no hay sonidos descargados. Corré `focus sync` o apretá a para agregar uno.", dim));
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| !d.meditation).collect();
     if !downloads.is_empty() {
@@ -224,7 +349,7 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
             (None, p) if p >= 0.0 => format!("↓ {}  {} {:.0}%", trunc(&d.name, 30), d.stage, p * 100.0),
             _ => format!("↓ {}  {}…", trunc(&d.name, 30), d.stage),
         };
-        v.push(Line::styled(text, dim));
+        v.push(note(text, dim));
     }
     (v, selected_line)
 }
@@ -232,8 +357,8 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
 /// Saved presets with the sounds and volumes each one has, plus the index of the selected line.
 fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = vec![title("Presets", pal), Line::raw("")];
-    let mut selected_line = v.len();
+    let mut v = Vec::new();
+    let mut selected_line = 0;
     for (i, p) in app.state.presets.iter().enumerate() {
         let sel = i == app.preset_list_cursor;
         if sel {
@@ -251,7 +376,7 @@ fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, 
         v.push(Line::styled(format!("    {}", trunc(&sounds.join(" · "), width.saturating_sub(6))), dim));
     }
     if app.state.presets.is_empty() {
-        v.push(Line::styled("Todavía no hay presets. Corré `focus sync` o apretá n para armar uno.", dim));
+        v.push(note("Todavía no hay presets. Corré `focus sync` o apretá n para armar uno.", dim));
     }
     (v, selected_line)
 }
@@ -259,11 +384,7 @@ fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, 
 /// The Focus-like list for building a preset (silent: nothing plays), plus the selected line.
 fn builder_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = vec![
-        title("Nuevo preset", pal),
-        Line::styled("Elegí los sonidos y su volumen; g los guarda con un nombre.", dim),
-        Line::raw(""),
-    ];
+    let mut v = vec![note("Elegí los sonidos y su volumen; g los guarda con un nombre.", dim), Line::raw("")];
     let Some(b) = &app.builder else { return (v, 0) };
     let bar_w = 14usize.min(width.saturating_sub(40));
     let name_w = width.saturating_sub(bar_w + 14).clamp(10, 32);
@@ -271,8 +392,11 @@ fn builder_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>,
     let mut theme = None;
     for (i, s) in app.state.sounds.iter().enumerate() {
         if theme != Some(s.theme) {
+            if theme.is_some() {
+                v.push(Line::raw(""));
+            }
             theme = Some(s.theme);
-            v.push(Line::styled(s.theme.label(), Style::new().fg(pal.fg.c())));
+            v.push(section(s.theme.label(), pal));
         }
         let sel = i == b.cursor;
         if sel {

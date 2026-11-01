@@ -45,7 +45,7 @@ src/
   download.rs    yt-dlp -> ffmpeg -> .opus + sha256 (sonidos: crossfade del loop horneado; meditaciones: entero)
   sync.rs        rclone copy hacia/desde el remoto (sonidos y meditaciones)
   setup.rs       primera vez: baja rclone (curl + unzip/tar, SHA256 oficial) y crea los remotes de Drive que usa sync (sonidos, meditaciones y library; scope drive.file); lo usan `focus setup` y `focus sync`
-  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones, Sonidos ambientales, Presets y el armado de presets; quietas), routines (lista, editor, ajuste de meditación y rutina en curso: estado y teclas), routine_ui (su dibujo), scene (animaciones), theme (paletas)
+  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones, Sonidos ambientales, Presets y el armado de presets; diseño v3: franja de estrellas tranquilas —`Scene::calm`, paleta neutra, sin audio— con el título en letras de bloque, lista centrada como bloque, aviso y teclas centradas; sin franja si la terminal mide menos de 20 filas), routines (lista, editor, ajuste de meditación y rutina en curso: estado y teclas), routine_ui (su dibujo), scene (animaciones), theme (paletas)
 ```
 
 - Hilo del callback de audio: sin locks ni allocations en el camino normal. Cada capa tiene su ring buffer (`rtrb`) que llena un hilo "feeder"; volumen/estado van por atómicos.
