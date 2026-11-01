@@ -437,9 +437,11 @@ impl App {
                     KeyCode::Enter => {
                         self.send(Command::Timer { minutes: Some(minutes) });
                         // La última fila, «Sonidos personalizados», no carga nada.
+                        // Con preset elegido arranca el modo deep work; con «Sonidos personalizados», no.
                         if let Some(p) = self.state.presets.get(sel) {
                             let name = p.name.clone();
                             self.send(Command::LoadPreset { name });
+                            self.deep = Deep::On;
                         }
                         return None;
                     }

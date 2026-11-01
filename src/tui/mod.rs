@@ -331,6 +331,7 @@ mod tests {
         assert!(app.popup.is_none());
         assert_eq!(app.screen, app::Screen::Focus);
         assert!(sent(&mut app).is_empty());
+        assert_eq!(app.deep, app::Deep::Off);
     }
 
     #[test]
@@ -345,6 +346,7 @@ mod tests {
         let out = sent(&mut app);
         assert!(out.iter().any(|c| matches!(c, Command::Timer { minutes: Some(30) })));
         assert!(out.iter().any(|c| matches!(c, Command::LoadPreset { name } if name == "Lluvia y fuego")));
+        assert_eq!(app.deep, app::Deep::On, "con preset arranca el modo deep work");
     }
 
     #[test]
@@ -359,6 +361,7 @@ mod tests {
         assert!(out.iter().any(|c| matches!(c, Command::Timer { minutes: Some(50) })));
         assert!(!out.iter().any(|c| matches!(c, Command::LoadPreset { .. })));
         assert_eq!(app.screen, app::Screen::Focus);
+        assert_eq!(app.deep, app::Deep::Off, "con sonidos personalizados no");
     }
 
     #[test]
@@ -1669,8 +1672,8 @@ mod tests {
         for s in ["encender", "volumen", "timer", "presets", "salir", "vol "] {
             assert!(!t.contains(s), "no debería verse «{s}» en:\n{t}");
         }
-        // 31:13 en dígitos de 5 filas: la primera fila del 3 es «█████».
-        assert!(t.contains("█████"), "{t}");
+        // 31:13 con los dígitos del reloj normal, agrandados: la primera fila del 3 es «██████» (ancho 6 o más).
+        assert!(t.contains("██████"), "{t}");
         assert!(!t.contains("31:13"));
     }
 
@@ -1679,7 +1682,7 @@ mod tests {
         let mut app = focus_app();
         press(&mut app, "d");
         let t = screen_text(&app, 80, 24);
-        assert!(t.contains("████ "), "{t}");
+        assert!(t.contains("████████"), "{t}");
         assert!(t.contains("? ayuda"));
     }
 

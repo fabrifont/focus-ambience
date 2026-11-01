@@ -72,7 +72,7 @@ fn draw_overlay(buf: &mut Buffer, area: Rect, app: &App) {
         }
         None => ("FOCUS".to_string(), None),
     };
-    let (width, glyphs) = font::render(&text, false);
+    let (width, glyphs) = font::render(&text, 1);
     let block_h = font::HEIGHT as u16 + 2;
     if area.height < block_h || area.width < width as u16 + 2 {
         return;
@@ -138,7 +138,7 @@ fn draw_glyphs(
     t: f32,
     (x0, y0): (u16, u16),
     width: usize,
-    glyphs: &[(usize, Vec<&'static str>)],
+    glyphs: &[(usize, Vec<String>)],
 ) {
     let sweep = (t * 0.12).fract() * 2.2 - 0.6;
     for (gx, rows) in glyphs {
@@ -183,19 +183,19 @@ fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
         Some(tm) => format!("{}:{:02}", tm.remaining_secs / 60, tm.remaining_secs % 60),
         None => "FOCUS".to_string(),
     };
-    // The big font if it fits, the small one otherwise.
-    for big in [true, false] {
-        let h = if big { font::BIG_HEIGHT } else { font::HEIGHT } as u16;
-        let (width, glyphs) = font::render(&text, big);
-        if area.height < h || area.width < width as u16 {
-            continue;
-        }
-        let x0 = area.x + (area.width - width as u16) / 2;
-        let y0 = area.y + (area.height - h) / 2;
-        clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + h + 1);
-        draw_glyphs(buf, &pal, t, (x0, y0), width, &glyphs);
-        return;
-    }
+    // The same font as the normal clock, scaled up as much as it fits (at least 1x).
+    let fits = |k: usize| {
+        let (width, _) = font::render(&text, k);
+        area.height >= (font::HEIGHT * k) as u16 && area.width >= width as u16
+    };
+    let scale = (1..=8).take_while(|&k| fits(k)).last();
+    let Some(scale) = scale else { return };
+    let h = (font::HEIGHT * scale) as u16;
+    let (width, glyphs) = font::render(&text, scale);
+    let x0 = area.x + (area.width - width as u16) / 2;
+    let y0 = area.y + (area.height - h) / 2;
+    clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + h + 1);
+    draw_glyphs(buf, &pal, t, (x0, y0), width, &glyphs);
 }
 
 /// Deep work footer: nothing but the help key.
