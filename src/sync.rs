@@ -32,6 +32,13 @@ fn sibling_remote(remote: &str, name: &str) -> String {
     }
 }
 
+/// Manifest files that travel with the audio, relative to the library folder.
+const DATA_FILES: [&str; 2] = ["routines.toml", "meditations.toml"];
+
+fn data_remote() -> String {
+    sibling_remote(&remote(), "library")
+}
+
 /// One library folder and its remote counterpart, with what its manifest expects inside.
 struct Set {
     label: &'static str,
@@ -59,10 +66,14 @@ fn sets() -> Result<[Set; 2]> {
 }
 
 /// `only`: copy just these files instead of every .opus.
-fn rclone(from: &str, to: &str, only: Option<&[String]>) -> Result<()> {
+/// `update`: skip files that are newer at the destination.
+fn rclone(from: &str, to: &str, only: Option<&[String]>, update: bool) -> Result<()> {
     println!("  {from}  →  {to}");
     let mut cmd = Command::new(paths::tool("rclone"));
     cmd.args(["copy", from, to, "--progress", "--stats-one-line"]);
+    if update {
+        cmd.arg("--update");
+    }
     match only {
         Some(files) => files.iter().fold(&mut cmd, |c, f| c.arg("--include").arg(f)),
         None => cmd.args(["--include", "*.opus"]),
@@ -78,7 +89,21 @@ fn rclone(from: &str, to: &str, only: Option<&[String]>) -> Result<()> {
     Ok(())
 }
 
+/// Copy routines.toml and meditations.toml; the newer copy wins, so neither side clobbers fresh edits.
+fn sync_data(from: &str, to: &str) -> Result<()> {
+    let files = DATA_FILES.map(String::from);
+    rclone(from, to, Some(&files), true)
+}
+
 pub fn run(dir: Direction) -> Result<()> {
+    let library = paths::library_dir();
+    std::fs::create_dir_all(&library)?;
+    let data_local = library.to_string_lossy().into_owned();
+    // Before reading the manifests: a pulled meditations.toml says which .opus to fetch.
+    if dir != Direction::Push {
+        println!("⇣ bajando rutinas y manifiesto de meditaciones");
+        sync_data(&data_remote(), &data_local)?;
+    }
     let sets = sets()?;
     for set in &sets {
         std::fs::create_dir_all(&set.local)?;
@@ -92,15 +117,17 @@ pub fn run(dir: Direction) -> Result<()> {
                 println!("⇣ no falta bajar nada de {}", set.label);
             } else {
                 println!("⇣ bajando {} que falten", set.label);
-                rclone(&set.remote, &set.local.to_string_lossy(), Some(&wanted))?;
+                rclone(&set.remote, &set.local.to_string_lossy(), Some(&wanted), false)?;
             }
         }
     }
     if dir != Direction::Pull {
         for set in &sets {
             println!("⇡ subiendo {} nuevos", set.label);
-            rclone(&set.local.to_string_lossy(), &set.remote, None)?;
+            rclone(&set.local.to_string_lossy(), &set.remote, None, false)?;
         }
+        println!("⇡ subiendo rutinas y manifiesto de meditaciones");
+        sync_data(&data_local, &data_remote())?;
     }
     verify()
 }
@@ -151,6 +178,12 @@ mod tests {
         assert_eq!(sibling_remote("gdrive:sonidos", "meditations"), "gdrive:meditations");
         assert_eq!(sibling_remote("gdrive:", "meditations"), "gdrive:meditations");
         assert_eq!(sibling_remote("/mnt/backup/sounds", "meditations"), "/mnt/backup/meditations");
+    }
+
+    #[test]
+    fn data_files_go_to_a_library_folder_next_to_the_sounds() {
+        assert_eq!(sibling_remote("gdrive:focus-ambience/sounds", "library"), "gdrive:focus-ambience/library");
+        assert!(DATA_FILES.contains(&"routines.toml") && DATA_FILES.contains(&"meditations.toml"));
     }
 
     #[test]
