@@ -584,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn the_builder_lists_every_sound_with_volume_and_plays_nothing() {
+    fn the_builder_lists_every_sound_with_volume_and_starts_silent() {
         let mut app = app_with_sounds_and_presets();
         sent(&mut app);
         open_builder(&mut app);
@@ -612,7 +612,8 @@ mod tests {
         assert!(app.popup.is_none());
         assert_eq!(app.screen, app::Screen::Presets);
         assert!(app.builder.is_none());
-        match sent(&mut app).pop() {
+        let store = sent(&mut app).into_iter().find(|c| matches!(c, Command::StorePreset { .. }));
+        match store {
             Some(Command::StorePreset { name, layers }) => {
                 assert_eq!(name, "Estudio");
                 assert_eq!(layers.len(), 2);
@@ -652,7 +653,98 @@ mod tests {
         sent(&mut app);
         app.key(key(Esc));
         assert_eq!(app.screen, app::Screen::Presets);
-        assert!(app.builder.is_none() && sent(&mut app).is_empty());
+        assert!(app.builder.is_none());
+        assert!(!sent(&mut app).iter().any(|c| matches!(c, Command::StorePreset { .. })));
+    }
+
+    fn with_focus_playing(ids: &[&str], paused: bool) -> App {
+        let mut app = app_with_sounds_and_presets();
+        let mut st = app.state.clone();
+        st.active = ids.iter().map(|s| s.to_string()).collect();
+        st.paused = paused;
+        app.set_state(st);
+        app
+    }
+
+    fn active_ids(cmds: &[Command]) -> Vec<(String, bool)> {
+        cmds.iter()
+            .filter_map(|c| match c {
+                Command::SetActive { id, active } => Some((id.clone(), *active)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn entering_the_builder_silences_what_played_in_focus() {
+        let mut app = with_focus_playing(&["lluvia"], false);
+        sent(&mut app);
+        open_builder(&mut app);
+        assert_eq!(active_ids(&sent(&mut app)), [("lluvia".to_string(), false)]);
+    }
+
+    #[test]
+    fn picked_sounds_play_live_with_their_volume() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        sent(&mut app);
+        press(&mut app, " "); // Templo Jedi, 50 %
+        let cmds = sent(&mut app);
+        assert!(
+            matches!(&cmds[0], Command::SetVolume { id, volume } if id == "templo" && (*volume - 0.5).abs() < 1e-4)
+        );
+        assert_eq!(active_ids(&cmds), [("templo".to_string(), true)]);
+        press(&mut app, "l");
+        assert!(
+            matches!(sent(&mut app).pop(), Some(Command::SetVolume { id, volume }) if id == "templo" && (volume - 0.55).abs() < 1e-4)
+        );
+        press(&mut app, "j"); // Lluvia, sin elegir: el volumen no suena
+        press(&mut app, "l");
+        assert!(sent(&mut app).is_empty());
+        press(&mut app, "k ");
+        assert_eq!(active_ids(&sent(&mut app)), [("templo".to_string(), false)]);
+    }
+
+    #[test]
+    fn leaving_the_builder_with_esc_restores_what_played_before() {
+        let mut app = with_focus_playing(&["lluvia"], false);
+        open_builder(&mut app);
+        press(&mut app, " ");
+        sent(&mut app);
+        app.key(key(Esc));
+        let cmds = sent(&mut app);
+        assert_eq!(
+            active_ids(&cmds),
+            [("templo".to_string(), false), ("lluvia".to_string(), true)],
+            "apaga el preview y vuelve lo de antes"
+        );
+        assert!(
+            cmds.iter().any(
+                |c| matches!(c, Command::SetVolume { id, volume } if id == "lluvia" && (*volume - 0.7).abs() < 1e-4)
+            )
+        );
+        assert!(!cmds.iter().any(|c| matches!(c, Command::PauseAll)));
+    }
+
+    #[test]
+    fn saving_restores_too_and_keeps_a_pause_and_silence_when_nothing_played() {
+        let mut app = with_focus_playing(&["lluvia"], true);
+        open_builder(&mut app);
+        press(&mut app, " g");
+        type_text(&mut app, "Nuevo");
+        sent(&mut app);
+        app.key(key(Enter));
+        let cmds = sent(&mut app);
+        assert!(matches!(cmds.first(), Some(Command::SetActive { id, active: false }) if id == "templo"));
+        assert!(cmds.iter().any(|c| matches!(c, Command::PauseAll)), "estaba en pausa: {cmds:?}");
+        assert!(cmds.iter().any(|c| matches!(c, Command::StorePreset { .. })));
+
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        press(&mut app, " ");
+        sent(&mut app);
+        app.key(key(Esc));
+        assert_eq!(active_ids(&sent(&mut app)), [("templo".to_string(), false)], "queda en silencio");
     }
 
     #[test]
@@ -660,6 +752,7 @@ mod tests {
         let mut app = app_with_sounds_and_presets();
         open_builder(&mut app);
         press(&mut app, " g");
+        sent(&mut app);
         app.key(key(Enter)); // sin nombre no avanza
         assert!(app.popup.is_some() && sent(&mut app).is_empty());
         type_text(&mut app, "templo JEDI");

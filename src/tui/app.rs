@@ -35,9 +35,18 @@ pub enum Screen {
 
 pub const CONFIG_ITEMS: [&str; 4] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"];
 
-/// Preset que se está armando en Configuración > Presets.
+/// Lo que sonaba en Focus al entrar al armado de un preset, para dejarlo igual al salir.
+#[derive(Default)]
+pub struct AudioSnapshot {
+    active: Vec<String>,
+    paused: bool,
+    volumes: BTreeMap<String, f32>,
+}
+
+/// Preset que se está armando en Configuración > Presets (suena en vivo mientras se arma).
 #[derive(Default)]
 pub struct PresetDraft {
+    before: AudioSnapshot,
     pub cursor: usize,
     /// Sonidos que van en el preset.
     pub picked: BTreeSet<String>,
@@ -506,8 +515,7 @@ impl App {
             KeyCode::Home | KeyCode::Char('g') => self.preset_list_cursor = 0,
             KeyCode::End | KeyCode::Char('G') => self.preset_list_cursor = n.saturating_sub(1),
             KeyCode::Char('n') => {
-                self.builder = Some(PresetDraft::default());
-                self.go(Screen::PresetBuilder);
+                self.enter_builder();
             }
             KeyCode::Char('d') | KeyCode::Delete => {
                 if let Some(p) = self.state.presets.get(self.preset_list_cursor) {
@@ -519,6 +527,38 @@ impl App {
             KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
         }
+    }
+
+    /// Guarda lo que suena, lo calla y abre el armado: lo elegido suena en vivo.
+    fn enter_builder(&mut self) {
+        let before = AudioSnapshot {
+            active: self.state.active.clone(),
+            paused: self.state.paused,
+            volumes: self.state.volumes.clone(),
+        };
+        for id in &before.active {
+            self.send(Command::SetActive { id: id.clone(), active: false });
+        }
+        self.builder = Some(PresetDraft { before, ..PresetDraft::default() });
+        self.go(Screen::PresetBuilder);
+    }
+
+    /// Cierra el armado: apaga el preview y devuelve el audio a como estaba antes de entrar.
+    fn leave_builder(&mut self) -> Option<PresetDraft> {
+        let b = self.builder.take()?;
+        for id in &b.picked {
+            self.send(Command::SetActive { id: id.clone(), active: false });
+        }
+        for (id, v) in &b.before.volumes {
+            self.send(Command::SetVolume { id: id.clone(), volume: *v });
+        }
+        for id in &b.before.active {
+            self.send(Command::SetActive { id: id.clone(), active: true });
+        }
+        if b.before.paused && !b.before.active.is_empty() {
+            self.send(Command::PauseAll);
+        }
+        Some(b)
     }
 
     /// Volumen del sonido en el borrador: el que ya se tocó o el de Focus.
@@ -536,11 +576,14 @@ impl App {
             KeyCode::Home => b.cursor = 0,
             KeyCode::End | KeyCode::Char('G') => b.cursor = n.saturating_sub(1),
             KeyCode::Char(' ') | KeyCode::Enter => {
-                if let Some((id, available)) = current
-                    && !b.picked.remove(&id)
-                {
-                    if available {
-                        b.picked.insert(id);
+                if let Some((id, available)) = current {
+                    if b.picked.remove(&id) {
+                        self.send(Command::SetActive { id, active: false });
+                    } else if available {
+                        b.picked.insert(id.clone());
+                        let volume = self.draft_volume(&id);
+                        self.send(Command::SetVolume { id: id.clone(), volume });
+                        self.send(Command::SetActive { id, active: true });
                     } else {
                         self.notify("ese sonido no está en esta compu: corré `focus sync`");
                     }
@@ -551,7 +594,10 @@ impl App {
                 if let Some((id, _)) = current {
                     let v = (self.draft_volume(&id) + delta).clamp(0.0, 1.0);
                     if let Some(b) = self.builder.as_mut() {
-                        b.volumes.insert(id, v);
+                        b.volumes.insert(id.clone(), v);
+                        if b.picked.contains(&id) {
+                            self.send(Command::SetVolume { id, volume: v });
+                        }
                     }
                 }
             }
@@ -563,7 +609,7 @@ impl App {
                 }
             }
             KeyCode::Esc => {
-                self.builder = None;
+                self.leave_builder();
                 self.go(Screen::Presets);
             }
             KeyCode::Char('q') => self.request_quit(),
@@ -833,7 +879,7 @@ impl App {
                         self.notify("ya hay un preset con ese nombre");
                         return self.popup = Some(Popup::SavePreset { name });
                     }
-                    let layers: BTreeMap<String, f32> = match self.builder.take() {
+                    let layers: BTreeMap<String, f32> = match self.leave_builder() {
                         Some(b) => b
                             .picked
                             .iter()
