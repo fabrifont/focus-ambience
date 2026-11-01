@@ -509,7 +509,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                 Line::from(vec![
                     Span::styled("  ↑↓ ", acc),
                     Span::styled("cambiar  ", dim),
-                    Span::styled("Enter ", acc),
+                    Span::styled("Enter/␣ ", acc),
                     Span::styled("seguir  ", dim),
                     Span::styled("Esc ", acc),
                     Span::styled("saltear", dim),
@@ -531,7 +531,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
             }
             lines.push(Line::raw(""));
             lines.push(Line::from(vec![
-                Span::styled("  Enter ", acc),
+                Span::styled("  Enter/␣ ", acc),
                 Span::styled("arrancar  ", dim),
                 Span::styled("Esc ", acc),
                 Span::styled("saltear", dim),
@@ -725,7 +725,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                     row("t", "temporizador"),
                     row("d", if app.deep == Deep::Off { "modo deep work" } else { "salir del modo deep work" }),
                     row("tab", "sonidos ⇄ presets"),
-                    row("enter", "en presets: cargar el preset"),
+                    row("␣ / enter", "en presets: cargar el preset"),
                     row("esc", "volver al menú de inicio"),
                     row("q", "salir (pregunta si dejar sonando)"),
                     row("Ctrl+Q", "apagar todo y salir"),

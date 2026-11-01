@@ -618,7 +618,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => b.cursor = (b.cursor + 1).min(n.saturating_sub(1)),
             KeyCode::Home => b.cursor = 0,
             KeyCode::End => b.cursor = n.saturating_sub(1),
-            KeyCode::Char(' ') | KeyCode::Enter => {
+            KeyCode::Enter => {
                 if let Some((id, available)) = current {
                     if b.picked.remove(&id) {
                         self.send(Command::SetActive { id, active: false });
@@ -668,7 +668,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => self.med_cursor = (self.med_cursor + 1).min(n.saturating_sub(1)),
             KeyCode::Home | KeyCode::Char('g') => self.med_cursor = 0,
             KeyCode::End => self.med_cursor = n.saturating_sub(1),
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter => {
                 if let Some(m) = self.selected_meditation() {
                     let id = m.id.clone();
                     let loaded = self.state.meditation.as_ref().is_some_and(|p| p.id == id);
@@ -804,15 +804,27 @@ impl App {
             )
     }
 
+    /// ¿El espacio se escribe (o se ignora) en vez de confirmar? Pasa en los campos de texto y
+    /// en los minutos del temporizador personalizado.
+    fn space_is_text(&self) -> bool {
+        self.typing() || matches!(self.popup, Some(Popup::Timer { custom: Some(_), .. }))
+    }
+
     /// Con Bloq Mayús (o Shift) las letras llegan en mayúscula: se pasan a minúscula para que
     /// los atajos anden igual, salvo en campos de texto. No hay atajos con mayúscula: los que
-    /// antes la usaban pasaron a Ctrl+letra.
+    /// antes la usaban pasaron a Ctrl+letra. El espacio es Enter en todas partes salvo en los
+    /// campos de texto, así que el resto del código solo mira Enter.
     fn normalize(&self, mut k: KeyEvent) -> KeyEvent {
-        if let KeyCode::Char(c) = k.code
-            && c.is_ascii_uppercase()
-            && !self.typing()
-        {
-            k.code = KeyCode::Char(c.to_ascii_lowercase());
+        match k.code {
+            KeyCode::Char(c) if c.is_ascii_uppercase() && !self.typing() => {
+                k.code = KeyCode::Char(c.to_ascii_lowercase());
+            }
+            KeyCode::Char(' ')
+                if !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && !self.space_is_text() =>
+            {
+                k.code = KeyCode::Enter;
+            }
+            _ => {}
         }
         k
     }
@@ -915,7 +927,7 @@ impl App {
             KeyCode::End => self.cursor = items.saturating_sub(1),
             KeyCode::Left | KeyCode::Char('h') => self.change_volume(-0.05),
             KeyCode::Right | KeyCode::Char('l') => self.change_volume(0.05),
-            KeyCode::Char(' ') | KeyCode::Enter => {
+            KeyCode::Enter => {
                 if let Some(s) = self.selected_sound() {
                     let id = s.id.clone();
                     self.send(Command::Toggle { id });
@@ -932,7 +944,7 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => {
                 self.preset_cursor = (self.preset_cursor + 1).min(n.saturating_sub(1))
             }
-            KeyCode::Char(' ') | KeyCode::Enter => {
+            KeyCode::Enter => {
                 if let Some(p) = self.state.presets.get(self.preset_cursor) {
                     let name = p.name.clone();
                     self.send(Command::LoadPreset { name });
@@ -1054,7 +1066,7 @@ impl App {
                         self.send(Command::Timer { minutes: Some(m) });
                         return;
                     }
-                    KeyCode::Enter | KeyCode::Char(' ') => {
+                    KeyCode::Enter => {
                         return match TIMER_CHOICES.get(sel) {
                             Some(0) => self.popup = Some(Popup::Timer { sel, custom: Some(String::new()) }),
                             Some(&m) => self.send(Command::Timer { minutes: Some(m) }),

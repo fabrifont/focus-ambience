@@ -51,7 +51,7 @@ fn list_view(app: &App, pal: &Palette, width: usize) -> View {
         lines.push(note("Todavía no hay rutinas. Apretá n para crear una (o corré `focus sync` para traerlas).", dim));
     }
     let hints: Hints = if app.list_from == Screen::Home {
-        &[("Enter", " empezar  "), ("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("Esc", " volver")]
+        &[("Enter/␣", " empezar  "), ("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("Esc", " volver")]
     } else {
         &[("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("Esc", " volver")]
     };
@@ -91,7 +91,7 @@ fn editor_view(app: &App, pal: &Palette, width: usize) -> View {
         hints: &[
             ("a", " tarea  "),
             ("m", " meditación  "),
-            ("Enter", " editar  "),
+            ("Enter/␣", " editar  "),
             ("K/J", " mover  "),
             ("d", " borrar  "),
             ("r", " nombre  "),
@@ -138,7 +138,7 @@ fn step_view(app: &App, pal: &Palette) -> View {
     }
     View {
         lines,
-        hints: &[("←→", " cambiar  "), ("↑↓", " mover  "), ("Enter", " listo  "), ("Esc", " volver")],
+        hints: &[("←→", " cambiar  "), ("↑↓", " mover  "), ("Enter/␣", " listo  "), ("Esc", " volver")],
         selected: 0,
     }
 }
@@ -189,7 +189,9 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
         }
     }
     View {
-        lines, hints: &[("␣", " marca (meditación: play/pausa)  "), ("↑↓", " mover  "), ("Esc", " menú")], selected
+        lines,
+        hints: &[("Enter/␣", " marca (meditación: play/pausa)  "), ("↑↓", " mover  "), ("Esc", " menú")],
+        selected,
     }
 }
 
@@ -253,7 +255,7 @@ fn chooser_view(app: &App, pal: &Palette, sel: usize) -> View {
     if cats.is_empty() {
         lines.push(note("No hay meditaciones en esta compu. Corré `focus sync` o agregá una.", dim));
     }
-    View { lines, hints: &[("Enter", " elegir  "), ("Esc", " volver")], selected }
+    View { lines, hints: &[("Enter/␣", " elegir  "), ("Esc", " volver")], selected }
 }
 
 // ----------------------------------------------------------- diálogos

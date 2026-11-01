@@ -1641,15 +1641,32 @@ mod tests {
     }
 
     #[test]
-    fn enter_does_nothing_in_a_running_routine() {
+    fn enter_on_a_task_step_toggles_the_mark() {
+        use crate::tui::routines::Mark;
         let mut app = app_with_routines();
         press(&mut app, "1");
         app.key(key(Enter));
-        assert_eq!(app.run.as_ref().unwrap().done_count(), 0);
-        app.run.as_mut().unwrap().cursor = 3;
+        assert_eq!(app.run.as_ref().unwrap().marks[0], Mark::Done);
+        app.key(key(Up));
         app.key(key(Enter));
-        assert!(sent(&mut app).is_empty());
-        assert!(app.run.as_ref().unwrap().chooser.is_none());
+        assert_eq!(app.run.as_ref().unwrap().marks[0], Mark::Pending);
+    }
+
+    #[test]
+    fn enter_on_the_meditation_step_starts_and_pauses_but_never_marks() {
+        let mut app = app_with_routines();
+        press(&mut app, "1jjj");
+        app.key(key(Enter));
+        let id = match sent(&mut app).pop() {
+            Some(Command::PlayMeditation { id }) => id,
+            other => panic!("salió {other:?}"),
+        };
+        assert_eq!(app.run.as_ref().unwrap().done_count(), 0);
+        app.state.meditation =
+            Some(crate::protocol::MeditationPlayback { id, position_secs: 10, total_secs: 600, paused: false });
+        app.key(key(Enter));
+        assert!(matches!(sent(&mut app).pop(), Some(Command::ToggleMeditation)));
+        assert_eq!(app.run.as_ref().unwrap().done_count(), 0);
     }
 
     #[test]
@@ -2415,5 +2432,171 @@ mod tests {
             app.animate(0.25, band.width, band.height);
         }
         assert!(!app.band.busy() && !app.animating(), "la franja no pide cuadros rápidos");
+    }
+
+    // ------------------------------------------------ espacio = Enter
+
+    /// Configuración > Rutinas (lista abierta desde Configuración), y después `keys`.
+    fn from_config(app: &mut App, keys: &str) {
+        press(app, "4");
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter));
+        press(app, keys);
+    }
+
+    /// Todo lo que se ve o se manda después de una tecla.
+    fn fingerprint(app: &mut App) -> String {
+        let out = sent(app);
+        let exit = (app.exit == Some(app::Exit::Quit), app.exit == Some(app::Exit::Detach));
+        format!("{:?}|{out:?}|{exit:?}|{}", app.screen, screen_text(app, 80, 24))
+    }
+
+    /// Prepara dos apps iguales, aprieta Enter en una y espacio en la otra y compara. También
+    /// exige que Enter haga algo, para que el caso no pase por no hacer nada.
+    fn same_as_enter(name: &str, setup: impl Fn(&mut App)) {
+        use ratatui::crossterm::event::KeyCode::Enter;
+        let build = || {
+            let mut app = app_with_routines();
+            app.routines[0].meditation = setting(Some(5)); // una sola, sin azar
+            let mut st = app.state.clone();
+            st.presets = vec![Preset { name: "Rivendell".into(), layers: [("noise-brown".to_string(), 0.3)].into() }];
+            st.sounds = library::all_sounds().unwrap();
+            app.set_state(st);
+            setup(&mut app);
+            sent(&mut app);
+            app
+        };
+        let (mut a, mut b) = (build(), build());
+        let before = fingerprint(&mut build());
+        a.key(key(Enter));
+        press(&mut b, " ");
+        let (fa, fb) = (fingerprint(&mut a), fingerprint(&mut b));
+        assert_ne!(fa, before, "{name}: Enter no hizo nada");
+        assert_eq!(fa, fb, "{name}: espacio y Enter difieren");
+    }
+
+    #[test]
+    fn space_and_enter_do_the_same_everywhere_outside_text_fields() {
+        use app::Popup;
+        use ratatui::crossterm::event::KeyCode::Esc;
+        same_as_enter("inicio", |_| {});
+        same_as_enter("configuración", |a| press(a, "4"));
+        same_as_enter("antes de arrancar: tiempo", |a| a.enter_focus());
+        same_as_enter("antes de arrancar: sonidos", |a| {
+            a.enter_focus();
+            a.key(key(Enter));
+        });
+        same_as_enter("salir (sonando)", |a| a.popup = Some(Popup::Quit));
+        same_as_enter("salir (en silencio)", |a| a.popup = Some(Popup::ConfirmQuit));
+        same_as_enter("borrar sonido", |a| {
+            a.popup = Some(Popup::DeleteSound { id: "lluvia".into(), name: "Lluvia".into() })
+        });
+        same_as_enter("borrar preset", |a| a.popup = Some(Popup::DeletePreset { name: "Rivendell".into() }));
+        same_as_enter("descartar preset", |a| a.popup = Some(Popup::DiscardPreset));
+        same_as_enter("rutinas: empezar", |a| press(a, "2"));
+        same_as_enter("rutinas: editar", |a| from_config(a, ""));
+        same_as_enter("rutinas: borrar", |a| press(a, "2d"));
+        same_as_enter("editor: abrir tarea", |a| from_config(a, "e"));
+        same_as_enter("editor: ajuste de meditación", |a| from_config(a, "ejjj"));
+        same_as_enter("editor: borrar tarea", |a| from_config(a, "ed"));
+        same_as_enter("editor: sin guardar", |a| {
+            from_config(a, "ea");
+            press(a, "x");
+            a.key(key(Enter));
+            a.key(key(Esc));
+        });
+        same_as_enter("ajuste de meditación", |a| from_config(a, "ejjj"));
+        same_as_enter("rutina en curso: elegir duración", |a| {
+            a.routines[0].meditation = setting(Some(20));
+            press(a, "1jjj");
+        });
+        same_as_enter("rutina en curso: tarea", |a| press(a, "1"));
+        same_as_enter("rutina en curso: meditación", |a| press(a, "1jjj"));
+        same_as_enter("meditaciones: borrar", |a| {
+            a.screen = app::Screen::Meditations;
+            press(a, "d");
+        });
+        same_as_enter("meditaciones: categoría", |a| {
+            a.screen = app::Screen::Meditations;
+            press(a, "a");
+            a.paste("https://youtu.be/abc");
+            a.key(key(Enter));
+        });
+    }
+
+    #[test]
+    fn space_saves_the_meditation_setting_like_enter() {
+        // Dentro del ajuste de meditación Enter guarda y vuelve al editor; espacio igual.
+        let mut a = app_with_routines();
+        from_config(&mut a, "ejjj");
+        a.key(key(Enter));
+        assert_eq!(a.screen, app::Screen::RoutineStep);
+        press(&mut a, " ");
+        assert_eq!(a.screen, app::Screen::RoutineEditor);
+    }
+
+    #[test]
+    fn space_still_types_in_every_text_field() {
+        use crate::tui::routines::EdPopup;
+        use app::Popup;
+        // Nombre de la rutina.
+        let mut app = app_with_routines();
+        from_config(&mut app, "er");
+        press(&mut app, "a b");
+        match &app.editor.as_ref().unwrap().popup {
+            Some(EdPopup::Name { text, .. }) => assert!(text.ends_with("a b"), "{text}"),
+            _ => panic!("falta el nombre"),
+        }
+        // Texto de la tarea.
+        let mut app = app_with_routines();
+        from_config(&mut app, "ea");
+        press(&mut app, "a b");
+        match &app.editor.as_ref().unwrap().popup {
+            Some(EdPopup::Task { text, .. }) => assert_eq!(text, "a b"),
+            _ => panic!("falta la tarea"),
+        }
+        // Nombre del preset.
+        let mut app = app_with_routines();
+        app.popup = Some(Popup::SavePreset { name: String::new() });
+        press(&mut app, "a b");
+        assert!(matches!(&app.popup, Some(Popup::SavePreset { name }) if name == "a b"));
+        // Link de la meditación.
+        let mut app = app_with_meditations();
+        app.screen = app::Screen::Meditations;
+        press(&mut app, "a");
+        press(&mut app, "a b");
+        assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, category: None }) if url == "a b"));
+        // Formulario de sonido: url y nombre escriben; tema y recorte lo ignoran como antes.
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        press(&mut app, "a");
+        let field = |app: &App| match &app.popup {
+            Some(Popup::Add(f)) => (f.field, f.url.clone(), f.name.clone(), f.trim.clone(), f.theme),
+            _ => panic!("falta el formulario"),
+        };
+        press(&mut app, "a b");
+        assert_eq!(field(&app).1, "a b");
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab));
+        press(&mut app, "c d");
+        assert_eq!(field(&app).2, "c d");
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab));
+        let theme = field(&app).4;
+        press(&mut app, " ");
+        assert_eq!(field(&app).0, 2, "espacio no avanza de campo");
+        assert_eq!(field(&app).4, theme);
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab));
+        press(&mut app, "1 2");
+        let f = field(&app);
+        assert_eq!((f.0, f.3.as_str()), (3, "12"));
+        assert!(sent(&mut app).is_empty());
+    }
+
+    #[test]
+    fn space_is_still_ignored_in_the_custom_timer_minutes() {
+        use app::Popup;
+        let mut app = app_with_routines();
+        app.popup = Some(Popup::Timer { sel: 0, custom: Some(String::new()) });
+        press(&mut app, "5 5");
+        assert!(matches!(&app.popup, Some(Popup::Timer { custom: Some(s), .. }) if s == "55"));
+        assert!(sent(&mut app).is_empty(), "espacio no confirma");
     }
 }
