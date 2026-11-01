@@ -53,25 +53,37 @@ focus help
 
 Las categorías de duración son 5, 10, 15, 20, 25, 30, 40 y 60 minutos (1 hora); se eligen a mano. Una meditación se baja entera (sin recorte ni crossfade de loop) y se escucha una sola vez; al terminar se detiene sola.
 
-Al abrir `focus` aparece el menú de inicio: `↑↓` mueven, `Enter` elige, `1`-`4` van directo, `q` sale. «Ir a Focus» abre la interfaz de focus de abajo; `Esc` vuelve al menú sin cortar el sonido. «Configuración» → «Meditaciones» lista las meditaciones agrupadas por duración: `Enter` reproduce o pausa (con el tiempo transcurrido), `a` agrega desde un link de YouTube y pide la categoría, `d` borra (con confirmación), `Esc` vuelve.
+Al abrir `focus` aparece el menú de inicio: `↑↓` mueven, `Enter` elige, `1`-`4` van directo, `q` sale. «Ir a Focus» abre la interfaz de focus de abajo (primero la ventanita, ver más abajo); `Esc` vuelve al menú sin cortar el sonido. «Configuración» tiene cuatro entradas: Rutinas, Meditaciones, Sonidos ambientales y Presets. «Meditaciones» lista las meditaciones agrupadas por duración: `Enter` reproduce o pausa (con el tiempo transcurrido), `a` agrega desde un link de YouTube y pide la categoría, `d` borra (con confirmación), `Esc` vuelve.
 
 ### Rutinas
 
-Una rutina es un nombre, una lista ordenada de **tareas** (un texto, como «Preparar mate») y, aparte, una **meditación** opcional (como mucho una): de **duración fija** (una de las categorías) o **libre** (se elige al hacerla). En la rutina en curso la meditación es un paso más, al final de la lista. Las rutinas guardadas con pasos de meditación (formato viejo) se migran al leerlas: la primera pasa a ser el ajuste y las demás se descartan. Se guardan en `library/routines.toml`, que viaja por Drive con `focus sync`, igual que las demás listas; la última usada se recuerda en el estado local (`ui.toml`).
+Una rutina es un nombre, una lista ordenada de **tareas** (un texto, como «Preparar mate») y, aparte, una **meditación** opcional (como mucho una): de **duración fija** (una de las categorías) o **libre** (se elige al hacerla). En la rutina en curso la meditación es un paso más, al final de la lista. Las rutinas guardadas con pasos de meditación (formato viejo) se migran al leerlas: la primera pasa a ser el ajuste y las demás se descartan. Se guardan en `library/routines.toml`, que viaja por Drive con `focus sync`, igual que las demás listas; la última usada y el último tiempo de trabajo de Focus se recuerdan en el estado local (`ui.toml`).
 
 - «Continuar "<rutina>"» (opción 1 del menú) arranca la última rutina usada. Sin rutinas dice «Crear mi primera rutina».
 - «Elegir otra rutina» (y Configuración → Rutinas) abre la lista: `Enter` empieza (en Configuración edita), `n` nueva, `e` editar, `d` borrar con confirmación, `Esc` vuelve.
 - Editor: `a` agrega una tarea, `Enter` edita la seleccionada, `K`/`J` la mueven, `d` la borra (con confirmación), `r` cambia el nombre, `g` guarda y `Esc` sale (si hay cambios sin guardar pregunta). `m` abre el ajuste de la meditación desde cualquier fila (también `Enter` sobre la última fila, «Meditación», que no es una tarea); en el ajuste `↑↓` eligen el campo, `←→` cambian sí/no, el modo y la duración, y `Enter` acepta.
 - En curso: `␣` marca hecho, `s` saltea, `u` deshace la última marca (sin preguntar), `↑↓` mueven, `Esc` vuelve al menú. Los pasos se marcan en cualquier orden y arriba se ve «N de M listos». En un paso de meditación, `Enter` reproduce o pausa (con el progreso); la app elige una meditación al azar de la duración (puede repetirse). Si la duración es libre, primero pregunta «¿cuánto tiempo?» con las categorías que tienen meditaciones; si una duración fija no tiene ninguna, avisa en el paso y deja elegir otra duración o saltearlo. Que termine el audio no marca el paso.
 - Durante la rutina no suenan los sonidos de ambiente (si sonaban, se silencian y se devuelven al salir); solo suena la meditación, que se corta al salir de la rutina.
-- Cuando todos los pasos quedan hechos o salteados se entra a Focus. La ventanita de tiempo y preset de entrada todavía no está: por ahora se entra directo.
+- Cuando todos los pasos quedan hechos o salteados se entra a Focus, con la ventanita de abajo.
 
-En Focus:
+### Configuración: sonidos ambientales y presets
+
+- **Sonidos ambientales**: lista los sonidos descargados (los generados vienen con la app y no se tocan). `a` agrega desde YouTube (link, nombre, tema y recorte; también se puede pegar el link en esta pantalla), `d` borra con confirmación (saca la entrada de `sounds.toml` y el `.opus` de esta compu), `Esc` vuelve.
+- **Presets**: lista los presets con sus sonidos y volúmenes. `n` abre una vista parecida a Focus pero sin audio: `↑↓` mueven, `␣` elige o saca un sonido, `←→` ajustan su volumen, `g` guarda con un nombre (no puede repetir uno existente) y `Esc` descarta. `d` borra con confirmación.
+
+### Focus
+
+Cada vez que se entra a Focus (desde el menú o al terminar una rutina) aparece la ventanita «Antes de arrancar»:
+
+1. **Tiempo**: arranca en el último valor usado (50 la primera vez). `↑↓` suman o restan 5 minutos, o se escribe el número. `Enter` sigue y lo recuerda; `Esc` salta la ventanita y entra directo a Focus.
+2. **Sonidos**: los presets y, al final, «Sonidos personalizados». `Enter` arranca el temporizador y carga el preset (con «Sonidos personalizados» solo arranca el temporizador y se arma a mano). `Esc` entra a Focus sin arrancar nada, ni temporizador.
+
+Dentro de Focus:
 
 - `␣`/`Enter` enciende o apaga el sonido seleccionado · `←→` (o `hl`) ajustan su volumen · `↑↓` (o `jk`), `g`/`G` mueven el cursor.
-- `Tab` cambia entre el panel de sonidos y el de presets; en presets, `Enter` carga el preset seleccionado y `d` lo borra (con confirmación).
+- `Tab` cambia entre el panel de sonidos y el de presets; en presets, `Enter` carga el preset seleccionado.
 - `p` pausa todo · `x` apaga todo · `+`/`-` suben/bajan el volumen general.
-- `t` abre el temporizador · `s` guarda la mezcla actual como preset · `a` agrega un sonido desde YouTube (o pegá un link directo) · `?` ayuda.
+- `t` abre el temporizador · `?` ayuda. Agregar y borrar sonidos y guardar y borrar presets ya no se hacen acá: están en Configuración.
 - `q` pregunta si dejar todo sonando en background (o sale directo si no hay nada sonando) · `Q` apaga todo y sale sin preguntar.
 
 ## Sincronizar entre compus

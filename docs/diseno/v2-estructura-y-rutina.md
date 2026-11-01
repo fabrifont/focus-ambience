@@ -272,6 +272,16 @@ Rechazada: evitar repetir la meditación anterior (va al azar puro).
 
 Todavía sin validar: ninguna. **La v2 está cerrada (31/10/2026).**
 
+## Etapa 3 hecha (1/11/2026)
+
+Ventanita de Focus, Configuración > Sonidos ambientales y Presets, y fuera `a`, `s` y `d` de Focus. Lo que el diseño no definía y se resolvió por lo más simple (a validar):
+
+- El tiempo se recuerda al apretar `Enter` en el paso 1, aunque después se salga del paso 2 con `Esc`. `↑↓` mueven de a 5 minutos (mínimo 1, máximo 999); el primer dígito escrito reemplaza el valor.
+- «Sonidos personalizados» no apaga lo que ya suena: solo arranca el temporizador.
+- Sonidos ambientales lista solo los descargados; los generados (ruidos, binaural) no se agregan ni se borran. Borrar un sonido no lo saca de los presets que lo usan (al cargar el preset se ignora).
+- En el armado de presets no suena nada (no hay preview); `␣` elige, `←→` volumen, `g` guarda, `Esc` descarta sin preguntar. El volumen inicial es el que tiene el sonido en Focus. No deja repetir el nombre de un preset (ni cambiando mayúsculas).
+- `q` en la ventanita no hace nada (solo Ctrl+C sale).
+
 ## Dudas abiertas (para Fabrizio, vía Jefe, de a una)
 
 Ninguna por ahora.

@@ -23,7 +23,7 @@ Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido
 - Temporizador simple (no pomodoro): al terminar, fade-out + notificación de escritorio, **sin sonido**.
 - Agregar sonidos: `focus add <url>` y también desde la TUI.
 - Versionado: en git no hay ninguna lista. `sounds.toml`, `presets.toml`, `meditations.toml` y `routines.toml` (`library/*.toml`, gitignored) viven solo en Drive y en la carpeta de datos local (`~/.local/share/focus-ambience/library`, o `FOCUS_LIBRARY` / `library` de config.toml); `focus sync` los sube/baja a la carpeta `library` del remote (gana el más nuevo, `--update`). Los `.opus` también van por Drive. La app arranca vacía y sin presets de fábrica hasta el primer sync; un `.toml` que falta es lista vacía en memoria y se crea recién al guardar algo (nunca crear archivos vacíos al arrancar: el sync podría pisar con ellos). Repo GitHub **privado** (el audio tiene copyright).
-- Diseño v2 (cerrado): `docs/diseno/v2-estructura-y-rutina.md` manda. La TUI abre en un menú de inicio (Continuar, Elegir otra rutina, Ir a Focus, Configuración); `Esc` vuelve un paso; al salir de Focus se vuelve al menú. Etapas 1 y 2 hechas: meditaciones y rutinas. Faltan sonidos ambientales y presets en Configuración, y la ventanita de tiempo/preset al entrar a Focus (hoy, al terminar una rutina se entra a Focus directo; hay un `TODO(etapa 3)` en `finish_run`).
+- Diseño v2 (cerrado): `docs/diseno/v2-estructura-y-rutina.md` manda. La TUI abre en un menú de inicio (Continuar, Elegir otra rutina, Ir a Focus, Configuración); `Esc` vuelve un paso; al salir de Focus se vuelve al menú. Etapas 1, 2 y 3 hechas: meditaciones, rutinas, y la ventanita «Antes de arrancar» (tiempo y después preset o «Sonidos personalizados», cada vez que se entra a Focus; `App::enter_focus`) más Configuración > Sonidos ambientales (`a` agrega, `d` borra) y Presets (`n` arma uno sin audio, `d` borra). Focus ya no tiene `a`, `s` ni `d`. El último tiempo de trabajo se guarda en `ui.toml` junto con la última rutina.
 - Meditaciones: biblioteca aparte de los sonidos (`library/meditations.toml` y `library/meditations/*.opus`, ambos gitignored y por Drive, sync en `.../meditations` del remote). Categoría de duración fija elegida a mano (5, 10, 15, 20, 25, 30, 40, 60). Se bajan enteras (sin crossfade ni recorte) y suenan una vez, sin loop.
 - El usuario pidió que le pregunten las decisiones con opciones, salvo la selección de videos (elegir directo, él revisa después).
 
@@ -44,7 +44,7 @@ src/
     sources.rs   ruidos, binaural, lector Ogg/Opus con seek (open = loop, open_once = una vez)
   download.rs    yt-dlp -> ffmpeg -> .opus + sha256 (sonidos: crossfade del loop horneado; meditaciones: entero)
   sync.rs        rclone copy hacia/desde el remoto (sonidos y meditaciones)
-  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones; quietas), routines (lista, editor, ajuste de meditación y rutina en curso: estado y teclas), routine_ui (su dibujo), scene (animaciones), theme (paletas)
+  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones, Sonidos ambientales, Presets y el armado de presets; quietas), routines (lista, editor, ajuste de meditación y rutina en curso: estado y teclas), routine_ui (su dibujo), scene (animaciones), theme (paletas)
 ```
 
 - Hilo del callback de audio: sin locks ni allocations en el camino normal. Cada capa tiene su ring buffer (`rtrb`) que llena un hilo "feeder"; volumen/estado van por atómicos.
