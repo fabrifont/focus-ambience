@@ -727,6 +727,33 @@ mod tests {
     }
 
     #[test]
+    fn quitting_from_the_builder_restores_the_audio_like_esc() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        for exit in ["Q", "q", "c"] {
+            let mut app = with_focus_playing(&["lluvia"], false);
+            open_builder(&mut app);
+            press(&mut app, " ");
+            sent(&mut app);
+            match exit {
+                "c" => app.key(ctrl_c),
+                "Q" => press(&mut app, "Q"),
+                _ => {
+                    press(&mut app, "q");
+                    press(&mut app, "s");
+                }
+            }
+            assert!(app.exit.is_some(), "{exit}: sale");
+            assert_eq!(
+                active_ids(&sent(&mut app)),
+                [("templo".to_string(), false), ("lluvia".to_string(), true)],
+                "{exit}: apaga el preview y vuelve lo de antes"
+            );
+            assert!(app.builder.is_none());
+        }
+    }
+
+    #[test]
     fn saving_restores_too_and_keeps_a_pause_and_silence_when_nothing_played() {
         let mut app = with_focus_playing(&["lluvia"], true);
         open_builder(&mut app);
@@ -1492,6 +1519,9 @@ mod tests {
             press(&mut app, "qs");
             assert!(app.exit == Some(app::Exit::Quit), "{screen:?}: s confirma");
             app.exit = None;
+            if app.screen == app::Screen::PresetBuilder {
+                continue; // al salir se cerró el armado: ya no es una pantalla viva
+            }
             press(&mut app, "q");
             app.key(key(Enter));
             assert!(app.exit == Some(app::Exit::Quit), "{screen:?}: Enter confirma");

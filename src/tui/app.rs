@@ -747,6 +747,14 @@ impl App {
     }
 
     pub fn key(&mut self, k: KeyEvent) {
+        self.handle_key(k);
+        // Salir de la app (q, Q, Ctrl+C) desde el armado también devuelve el audio a como estaba.
+        if self.exit.is_some() {
+            self.leave_builder();
+        }
+    }
+
+    fn handle_key(&mut self, k: KeyEvent) {
         if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
             self.exit = Some(Exit::Detach);
             return;
