@@ -1896,6 +1896,22 @@ mod tests {
     }
 
     #[test]
+    fn deep_work_paused_label_leaves_a_blank_row_under_the_digits() {
+        let mut app = focus_app();
+        paused_timer(&mut app, 1200);
+        press(&mut app, "d");
+        for (w, h) in [(80, 24), (120, 40), (40, 14)] {
+            let t = screen_text(&app, w, h);
+            let lines: Vec<&str> = t.lines().collect();
+            let i = lines.iter().position(|l| l.contains("en pausa")).unwrap_or_else(|| panic!("{w}x{h}: {t}"));
+            assert!(i > 0, "{t}");
+            let start = lines[i].find("⏸").unwrap();
+            let above: String = lines[i - 1].chars().skip(lines[i][..start].chars().count()).take(11).collect();
+            assert!(above.trim().is_empty(), "{w}x{h}: la fila de arriba no está vacía: {above:?}\n{t}");
+        }
+    }
+
+    #[test]
     fn a_paused_timer_is_shown_as_paused_in_focus_and_deep_work() {
         let mut app = focus_app();
         with_timer(&mut app, 1200);

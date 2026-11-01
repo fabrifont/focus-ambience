@@ -190,24 +190,26 @@ fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
         None => "FOCUS".to_string(),
     };
     let paused = app.state.timer.as_ref().is_some_and(|t| t.paused);
+    // Rows under the digits for the paused label: one blank row, then the label.
+    let below: u16 = if paused { 2 } else { 0 };
     // The same font as the normal clock, at most 2x (a bit bigger than the normal clock), smaller if it doesn't fit.
     let fits = |k: usize| {
         let (width, glyphs) = font::render(&text, k);
         let h = glyphs.first().map_or(0, |(_, rows)| rows.len());
-        area.height >= h as u16 && area.width >= width as u16
+        area.height >= h as u16 + below && area.width >= width as u16
     };
     let scale = (1..=DEEP_MAX_SCALE).take_while(|&k| fits(k)).last();
     let Some(scale) = scale else { return };
     let (width, glyphs) = font::render(&text, scale);
     let h = glyphs.first().map_or(0, |(_, rows)| rows.len()) as u16;
     let x0 = area.x + (area.width - width as u16) / 2;
-    let y0 = area.y + (area.height - h) / 2;
-    clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + h + 1);
+    let y0 = area.y + (area.height - h - below) / 2;
+    clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + h + below + 1);
     draw_glyphs(buf, &pal, t, (x0, y0), width, &glyphs);
     if paused {
         let label = truncate("⏸  en pausa", area.width as usize);
         let w = label.chars().count() as u16;
-        let y = y0 + h;
+        let y = y0 + h + 1;
         if y < area.y + area.height {
             buf.set_string(area.x + (area.width - w) / 2, y, &label, Style::new().fg(pal.accent2.c()));
         }
