@@ -1714,4 +1714,99 @@ mod tests {
         let t = screen_text(&app, 80, 24);
         assert!(t.contains("salir del modo deep work"), "{t}");
     }
+
+    #[test]
+    fn caps_lock_letters_work_as_shortcuts_on_every_screen() {
+        use app::Screen;
+        let mut app = app_with_routines();
+        press(&mut app, "J");
+        assert_eq!(app.home_cursor, 1);
+        for (screen, keys, expected) in [
+            (Screen::Sounds, "A", Screen::Sounds),
+            (Screen::Presets, "N", Screen::PresetBuilder),
+            (Screen::Routines, "N", Screen::RoutineEditor),
+        ] {
+            let mut app = app_with_presets();
+            app.list_from = Screen::Config;
+            app.go(screen);
+            press(&mut app, keys);
+            assert_eq!(app.screen, expected, "{keys}");
+        }
+        let mut app = app_with_meditations();
+        app.go(Screen::Meditations);
+        press(&mut app, "A");
+        assert!(app.med_popup.is_some());
+        let mut app = focus_app();
+        press(&mut app, "D");
+        assert_eq!(app.deep, app::Deep::On);
+        press(&mut app, "P");
+        assert!(sent(&mut app).iter().any(|c| matches!(c, Command::PauseAll)));
+        press(&mut app, "?");
+        assert!(matches!(app.popup, Some(app::Popup::Help)));
+        // Shift+letra llega igual: mayúscula con el modificador SHIFT.
+        let mut app = app_with_routines();
+        let shift = ratatui::crossterm::event::KeyModifiers::SHIFT;
+        app.key(ratatui::crossterm::event::KeyEvent::new(ratatui::crossterm::event::KeyCode::Char('J'), shift));
+        assert_eq!(app.home_cursor, 1);
+        // En los popups de confirmación también.
+        let mut app = app_with_routines();
+        press(&mut app, "Q");
+        assert!(app.exit.is_some());
+    }
+
+    #[test]
+    fn text_fields_keep_their_capitals() {
+        use app::{Popup, Screen};
+        let mut app = app_with_presets();
+        app.go(Screen::Sounds);
+        press(&mut app, "a");
+        press(&mut app, "HTTP://X");
+        match &app.popup {
+            Some(Popup::Add(f)) => assert_eq!(f.url, "HTTP://X"),
+            _ => panic!("popup de agregar"),
+        }
+        let mut app = app_with_meditations();
+        app.go(Screen::Meditations);
+        press(&mut app, "A");
+        press(&mut app, "HTTP://Q");
+        match &app.med_popup {
+            Some(app::MedPopup::Add { url, .. }) => assert_eq!(url, "HTTP://Q"),
+            _ => panic!("popup de meditación"),
+        }
+        let mut app = app_with_routines();
+        app.list_from = Screen::Config;
+        app.go(Screen::Routines);
+        press(&mut app, "n");
+        press(&mut app, "Mañana QGJK");
+        match app.editor.as_ref().and_then(|e| e.popup.as_ref()) {
+            Some(routines::EdPopup::Name { text, .. }) => assert_eq!(text, "Mañana QGJK"),
+            _ => panic!("popup de nombre"),
+        }
+        assert!(app.exit.is_none(), "la Q escrita en un campo no sale");
+    }
+
+    #[test]
+    fn q_g_j_k_keep_their_own_meaning() {
+        use app::Screen;
+        for screen in [Screen::Home, Screen::Config, Screen::Sounds, Screen::Presets, Screen::Meditations] {
+            let mut app = app_with_presets();
+            app.go(screen);
+            press(&mut app, "Q");
+            assert!(matches!(app.exit, Some(app::Exit::Quit)), "{screen:?}");
+        }
+        let mut app = app_with_sounds();
+        app.go(Screen::Sounds);
+        press(&mut app, "G");
+        assert_eq!(app.sound_cursor, app.file_sounds().len() - 1);
+        assert!(app.sound_cursor > 0);
+        let mut app = app_with_routines();
+        app.list_from = Screen::Config;
+        app.go(Screen::Routines);
+        press(&mut app, "e");
+        press(&mut app, "J");
+        assert_eq!(app.editor.as_ref().unwrap().routine.tasks[1], sample_routine().tasks[0]);
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 1);
+        press(&mut app, "K");
+        assert_eq!(app.editor.as_ref().unwrap().routine.tasks, sample_routine().tasks);
+    }
 }

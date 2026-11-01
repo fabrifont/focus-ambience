@@ -774,7 +774,44 @@ impl App {
         }
     }
 
+    /// ¿Hay un campo de texto recibiendo teclas? Ahí las mayúsculas se escriben tal cual.
+    fn typing(&self) -> bool {
+        use super::routines::EdPopup;
+        if let Some(p) = &self.popup {
+            return matches!(p, Popup::Add(_) | Popup::SavePreset { .. });
+        }
+        if self.screen != Screen::Focus && self.med_popup.is_some() {
+            return matches!(self.med_popup, Some(MedPopup::Add { category: None, .. }));
+        }
+        self.screen == Screen::RoutineEditor
+            && matches!(
+                self.editor.as_ref().and_then(|e| e.popup.as_ref()),
+                Some(EdPopup::Name { .. } | EdPopup::Task { .. })
+            )
+    }
+
+    /// Con Bloq Mayús (o Shift) las letras llegan en mayúscula: se pasan a minúscula para que
+    /// los atajos anden igual, salvo en campos de texto y en las mayúsculas con significado
+    /// propio (`Q` sale, `G` va al final y, en el editor de rutinas, `J`/`K` mueven la tarea).
+    fn normalize(&self, mut k: KeyEvent) -> KeyEvent {
+        if let KeyCode::Char(c) = k.code
+            && c.is_ascii_uppercase()
+            && !self.typing()
+        {
+            let own = match c {
+                'Q' | 'G' => true,
+                'J' | 'K' => self.screen == Screen::RoutineEditor,
+                _ => false,
+            };
+            if !own {
+                k.code = KeyCode::Char(c.to_ascii_lowercase());
+            }
+        }
+        k
+    }
+
     pub fn key(&mut self, k: KeyEvent) {
+        let k = self.normalize(k);
         self.handle_key(k);
         // Salir de la app (q, Q, Ctrl+C) desde el armado también devuelve el audio a como estaba.
         if self.exit.is_some() {
