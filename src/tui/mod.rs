@@ -526,6 +526,39 @@ mod tests {
     }
 
     #[test]
+    fn m_opens_the_meditation_setting_from_any_row() {
+        let mut app = app_with_routines();
+        press(&mut app, "2e"); // el cursor está en la primera tarea
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 0);
+        press(&mut app, "m");
+        assert_eq!(app.screen, app::Screen::RoutineStep);
+        let d = app.editor.as_ref().unwrap().step.as_ref().unwrap();
+        assert!(d.enabled && !d.free, "parte de lo que ya tiene la rutina");
+        app.key(key(Down));
+        app.key(key(Right)); // modo libre
+        app.key(key(Enter));
+        assert_eq!(app.screen, app::Screen::RoutineEditor);
+        assert_eq!(app.editor.as_ref().unwrap().routine.meditation, setting(None));
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 0, "el cursor no se mueve");
+    }
+
+    #[test]
+    fn m_does_not_open_the_setting_while_typing_a_task() {
+        let mut app = app_with_routines();
+        press(&mut app, "2ea");
+        type_text(&mut app, "mm");
+        assert_eq!(app.screen, app::Screen::RoutineEditor);
+        assert!(app.editor.as_ref().unwrap().popup.is_some());
+    }
+
+    #[test]
+    fn editor_help_shows_the_m_key() {
+        let mut app = app_with_routines();
+        press(&mut app, "2e");
+        assert!(screen_text(&app, 100, 24).contains("m meditación"));
+    }
+
+    #[test]
     fn the_meditation_row_cannot_be_moved_or_deleted_like_a_task() {
         let mut app = app_with_routines();
         press(&mut app, "2ejjjKd");

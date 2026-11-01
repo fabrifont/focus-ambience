@@ -259,17 +259,8 @@ impl App {
             KeyCode::Char('r') => {
                 ed.popup = Some(EdPopup::Name { text: ed.routine.name.clone(), new: false });
             }
-            KeyCode::Enter if on_meditation => {
-                let m = ed.routine.meditation;
-                let cat = m.and_then(|m| m.minutes).and_then(|c| Category::ALL.iter().position(|a| *a == c));
-                ed.step = Some(MeditationDraft {
-                    enabled: m.is_some(),
-                    free: m.is_some_and(|m| m.minutes.is_none()),
-                    cat: cat.unwrap_or(DEFAULT_CATEGORY),
-                    field: 0,
-                });
-                self.go(Screen::RoutineStep);
-            }
+            KeyCode::Char('m') => self.open_meditation_setting(),
+            KeyCode::Enter if on_meditation => self.open_meditation_setting(),
             KeyCode::Enter => {
                 let text = ed.routine.tasks[ed.cursor].clone();
                 ed.popup = Some(EdPopup::Task { text, at: Some(ed.cursor) });
@@ -296,6 +287,20 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Abre el ajuste de meditación de la rutina del editor.
+    fn open_meditation_setting(&mut self) {
+        let Some(ed) = self.editor.as_mut() else { return };
+        let m = ed.routine.meditation;
+        let cat = m.and_then(|m| m.minutes).and_then(|c| Category::ALL.iter().position(|a| *a == c));
+        ed.step = Some(MeditationDraft {
+            enabled: m.is_some(),
+            free: m.is_some_and(|m| m.minutes.is_none()),
+            cat: cat.unwrap_or(DEFAULT_CATEGORY),
+            field: 0,
+        });
+        self.go(Screen::RoutineStep);
     }
 
     /// Guarda la rutina del editor y vuelve a la lista. `false` si no se pudo (avisa por qué).

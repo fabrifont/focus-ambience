@@ -89,6 +89,7 @@ fn editor_view(app: &App, pal: &Palette, width: usize) -> View {
         lines,
         hints: &[
             ("a", " tarea  "),
+            ("m", " meditación  "),
             ("Enter", " editar  "),
             ("K/J", " mover  "),
             ("d", " borrar  "),
