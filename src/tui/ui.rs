@@ -185,13 +185,14 @@ fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
     };
     // The same font as the normal clock, scaled up as much as it fits (at least 1x).
     let fits = |k: usize| {
-        let (width, _) = font::render(&text, k);
-        area.height >= (font::HEIGHT * k) as u16 && area.width >= width as u16
+        let (width, glyphs) = font::render(&text, k);
+        let h = glyphs.first().map_or(0, |(_, rows)| rows.len());
+        area.height >= h as u16 && area.width >= width as u16
     };
     let scale = (1..=8).take_while(|&k| fits(k)).last();
     let Some(scale) = scale else { return };
-    let h = (font::HEIGHT * scale) as u16;
     let (width, glyphs) = font::render(&text, scale);
+    let h = glyphs.first().map_or(0, |(_, rows)| rows.len()) as u16;
     let x0 = area.x + (area.width - width as u16) / 2;
     let y0 = area.y + (area.height - h) / 2;
     clear_rows(buf, area, x0.saturating_sub(3), x0 + width as u16 + 3, y0.saturating_sub(1), y0 + h + 1);

@@ -26,7 +26,9 @@ pub fn glyph(c: char) -> [&'static str; HEIGHT] {
 
 /// Rows of the rendered text, one space between glyphs, every pixel (half a cell) drawn `scale` times
 /// wide and tall so the shape and symmetry are exactly those of the 3-row font.
-/// Each entry is (column offset, row strings); the text is `HEIGHT * scale` rows tall.
+/// Each entry is (column offset, row strings). Rows left empty at the top or bottom of the whole text
+/// (even scales leave one at the bottom) are trimmed, so the height is at most `HEIGHT * scale`
+/// and centering on it is exact.
 pub fn render(text: &str, scale: usize) -> (usize, Vec<(usize, Vec<String>)>) {
     let mut x = 0;
     let mut out = Vec::new();
@@ -36,7 +38,20 @@ pub fn render(text: &str, scale: usize) -> (usize, Vec<(usize, Vec<String>)>) {
         out.push((x, scale_glyph(&g, scale)));
         x += (w + 1) * scale;
     }
+    trim_blank_rows(&mut out);
     (x.saturating_sub(scale), out)
+}
+
+fn trim_blank_rows(glyphs: &mut [(usize, Vec<String>)]) {
+    let blank = |rows: &Vec<String>, i: usize| rows[i].chars().all(|c| c == ' ');
+    let height = glyphs.first().map_or(0, |(_, rows)| rows.len());
+    let all_blank = |i: usize| glyphs.iter().all(|(_, rows)| blank(rows, i));
+    let top = (0..height).take_while(|&i| all_blank(i)).count();
+    let bottom = (top..height).rev().take_while(|&i| all_blank(i)).count();
+    for (_, rows) in glyphs.iter_mut() {
+        rows.truncate(height - bottom);
+        rows.drain(..top);
+    }
 }
 
 /// Splits each cell into its two half-pixels, repeats them `scale` times in both directions
@@ -93,6 +108,15 @@ mod tests {
     fn render_width_and_height_follow_the_scale() {
         let (w, glyphs) = render("1:00", 3);
         assert_eq!(w, (4 + 2 + 4 + 4) * 3 - 3);
-        assert!(glyphs.iter().all(|(_, rows)| rows.len() == HEIGHT * 3));
+        assert!(glyphs.iter().all(|(_, rows)| rows.len() <= HEIGHT * 3));
+    }
+
+    #[test]
+    fn render_trims_blank_rows_so_even_scales_center_exactly() {
+        // A escala 2 el último renglón del 0 queda vacío: se recorta y todos los glifos miden lo mismo.
+        let (_, glyphs) = render("00", 2);
+        assert!(glyphs.iter().all(|(_, rows)| rows.len() == HEIGHT * 2 - 1));
+        assert!(glyphs.iter().all(|(_, rows)| rows.last().unwrap().contains('█')));
+        assert!(glyphs.iter().all(|(_, rows)| rows[0].contains('█')));
     }
 }
