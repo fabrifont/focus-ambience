@@ -223,7 +223,8 @@ mod tests {
                 a.state.active = vec!["noise-brown".into(), "binaural-40".into()];
                 a.set_levels(vec![("noise-brown".into(), 0.2), ("binaural-40".into(), 0.15)]);
                 a.cursor = 2;
-                a.state.timer = Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs: 1873 });
+                a.state.timer =
+                    Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs: 1873, paused: false });
             })
         );
         println!("{}", render(70, 24, |a| a.popup = Some(app::Popup::Help)));
@@ -348,7 +349,7 @@ mod tests {
     #[test]
     fn going_to_focus_skips_the_popup_when_the_timer_is_running() {
         let mut app = app_with_presets();
-        app.state.timer = Some(crate::protocol::TimerState { total_secs: 600, remaining_secs: 300 });
+        app.state.timer = Some(crate::protocol::TimerState { total_secs: 600, remaining_secs: 300, paused: false });
         press(&mut app, "3");
         assert_eq!(app.screen, app::Screen::Focus);
         assert!(app.popup.is_none());
@@ -1770,7 +1771,7 @@ mod tests {
 
     fn with_timer(app: &mut App, remaining_secs: u64) {
         let mut s = app.state.clone();
-        s.timer = Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs });
+        s.timer = Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs, paused: false });
         app.set_state(s);
     }
 
@@ -1843,6 +1844,102 @@ mod tests {
         press(&mut app, "d");
         without_timer(&mut app);
         assert_eq!(app.deep, app::Deep::On);
+    }
+
+    fn paused_timer(app: &mut App, remaining_secs: u64) {
+        let mut s = app.state.clone();
+        s.timer = Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs, paused: true });
+        app.set_state(s);
+    }
+
+    fn pause_cmds(app: &mut App) -> usize {
+        app.outbox.drain(..).filter(|c| matches!(c, Command::ToggleTimerPause)).count()
+    }
+
+    #[test]
+    fn r_toggles_the_timer_pause_in_both_cases_and_leaves_the_sound_alone() {
+        let mut app = focus_app();
+        with_timer(&mut app, 1200);
+        press(&mut app, "r");
+        assert_eq!(pause_cmds(&mut app), 1);
+        press(&mut app, "R");
+        assert_eq!(pause_cmds(&mut app), 1);
+        press(&mut app, "d");
+        press(&mut app, "r");
+        assert_eq!(pause_cmds(&mut app), 1, "también en deep work");
+        assert!(app.outbox.iter().all(|c| !matches!(c, Command::PauseAll | Command::StopAll)));
+    }
+
+    #[test]
+    fn r_without_a_timer_only_shows_a_notice() {
+        let mut app = focus_app();
+        press(&mut app, "r");
+        assert_eq!(pause_cmds(&mut app), 0);
+        assert_eq!(app.notice.as_ref().map(|(n, _)| n.as_str()), Some("no hay timer"));
+    }
+
+    #[test]
+    fn r_types_normally_in_text_fields() {
+        let mut app = focus_app();
+        with_timer(&mut app, 1200);
+        press(&mut app, "t");
+        press(&mut app, "r"); // en la lista de tiempos no hace nada
+        assert_eq!(pause_cmds(&mut app), 0);
+        app.popup = Some(app::Popup::Timer { sel: 0, custom: Some(String::new()) });
+        press(&mut app, "rR");
+        assert_eq!(pause_cmds(&mut app), 0);
+        let mut app = app_with_routines();
+        app.screen = app::Screen::Routines;
+        press(&mut app, "n");
+        press(&mut app, "rR");
+        assert_eq!(pause_cmds(&mut app), 0);
+    }
+
+    #[test]
+    fn deep_work_paused_label_leaves_a_blank_row_under_the_digits() {
+        let mut app = focus_app();
+        paused_timer(&mut app, 1200);
+        press(&mut app, "d");
+        for (w, h) in [(80, 24), (120, 40), (40, 14)] {
+            let t = screen_text(&app, w, h);
+            let lines: Vec<&str> = t.lines().collect();
+            let i = lines.iter().position(|l| l.contains("en pausa")).unwrap_or_else(|| panic!("{w}x{h}: {t}"));
+            assert!(i > 0, "{t}");
+            let start = lines[i].find("⏸").unwrap();
+            let above: String = lines[i - 1].chars().skip(lines[i][..start].chars().count()).take(11).collect();
+            assert!(above.trim().is_empty(), "{w}x{h}: la fila de arriba no está vacía: {above:?}\n{t}");
+        }
+    }
+
+    #[test]
+    fn a_paused_timer_is_shown_as_paused_in_focus_and_deep_work() {
+        let mut app = focus_app();
+        with_timer(&mut app, 1200);
+        assert!(!screen_text(&app, 80, 24).contains("en pausa"));
+        paused_timer(&mut app, 1200);
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("⏸  timer en pausa"), "{t}");
+        press(&mut app, "d");
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("⏸  en pausa"), "{t}");
+        let t = screen_text(&app, 30, 10);
+        assert!(t.contains("en pausa"), "{t}");
+    }
+
+    #[test]
+    fn cancelling_a_paused_timer_near_zero_does_not_end_deep_work() {
+        let mut app = focus_app();
+        paused_timer(&mut app, 1);
+        press(&mut app, "d");
+        without_timer(&mut app);
+        assert_eq!(app.deep, app::Deep::On);
+    }
+
+    #[test]
+    fn help_lists_the_timer_pause_key() {
+        let mut app = focus_app();
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 30).contains("pausar / seguir el timer"));
     }
 
     #[test]

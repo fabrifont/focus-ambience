@@ -30,6 +30,8 @@ pub enum Command {
     Timer {
         minutes: Option<u32>,
     },
+    /// Pause/resume the countdown only; the sound keeps playing. Does nothing without a timer.
+    ToggleTimerPause,
     LoadPreset {
         name: String,
     },
@@ -135,6 +137,8 @@ pub struct MeditationPlayback {
 pub struct TimerState {
     pub total_secs: u64,
     pub remaining_secs: u64,
+    #[serde(default)]
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

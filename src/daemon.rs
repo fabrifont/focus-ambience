@@ -83,6 +83,30 @@ struct Client {
 struct Timer {
     end: Instant,
     total: Duration,
+    /// Tiempo que quedaba al pausar; mientras es `Some` el reloj no avanza.
+    frozen: Option<Duration>,
+}
+
+impl Timer {
+    fn new(total: Duration) -> Self {
+        Timer { end: Instant::now() + total, total, frozen: None }
+    }
+
+    fn left(&self) -> Duration {
+        self.frozen.unwrap_or_else(|| self.end.saturating_duration_since(Instant::now()))
+    }
+
+    fn paused(&self) -> bool {
+        self.frozen.is_some()
+    }
+
+    /// Pausa si corre y sigue desde lo que quedaba si estaba en pausa.
+    fn toggle_pause(&mut self) {
+        match self.frozen.take() {
+            Some(left) => self.end = Instant::now() + left,
+            None => self.frozen = Some(self.left()),
+        }
+    }
 }
 
 /// The meditation loaded in the player. It plays once, through the engine, as its own layer.
@@ -315,9 +339,18 @@ impl Daemon {
             Command::Timer { minutes } => {
                 self.timer = minutes.filter(|&m| m > 0).map(|m| {
                     let total = Duration::from_secs(m as u64 * 60);
-                    Timer { end: Instant::now() + total, total }
+                    Timer::new(total)
                 });
                 self.engine.set_fade(1.0);
+            }
+            // Solo frena el reloj: el audio no se toca (el fade del final se rearma en el tick).
+            Command::ToggleTimerPause => {
+                if let Some(t) = &mut self.timer {
+                    t.toggle_pause();
+                    if t.paused() {
+                        self.engine.set_fade(1.0);
+                    }
+                }
             }
             Command::LoadPreset { name } => {
                 if let Some(p) = self.presets.presets.iter().find(|p| p.name == name).cloned() {
@@ -455,8 +488,8 @@ impl Daemon {
     fn tick(&mut self) {
         self.engine.tick();
 
-        if let Some(t) = &self.timer {
-            let left = t.end.saturating_duration_since(Instant::now()).as_secs_f32();
+        if let Some(t) = self.timer.as_ref().filter(|t| !t.paused()) {
+            let left = t.left().as_secs_f32();
             if left <= 0.0 {
                 let mins = t.total.as_secs() / 60;
                 self.timer = None;
@@ -513,7 +546,8 @@ impl Daemon {
             master: self.master,
             timer: self.timer.as_ref().map(|t| TimerState {
                 total_secs: t.total.as_secs(),
-                remaining_secs: t.end.saturating_duration_since(Instant::now()).as_secs(),
+                remaining_secs: t.left().as_secs(),
+                paused: t.paused(),
             }),
             downloads: self.downloads.iter().map(|(_, d)| d.clone()).collect(),
             meditations: self.meditations.clone(),
@@ -833,6 +867,43 @@ mod tests {
         let mut p = playback(1);
         p.since = Some(Instant::now() - Duration::from_secs(7));
         assert!(p.finished(false));
+    }
+
+    #[test]
+    fn a_paused_timer_does_not_count_down_and_resumes_from_what_was_left() {
+        let mut t = Timer::new(Duration::from_secs(600));
+        t.end = Instant::now() + Duration::from_secs(100);
+        t.toggle_pause();
+        assert!(t.paused());
+        // Pasó el tiempo "real": si el reloj siguiera, ya estaría en cero.
+        t.end = Instant::now() - Duration::from_secs(50);
+        assert!((99..=100).contains(&t.left().as_secs()));
+        t.toggle_pause();
+        assert!(!t.paused());
+        assert!((99..=100).contains(&t.left().as_secs()), "sigue desde lo que quedaba");
+    }
+
+    #[test]
+    fn a_paused_timer_is_reported_as_paused_and_a_new_one_is_not() {
+        let mut t = Timer::new(Duration::from_secs(60));
+        t.toggle_pause();
+        let json = serde_json::to_string(&TimerState {
+            total_secs: 60,
+            remaining_secs: t.left().as_secs(),
+            paused: t.paused(),
+        })
+        .unwrap();
+        assert!(json.contains("\"paused\":true"));
+        // Cancelar y volver a arrancar crea un Timer nuevo: sin pausa.
+        assert!(!Timer::new(Duration::from_secs(60)).paused());
+    }
+
+    #[test]
+    fn timer_state_from_an_older_daemon_parses_as_running() {
+        let t: TimerState = serde_json::from_str(r#"{"total_secs":60,"remaining_secs":30}"#).unwrap();
+        assert!(!t.paused);
+        let c: Command = serde_json::from_str(r#"{"cmd":"toggle_timer_pause"}"#).unwrap();
+        assert!(matches!(c, Command::ToggleTimerPause));
     }
 
     #[test]
