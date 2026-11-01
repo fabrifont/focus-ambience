@@ -16,6 +16,10 @@ pub trait Source: Send {
     fn position(&self) -> Option<u64> {
         None
     }
+    /// True once a source that doesn't loop has produced its last sample.
+    fn finished(&self) -> bool {
+        false
+    }
 }
 
 pub fn generator(g: Generator) -> Box<dyn Source> {
@@ -102,7 +106,7 @@ const PREROLL: u64 = 3840;
 /// Largest Opus packet: 120 ms at 48 kHz.
 const MAX_FRAME: usize = 5760;
 
-/// Streams an Ogg Opus file from disk, looping forever.
+/// Streams an Ogg Opus file from disk, looping forever or (`open_once`) playing through once.
 pub struct OpusFile {
     path: PathBuf,
     reader: PacketReader<BufReader<File>>,
@@ -115,11 +119,22 @@ pub struct OpusFile {
     pending: Vec<f32>,
     pending_pos: usize,
     position: u64,
-    failed: bool,
+    looping: bool,
+    /// Hit the end of a non-looping file, or a failure that can't be recovered.
+    ended: bool,
 }
 
 impl OpusFile {
     pub fn open(path: &Path, start: u64) -> Result<Self> {
+        Self::open_with(path, start, true)
+    }
+
+    /// Plays from `start` to the end of the file and then goes silent (`Source::finished`).
+    pub fn open_once(path: &Path, start: u64) -> Result<Self> {
+        Self::open_with(path, start, false)
+    }
+
+    fn open_with(path: &Path, start: u64, looping: bool) -> Result<Self> {
         let (reader, channels, pre_skip) = open_stream(path)?;
         let mut f = Self {
             path: path.to_path_buf(),
@@ -132,7 +147,8 @@ impl OpusFile {
             pending: Vec::with_capacity(MAX_FRAME * 2),
             pending_pos: 0,
             position: 0,
-            failed: false,
+            looping,
+            ended: false,
         };
         if start > PREROLL && f.seek(start).is_err() {
             f.restart()?;
@@ -164,8 +180,8 @@ impl OpusFile {
     fn decode_next(&mut self) -> bool {
         let packet = match self.reader.read_packet() {
             Ok(Some(p)) => p,
-            Ok(None) => return self.restart().is_ok(),
-            Err(_) => return self.restart().is_ok(),
+            Ok(None) | Err(_) if !self.looping => return false,
+            Ok(None) | Err(_) => return self.restart().is_ok(),
         };
         let n = match self.decoder.decode_float(&packet.data, &mut self.decoded, false) {
             Ok(n) => n,
@@ -191,8 +207,8 @@ impl Source for OpusFile {
         let mut i = 0;
         while i < out.len() {
             if self.pending_pos >= self.pending.len() {
-                if self.failed || !self.decode_next() {
-                    self.failed = true;
+                if self.ended || !self.decode_next() {
+                    self.ended = true;
                     out[i..].fill(0.0);
                     return;
                 }
@@ -207,6 +223,10 @@ impl Source for OpusFile {
 
     fn position(&self) -> Option<u64> {
         Some(self.position)
+    }
+
+    fn finished(&self) -> bool {
+        self.ended
     }
 }
 
@@ -229,4 +249,91 @@ fn open_stream(path: &Path) -> Result<(PacketReader<BufReader<File>>, usize, u64
     let pre_skip = u16::from_le_bytes([head.data[10], head.data[11]]) as u64;
     reader.read_packet_expected()?; // OpusTags
     Ok((reader, channels, pre_skip))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ogg::writing::{PacketWriteEndInfo, PacketWriter};
+
+    /// Writes `secs` seconds of a quiet sine as stereo Ogg Opus (20 ms packets).
+    fn write_opus(path: &Path, secs: usize) {
+        const FRAME: usize = 960;
+        let mut enc = opus::Encoder::new(SAMPLE_RATE, opus::Channels::Stereo, opus::Application::Audio).unwrap();
+        let mut w = PacketWriter::new(File::create(path).unwrap());
+        let mut head = b"OpusHead".to_vec();
+        head.extend_from_slice(&[1, 2, 0, 0]); // version, channels, pre-skip 0
+        head.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+        head.extend_from_slice(&[0, 0, 0]); // gain, mapping family
+        w.write_packet(head, 1, PacketWriteEndInfo::EndPage, 0).unwrap();
+        w.write_packet(b"OpusTags\x00\x00\x00\x00\x00\x00\x00\x00".to_vec(), 1, PacketWriteEndInfo::EndPage, 0)
+            .unwrap();
+        let frames = secs * SAMPLE_RATE as usize / FRAME;
+        for n in 0..frames {
+            let pcm: Vec<f32> = (0..FRAME * 2)
+                .map(|i| ((n * FRAME + i / 2) as f32 * 440.0 * std::f32::consts::TAU / SAMPLE_RATE as f32).sin() * 0.1)
+                .collect();
+            let packet = enc.encode_vec_float(&pcm, 4000).unwrap();
+            let end = if n + 1 == frames { PacketWriteEndInfo::EndStream } else { PacketWriteEndInfo::EndPage };
+            w.write_packet(packet, 1, end, ((n + 1) * FRAME) as u64).unwrap();
+        }
+    }
+
+    fn temp_file(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("focus-test-{}-{name}", std::process::id()))
+    }
+
+    #[test]
+    fn open_once_plays_through_and_then_reports_finished() {
+        let path = temp_file("once.opus");
+        write_opus(&path, 1);
+        let mut src = OpusFile::open_once(&path, 0).unwrap();
+        let mut buf = vec![0.0f32; 4096];
+        let mut loud_frames = 0usize;
+        for _ in 0..40 {
+            src.fill(&mut buf);
+            loud_frames += buf.as_chunks::<2>().0.iter().filter(|f| f[0].abs() > 1e-4).count();
+            if src.finished() {
+                break;
+            }
+        }
+        assert!(src.finished(), "tenía que terminar tras ~1 s de audio");
+        assert!((40_000..=50_000).contains(&loud_frames), "sonaron {loud_frames} cuadros");
+        // Después del final solo hay silencio.
+        buf.fill(1.0);
+        src.fill(&mut buf);
+        assert!(buf.iter().all(|&s| s == 0.0));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn open_loops_forever_and_never_finishes() {
+        let path = temp_file("loop.opus");
+        write_opus(&path, 1);
+        let mut src = OpusFile::open(&path, 0).unwrap();
+        let mut buf = vec![0.0f32; 4096];
+        for _ in 0..80 {
+            src.fill(&mut buf); // ~3,4 s: más que el archivo
+            assert!(!src.finished());
+        }
+        assert!(buf.iter().any(|&s| s.abs() > 1e-4));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn open_once_can_start_from_the_middle() {
+        let path = temp_file("seek.opus");
+        write_opus(&path, 2);
+        let mut src = OpusFile::open_once(&path, SAMPLE_RATE as u64).unwrap();
+        let mut buf = vec![0.0f32; 4096];
+        let mut frames = 0usize;
+        while !src.finished() && frames < 400_000 {
+            src.fill(&mut buf);
+            frames += buf.len() / 2;
+        }
+        // Quedaba ~1 s (más el relleno del último bloque).
+        assert!(src.finished());
+        assert!(frames < 60_000, "leyó {frames} cuadros");
+        std::fs::remove_file(path).ok();
+    }
 }

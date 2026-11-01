@@ -78,7 +78,7 @@ pub fn oneshot(cmd: Option<Command>, spawn: bool) -> Result<Option<crate::protoc
     if let Some(Ok(l)) = lines.next()
         && let Ok(Event::State(s)) = serde_json::from_str(&l)
     {
-        state = Some(s);
+        state = Some(*s);
     }
     if let Some(cmd) = cmd {
         let quitting = matches!(cmd, Command::Quit);
@@ -88,7 +88,7 @@ pub fn oneshot(cmd: Option<Command>, spawn: bool) -> Result<Option<crate::protoc
         }
         for l in lines.map_while(Result::ok) {
             match serde_json::from_str(&l) {
-                Ok(Event::State(s)) => return Ok(Some(s)),
+                Ok(Event::State(s)) => return Ok(Some(*s)),
                 Ok(Event::Notice { text }) => eprintln!("{text}"),
                 _ => {}
             }

@@ -1,3 +1,6 @@
 /target
 # Los audios van a Google Drive (focus sync), no a git.
 /library/sounds/
+/library/meditations/
+# Las listas (sounds, presets, meditations, routines) viven solo en Drive: focus sync.
+/library/*.toml

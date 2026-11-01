@@ -16,12 +16,16 @@ use crate::audio::engine::Engine;
 use crate::audio::sources::{self, OpusFile, Source};
 use crate::download;
 use crate::library::{self, Preset, Presets, Sound, SoundKind};
+use crate::meditation::{self, Meditation};
 use crate::paths;
-use crate::protocol::{AddRequest, Command, Download, Event, State, TimerState};
+use crate::protocol::{AddMeditationRequest, Command, Download, Event, MeditationPlayback, State, TimerState};
 
 const IDLE_EXIT: Duration = Duration::from_secs(60);
 const TIMER_FADE: f32 = 30.0;
 const LEVELS_EVERY: Duration = Duration::from_millis(66);
+/// After the decoder hits the end of a meditation the ring buffer still holds up to a second of
+/// audio; wait this long before letting go of the layer.
+const MEDITATION_DRAIN: Duration = Duration::from_millis(1500);
 
 /// What survives between runs (volumes and where each long track was left).
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -40,6 +44,37 @@ enum Msg {
     Finished(String, Result<String, String>),
 }
 
+/// Keeps the ambient sounds quiet while a meditation plays and gives them back afterwards.
+/// Only what it paused itself is resumed: if the ambient was already paused (a routine does that
+/// on start) or the user resumed it by hand, it stays as is.
+#[derive(Default)]
+struct AmbientHold {
+    was_meditating: bool,
+    held: bool,
+}
+
+impl AmbientHold {
+    /// Returns whether `paused` changed.
+    fn update(&mut self, meditating: bool, has_ambient: bool, paused: &mut bool) -> bool {
+        let before = *paused;
+        if self.held && !*paused {
+            self.held = false; // the user brought the ambient back during the meditation
+        }
+        if meditating && !self.was_meditating && has_ambient && !*paused {
+            *paused = true;
+            self.held = true;
+        }
+        if !meditating {
+            if self.held && *paused {
+                *paused = false;
+            }
+            self.held = false;
+        }
+        self.was_meditating = meditating;
+        *paused != before
+    }
+}
+
 struct Client {
     stream: UnixStream,
     levels: bool,
@@ -50,14 +85,54 @@ struct Timer {
     total: Duration,
 }
 
+/// The meditation loaded in the player. It plays once, through the engine, as its own layer.
+struct Playback {
+    id: String,
+    /// Engine layer id; a fresh one per start so a fading-out layer never mixes with the new one.
+    layer: String,
+    total: Duration,
+    /// Time already played before the current run (pausing keeps it).
+    played: Duration,
+    /// When the current run started; `None` while paused.
+    since: Option<Instant>,
+    /// When the decoder reached the end of the file.
+    ended_at: Option<Instant>,
+}
+
+impl Playback {
+    /// Called on every tick while playing: notes when the decoder hit the end and says whether the
+    /// meditation is over, i.e. the file ran out and the buffer drained (or the clock ran past the
+    /// end because the decoder never reported it).
+    fn finished(&mut self, decoder_ended: bool) -> bool {
+        if self.ended_at.is_none() && decoder_ended {
+            self.ended_at = Some(Instant::now());
+        }
+        let drained = self.ended_at.is_some_and(|t| t.elapsed() >= MEDITATION_DRAIN);
+        let overdue =
+            self.played + self.since.map_or(Duration::ZERO, |t| t.elapsed()) > self.total + Duration::from_secs(5);
+        drained || overdue
+    }
+
+    fn position(&self) -> Duration {
+        (self.played + self.since.map_or(Duration::ZERO, |t| t.elapsed())).min(self.total)
+    }
+}
+
 struct Daemon {
     engine: Engine,
     sounds: Vec<Sound>,
+    meditations: Vec<Meditation>,
+    playback: Option<Playback>,
+    playback_seq: u64,
+    /// Meditations that played to their real end, and which one was the last.
+    meditations_finished: u64,
+    last_meditation_finished: Option<String>,
     presets: Presets,
     volumes: BTreeMap<String, f32>,
     positions: BTreeMap<String, u64>,
     active: Vec<String>,
     paused: bool,
+    ambient_hold: AmbientHold,
     master: f32,
     timer: Option<Timer>,
     downloads: Vec<(String, Download)>,
@@ -94,11 +169,17 @@ pub fn run() -> Result<()> {
     let mut d = Daemon {
         engine: Engine::new()?,
         sounds: library::all_sounds().unwrap_or_default(),
+        meditations: meditation::all_meditations().unwrap_or_default(),
+        playback: None,
+        playback_seq: 0,
+        meditations_finished: 0,
+        last_meditation_finished: None,
         presets: library::load_presets(),
         volumes: persisted.volumes,
         positions: persisted.positions,
         active: Vec::new(),
         paused: false,
+        ambient_hold: AmbientHold::default(),
         master: persisted.master.unwrap_or(0.8),
         timer: None,
         downloads: Vec::new(),
@@ -170,7 +251,7 @@ impl Daemon {
         match msg {
             Msg::Connected(id, stream) => {
                 self.clients.insert(id, Client { stream, levels: false });
-                let state = Event::State(self.state());
+                let state = Event::State(Box::new(self.state()));
                 self.send_to(id, &state);
             }
             Msg::Disconnected(id) => {
@@ -229,6 +310,7 @@ impl Daemon {
             Command::StopAll => {
                 self.active.clear();
                 self.paused = false;
+                self.stop_meditation();
             }
             Command::Timer { minutes } => {
                 self.timer = minutes.filter(|&m| m > 0).map(|m| {
@@ -253,8 +335,8 @@ impl Daemon {
                     }
                 }
             }
-            Command::SavePreset { name } => {
-                let layers = self.active.iter().map(|id| (id.clone(), self.volume(id))).collect();
+            Command::StorePreset { name, layers } => {
+                let layers = layers.into_iter().map(|(id, v)| (id, v.clamp(0.0, 1.0))).collect();
                 self.presets.presets.retain(|p| p.name != name);
                 self.presets.presets.push(Preset { name: name.clone(), layers });
                 self.save_presets(format!("preset «{name}» guardado"));
@@ -263,7 +345,16 @@ impl Daemon {
                 self.presets.presets.retain(|p| p.name != name);
                 self.save_presets(format!("preset «{name}» borrado"));
             }
-            Command::Add(req) => self.start_download(req),
+            Command::Add(req) => {
+                let name = req.name.clone();
+                self.start_download(req.url.clone(), name, false, move |p| download::add(&req, p).map(|e| e.name));
+            }
+            Command::DeleteSound { id } => self.delete_sound(&id),
+            Command::AddMeditation(req) => self.add_meditation(req),
+            Command::DeleteMeditation { id } => self.delete_meditation(&id),
+            Command::PlayMeditation { id } => self.play_meditation(&id),
+            Command::ToggleMeditation => self.toggle_meditation(),
+            Command::StopMeditation => self.stop_meditation(),
             Command::Reload => self.reload(),
             Command::Watch { levels } => {
                 if let Some(c) = self.clients.get_mut(&client) {
@@ -276,8 +367,19 @@ impl Daemon {
                 return;
             }
         }
+        self.hold_ambient();
         self.apply();
         self.broadcast_state();
+    }
+
+    /// Pause the ambient while a meditation is playing, resume it when it stops or pauses.
+    fn hold_ambient(&mut self) -> bool {
+        let meditating = self.playback.as_ref().is_some_and(|p| p.since.is_some());
+        let changed = self.ambient_hold.update(meditating, !self.active.is_empty(), &mut self.paused);
+        if changed {
+            self.engine.set_fade(1.0);
+        }
+        changed
     }
 
     fn volume(&self, id: &str) -> f32 {
@@ -376,7 +478,13 @@ impl Daemon {
             let ev = Event::Levels { master, layers };
             self.send_watchers(&ev);
         }
-        if self.timer.is_some() && !self.clients.is_empty() && self.last_state.elapsed() >= Duration::from_secs(1) {
+        self.tick_meditation();
+        if self.hold_ambient() {
+            self.apply();
+            self.broadcast_state();
+        }
+        let progressing = self.timer.is_some() || self.playback.as_ref().is_some_and(|p| p.since.is_some());
+        if progressing && !self.clients.is_empty() && self.last_state.elapsed() >= Duration::from_secs(1) {
             self.broadcast_state();
         }
 
@@ -408,6 +516,15 @@ impl Daemon {
                 remaining_secs: t.end.saturating_duration_since(Instant::now()).as_secs(),
             }),
             downloads: self.downloads.iter().map(|(_, d)| d.clone()).collect(),
+            meditations: self.meditations.clone(),
+            meditation: self.playback.as_ref().map(|p| MeditationPlayback {
+                id: p.id.clone(),
+                position_secs: p.position().as_secs(),
+                total_secs: p.total.as_secs(),
+                paused: p.since.is_none(),
+            }),
+            meditations_finished: self.meditations_finished,
+            last_meditation_finished: self.last_meditation_finished.clone(),
         }
     }
 
@@ -416,6 +533,146 @@ impl Daemon {
             self.sounds = s;
         }
         self.presets = library::load_presets();
+        if let Ok(m) = meditation::all_meditations() {
+            self.meditations = m;
+        }
+    }
+
+    fn add_meditation(&mut self, req: AddMeditationRequest) {
+        if let Err(e) = meditation::Category::try_from(req.minutes) {
+            self.notice(format!("✗ {e}"));
+            return;
+        }
+        let name = req.name.clone();
+        self.start_download(req.url.clone(), name, true, move |p| download::add_meditation(&req, p).map(|e| e.name));
+    }
+
+    fn delete_sound(&mut self, id: &str) {
+        let Some(sound) = self.sounds.iter().find(|s| s.id == id).cloned() else { return };
+        let SoundKind::File { file } = &sound.kind else {
+            self.notice(format!("«{}» viene con la app: no se puede borrar", sound.name));
+            return;
+        };
+        let res = library::load_manifest().and_then(|mut manifest| {
+            manifest.sounds.retain(|e| e.id != id);
+            library::save_manifest(&manifest)
+        });
+        match res {
+            Ok(()) => {
+                // `apply` (al final del comando) corta la capa si estaba sonando.
+                self.active.retain(|a| a != id);
+                self.volumes.remove(id);
+                self.positions.remove(id);
+                let _ = std::fs::remove_file(paths::sounds_dir().join(file));
+                self.reload();
+                self.notice(format!("«{}» borrado", sound.name));
+            }
+            Err(e) => self.notice(format!("no pude borrar «{}»: {e}", sound.name)),
+        }
+    }
+
+    fn delete_meditation(&mut self, id: &str) {
+        let Some(m) = self.meditations.iter().find(|m| m.id == id).cloned() else { return };
+        if self.playback.as_ref().is_some_and(|p| p.id == id) {
+            self.stop_meditation();
+        }
+        let res = meditation::load_manifest().and_then(|mut manifest| {
+            manifest.meditations.retain(|e| e.id != id);
+            meditation::save_manifest(&manifest)
+        });
+        match res {
+            Ok(()) => {
+                let _ = std::fs::remove_file(paths::meditations_dir().join(&m.file));
+                self.reload();
+                self.notice(format!("«{}» borrada", m.name));
+            }
+            Err(e) => self.notice(format!("no pude borrar «{}»: {e}", m.name)),
+        }
+    }
+
+    /// Start a meditation from the beginning, replacing whatever was loaded.
+    fn play_meditation(&mut self, id: &str) {
+        let Some(m) = self.meditations.iter().find(|m| m.id == id).cloned() else {
+            self.notice("esa meditación no existe".into());
+            return;
+        };
+        if !m.available {
+            self.notice(format!("«{}» no está en esta compu: corré `focus sync`", m.name));
+            return;
+        }
+        self.stop_meditation();
+        self.playback_seq += 1;
+        let playback = Playback {
+            id: m.id.clone(),
+            layer: format!("meditation:{}:{}", m.id, self.playback_seq),
+            total: Duration::from_secs(m.duration),
+            played: Duration::ZERO,
+            since: None,
+            ended_at: None,
+        };
+        self.playback = Some(playback);
+        self.start_meditation_layer(&m);
+    }
+
+    /// Hand the loaded meditation to the engine from where it was left.
+    fn start_meditation_layer(&mut self, m: &Meditation) {
+        let Some(p) = self.playback.as_mut() else { return };
+        let start = p.played.as_secs() * sources::SAMPLE_RATE as u64;
+        let path = paths::meditations_dir().join(&m.file);
+        // Volume is the master's job; the voice goes in at full level.
+        let res = self
+            .engine
+            .play(&p.layer, 1.0, || -> Result<Box<dyn Source>> { Ok(Box::new(OpusFile::open_once(&path, start)?)) });
+        match res {
+            Ok(()) => {
+                p.since = Some(Instant::now());
+                p.ended_at = None;
+                self.engine.set_fade(1.0);
+            }
+            Err(e) => {
+                self.playback = None;
+                self.notice(format!("no pude reproducir «{}»: {e}", m.name));
+            }
+        }
+    }
+
+    fn toggle_meditation(&mut self) {
+        let Some(p) = self.playback.as_mut() else { return };
+        if p.since.is_some() {
+            p.played = p.position();
+            p.since = None;
+            self.engine.stop(&p.layer);
+        } else if let Some(m) = self.meditations.iter().find(|m| m.id == p.id).cloned() {
+            self.playback_seq += 1;
+            p.layer = format!("meditation:{}:{}", p.id, self.playback_seq);
+            self.start_meditation_layer(&m);
+        }
+    }
+
+    fn stop_meditation(&mut self) {
+        if let Some(p) = self.playback.take() {
+            self.engine.stop(&p.layer);
+        }
+    }
+
+    /// A meditation plays once: when the file runs out, let the last second drain and let go.
+    fn tick_meditation(&mut self) {
+        let Some(p) = self.playback.as_mut() else { return };
+        if p.since.is_none() {
+            return;
+        }
+        let decoder_ended = self.engine.has_ended(&p.layer);
+        if p.finished(decoder_ended) {
+            let id = p.id.clone();
+            let name = self.meditations.iter().find(|m| m.id == id).map(|m| m.name.clone());
+            self.meditations_finished += 1;
+            self.last_meditation_finished = Some(id);
+            self.stop_meditation();
+            if let Some(name) = name {
+                self.notice(format!("«{name}» terminó"));
+            }
+            self.broadcast_state();
+        }
     }
 
     fn save_presets(&mut self, ok: String) {
@@ -437,26 +694,32 @@ impl Daemon {
         }
     }
 
-    fn start_download(&mut self, req: AddRequest) {
-        if self.downloads.iter().any(|(u, d)| *u == req.url && d.error.is_none()) {
+    /// Runs `job` on its own thread, reporting progress to the clients. The job returns the
+    /// display name of what it added.
+    fn start_download<F>(&mut self, url: String, name: Option<String>, meditation: bool, job: F)
+    where
+        F: FnOnce(&mut dyn FnMut(&str, f32)) -> Result<String> + Send + 'static,
+    {
+        if self.downloads.iter().any(|(u, d)| *u == url && d.error.is_none()) {
             return;
         }
-        self.downloads.retain(|(u, _)| *u != req.url);
-        let name = req.name.clone().unwrap_or_else(|| req.url.clone());
-        self.downloads.push((req.url.clone(), Download { name, stage: "en cola".into(), progress: -1.0, error: None }));
+        self.downloads.retain(|(u, _)| *u != url);
+        let name = name.unwrap_or_else(|| url.clone());
+        self.downloads
+            .push((url.clone(), Download { name, stage: "en cola".into(), progress: -1.0, error: None, meditation }));
         let tx = self.tx.clone();
         thread::spawn(move || {
-            let url = req.url.clone();
             let ptx = tx.clone();
+            let purl = url.clone();
             let mut last = (String::new(), -1.0f32);
-            let res = download::add(&req, |stage, p| {
+            let res = job(&mut |stage, p| {
                 // Don't flood clients: only report whole-percent changes.
                 if stage != last.0 || (p - last.1).abs() >= 0.01 {
                     last = (stage.to_string(), p);
-                    let _ = ptx.send(Msg::Progress(url.clone(), stage.to_string(), p));
+                    let _ = ptx.send(Msg::Progress(purl.clone(), stage.to_string(), p));
                 }
             });
-            let _ = tx.send(Msg::Finished(url, res.map(|e| e.name).map_err(|e| format!("{e:#}"))));
+            let _ = tx.send(Msg::Finished(url, res.map_err(|e| format!("{e:#}"))));
         });
     }
 
@@ -466,7 +729,7 @@ impl Daemon {
     }
 
     fn broadcast_state(&mut self) {
-        let ev = Event::State(self.state());
+        let ev = Event::State(Box::new(self.state()));
         self.broadcast(&ev);
         self.last_state = Instant::now();
     }
@@ -529,4 +792,86 @@ fn toast(title: &str, body: &str) {
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn playback(total: u64) -> Playback {
+        Playback {
+            id: "calma".into(),
+            layer: "meditation:calma:1".into(),
+            total: Duration::from_secs(total),
+            played: Duration::ZERO,
+            since: Some(Instant::now()),
+            ended_at: None,
+        }
+    }
+
+    #[test]
+    fn a_meditation_finishes_only_once_the_file_ran_out_and_the_buffer_drained() {
+        let mut p = playback(600);
+        assert!(!p.finished(false), "sigue sonando");
+        assert!(!p.finished(true), "el decoder llegó al final pero queda buffer por vaciar");
+        p.ended_at = Some(Instant::now() - MEDITATION_DRAIN);
+        assert!(p.finished(false), "buffer vacío: terminó entera");
+    }
+
+    #[test]
+    fn a_meditation_far_from_its_end_does_not_finish_by_itself() {
+        // Cortada, reemplazada o borrada: el daemon la saca sin pasar por `finished`.
+        let mut p = playback(600);
+        p.played = Duration::from_secs(595);
+        assert!(!p.finished(false));
+        // Si el decoder nunca avisa, el reloj la da por terminada pasado el final.
+        let mut p = playback(1);
+        p.since = Some(Instant::now() - Duration::from_secs(7));
+        assert!(p.finished(false));
+    }
+
+    #[test]
+    fn state_without_the_finished_signal_still_parses() {
+        let json = r#"{"sounds":[],"presets":[],"volumes":{},"active":[],"paused":false,"master":1.0,"timer":null,"downloads":[]}"#;
+        let s: State = serde_json::from_str(json).unwrap();
+        assert_eq!((s.meditations_finished, s.last_meditation_finished), (0, None));
+    }
+
+    #[test]
+    fn meditation_pauses_the_ambient_and_gives_it_back() {
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        assert!(hold.update(true, true, &mut paused) && paused, "al empezar se pausa");
+        assert!(!hold.update(true, true, &mut paused) && paused, "mientras suena sigue pausado");
+        assert!(hold.update(false, true, &mut paused) && !paused, "al terminar vuelve");
+        assert!(!hold.update(false, true, &mut paused) && !paused);
+    }
+
+    #[test]
+    fn pausing_the_meditation_resumes_the_ambient_and_resuming_pauses_it_again() {
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        hold.update(true, true, &mut paused);
+        hold.update(false, true, &mut paused); // meditación en pausa
+        assert!(!paused);
+        hold.update(true, true, &mut paused); // reanuda
+        assert!(paused);
+    }
+
+    #[test]
+    fn ambient_that_was_already_paused_or_absent_is_left_alone() {
+        let (mut hold, mut paused) = (AmbientHold::default(), true);
+        assert!(!hold.update(true, true, &mut paused) && paused);
+        assert!(!hold.update(false, true, &mut paused) && paused, "no lo reanuda: no lo pausó él");
+
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        assert!(!hold.update(true, false, &mut paused) && !paused, "sin ambiente no hay nada que pausar");
+    }
+
+    #[test]
+    fn ambient_resumed_by_hand_during_the_meditation_stays_on() {
+        let (mut hold, mut paused) = (AmbientHold::default(), false);
+        hold.update(true, true, &mut paused);
+        paused = false; // el usuario lo reanuda
+        assert!(!hold.update(true, true, &mut paused) && !paused);
+        assert!(!hold.update(false, true, &mut paused) && !paused);
+    }
 }

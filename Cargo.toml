@@ -1,9 +1,27 @@
 [package]
 name = "focus"
-version = "0.1.1"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Mezclador de ambientes para concentrarse, liviano y en la terminal"
+authors = ["Fabrizio Fontanarrosa <fabriziofontanarrosa@gmail.com>"]
+readme = "README.md"
+
+[package.metadata.deb]
+maintainer = "Fabrizio Fontanarrosa <fabriziofontanarrosa@gmail.com>"
+section = "sound"
+priority = "optional"
+depends = "$auto"
+recommends = "rclone, yt-dlp, ffmpeg"
+extended-description = """\
+Mezclador de ambientes para concentrarse, en la terminal: sonidos de \
+juegos y películas, lluvia, ruido de color y binaural 40 Hz, con \
+temporizador, rutinas y meditaciones guiadas. El audio sigue sonando \
+en segundo plano y las listas se sincronizan con Google Drive."""
+assets = [
+    ["target/release/focus", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/focus/README", "644"],
+]
 
 [dependencies]
 anyhow = "1.0.104"

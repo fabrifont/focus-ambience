@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::library::{Preset, Sound, Theme, Visual};
+use crate::meditation::Meditation;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -32,13 +33,30 @@ pub enum Command {
     LoadPreset {
         name: String,
     },
-    SavePreset {
-        name: String,
-    },
     DeletePreset {
         name: String,
     },
+    /// Save a preset built by hand (Configuración > Presets): replaces one with the same name.
+    StorePreset {
+        name: String,
+        layers: BTreeMap<String, f32>,
+    },
     Add(AddRequest),
+    /// Remove a downloaded sound (manifest entry and .opus). Built-in generators can't be removed.
+    DeleteSound {
+        id: String,
+    },
+    AddMeditation(AddMeditationRequest),
+    DeleteMeditation {
+        id: String,
+    },
+    /// Start a meditation from the beginning (replacing the one that's playing, if any).
+    PlayMeditation {
+        id: String,
+    },
+    /// Pause / resume the meditation.
+    ToggleMeditation,
+    StopMeditation,
     Reload,
     /// Ask the daemon to push level updates for the animations.
     Watch {
@@ -58,9 +76,17 @@ pub struct AddRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddMeditationRequest {
+    pub url: String,
+    pub name: Option<String>,
+    /// Duration category chosen by hand (5, 10, 15, 20, 25, 30, 40 or 60).
+    pub minutes: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    State(State),
+    State(Box<State>),
     Levels { master: f32, layers: Vec<(String, f32)> },
     Notice { text: String },
 }
@@ -77,12 +103,32 @@ pub struct State {
     pub master: f32,
     pub timer: Option<TimerState>,
     pub downloads: Vec<Download>,
+    #[serde(default)]
+    pub meditations: Vec<Meditation>,
+    /// The meditation loaded in the player (playing or paused); gone once it finishes.
+    #[serde(default)]
+    pub meditation: Option<MeditationPlayback>,
+    /// How many meditations have played through to the real end of their audio since the daemon
+    /// started (never counts one that was stopped, replaced or deleted).
+    #[serde(default)]
+    pub meditations_finished: u64,
+    /// Id of the last meditation counted in `meditations_finished`.
+    #[serde(default)]
+    pub last_meditation_finished: Option<String>,
 }
 
 impl State {
     pub fn is_playing(&self) -> bool {
-        !self.paused && !self.active.is_empty()
+        (!self.paused && !self.active.is_empty()) || self.meditation.as_ref().is_some_and(|m| !m.paused)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeditationPlayback {
+    pub id: String,
+    pub position_secs: u64,
+    pub total_secs: u64,
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,4 +144,7 @@ pub struct Download {
     /// 0..1, or negative when unknown.
     pub progress: f32,
     pub error: Option<String>,
+    /// A meditation download (the focus screen only lists sounds).
+    #[serde(default)]
+    pub meditation: bool,
 }
