@@ -3,11 +3,13 @@ use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::routines::{Editor, ListPopup, Run};
 use super::scene::{Emitter, Scene};
 use super::theme::{self, Palette};
 use crate::library::{Sound, Theme};
 use crate::meditation::{self, Category, Meditation};
 use crate::protocol::{AddMeditationRequest, AddRequest, Command, State};
+use crate::routine::Routine;
 
 /// Which screen of the v2 flow is showing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -18,9 +20,13 @@ pub enum Screen {
     Focus,
     Config,
     Meditations,
+    Routines,
+    RoutineEditor,
+    /// Paso de meditación dentro del editor.
+    RoutineStep,
+    RoutineRun,
 }
 
-pub const HOME_ITEMS: [&str; 4] = ["Continuar", "Elegir otra rutina", "Ir a Focus", "Configuración"];
 pub const CONFIG_ITEMS: [&str; 4] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"];
 
 /// Dialogs of the meditations screen.
@@ -75,6 +81,20 @@ pub struct App {
     pub config_cursor: usize,
     pub med_cursor: usize,
     pub med_popup: Option<MedPopup>,
+    pub routines: Vec<Routine>,
+    /// Por qué no se puede escribir routines.toml (archivo roto): no se pisa.
+    pub routines_locked: Option<String>,
+    pub last_routine: Option<String>,
+    /// Hay que escribir `routines`/`last_routine` a disco (lo hace `persist`).
+    pub routines_dirty: bool,
+    pub last_dirty: bool,
+    pub list_cursor: usize,
+    /// Desde dónde se abrió la lista de rutinas: Esc vuelve ahí.
+    pub list_from: Screen,
+    pub list_popup: Option<ListPopup>,
+    pub editor: Option<Editor>,
+    pub run: Option<Run>,
+    pub rng: fastrand::Rng,
     pub state: State,
     pub connected: bool,
     pub pane: Pane,
@@ -109,6 +129,17 @@ impl App {
             config_cursor: 0,
             med_cursor: 0,
             med_popup: None,
+            routines: Vec::new(),
+            routines_locked: None,
+            last_routine: None,
+            routines_dirty: false,
+            last_dirty: false,
+            list_cursor: 0,
+            list_from: Screen::Home,
+            list_popup: None,
+            editor: None,
+            run: None,
+            rng: fastrand::Rng::new(),
             state: State::default(),
             connected: false,
             pane: Pane::Sounds,
@@ -254,7 +285,7 @@ impl App {
         self.screen = screen;
     }
 
-    fn request_quit(&mut self) {
+    pub(super) fn request_quit(&mut self) {
         if self.playing() {
             self.popup = Some(Popup::Quit);
         } else {
@@ -262,10 +293,19 @@ impl App {
         }
     }
 
+    /// Las cuatro opciones del menú; la primera depende de si ya hay rutinas.
+    pub fn home_items(&self) -> [String; 4] {
+        let first = match self.continue_routine() {
+            Some(i) => format!("Continuar \"{}\"", self.routines[i].name),
+            None => "Crear mi primera rutina".to_string(),
+        };
+        [first, "Elegir otra rutina".into(), "Ir a Focus".into(), "Configuración".into()]
+    }
+
     fn home_key(&mut self, k: KeyEvent) {
         match k.code {
             KeyCode::Up | KeyCode::Char('k') => self.home_cursor = self.home_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.home_cursor = (self.home_cursor + 1).min(HOME_ITEMS.len() - 1),
+            KeyCode::Down | KeyCode::Char('j') => self.home_cursor = (self.home_cursor + 1).min(3),
             KeyCode::Char(c @ '1'..='4') => self.choose_home(c as usize - '1' as usize),
             KeyCode::Enter => self.choose_home(self.home_cursor),
             KeyCode::Char('q') => self.request_quit(),
@@ -277,7 +317,8 @@ impl App {
     fn choose_home(&mut self, i: usize) {
         self.home_cursor = i;
         match i {
-            0 | 1 => self.notify(format!("«{}» todavía no está: llega con las rutinas", HOME_ITEMS[i])),
+            0 => self.choose_continue(),
+            1 => self.open_routines(Screen::Home),
             2 => self.go(Screen::Focus),
             _ => self.go(Screen::Config),
         }
@@ -290,6 +331,7 @@ impl App {
                 self.config_cursor = (self.config_cursor + 1).min(CONFIG_ITEMS.len() - 1)
             }
             KeyCode::Enter => match self.config_cursor {
+                0 => self.open_routines(Screen::Config),
                 1 => self.go(Screen::Meditations),
                 i => self.notify(format!("«{}» todavía no está", CONFIG_ITEMS[i])),
             },
@@ -379,7 +421,7 @@ impl App {
         };
     }
 
-    fn send(&mut self, c: Command) {
+    pub(super) fn send(&mut self, c: Command) {
         self.outbox.push(c);
     }
 
@@ -395,6 +437,14 @@ impl App {
     pub fn paste(&mut self, text: &str) {
         let text = text.trim();
         if self.screen != Screen::Focus {
+            if let Some(ed) = &mut self.editor
+                && let Some(
+                    super::routines::EdPopup::Name { text: t, .. } | super::routines::EdPopup::Task { text: t, .. },
+                ) = &mut ed.popup
+            {
+                t.push_str(&text.replace(['\n', '\r'], " "));
+                return;
+            }
             match &mut self.med_popup {
                 Some(MedPopup::Add { url, category: None }) => url.push_str(text),
                 None if self.screen == Screen::Meditations && text.starts_with("http") => {
@@ -444,6 +494,10 @@ impl App {
             Screen::Home => return self.home_key(k),
             Screen::Config => return self.config_key(k),
             Screen::Meditations => return self.meditations_key(k),
+            Screen::Routines => return self.routines_key(k),
+            Screen::RoutineEditor => return self.editor_key(k),
+            Screen::RoutineStep => return self.step_key(k),
+            Screen::RoutineRun => return self.run_key(k),
             Screen::Focus => {}
         }
         let items = self.items().len();

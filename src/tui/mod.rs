@@ -1,6 +1,8 @@
 mod app;
 mod font;
 mod menu;
+mod routine_ui;
+mod routines;
 mod scene;
 mod theme;
 mod ui;
@@ -40,6 +42,7 @@ pub fn run() -> Result<()> {
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableBracketedPaste);
     let mut app = App::new();
+    app.load_routines();
     let result = (|| -> Result<Exit> {
         let mut last = Instant::now();
         loop {
@@ -76,6 +79,7 @@ pub fn run() -> Result<()> {
                     TermEvent::Resize(..) => break,
                     _ => {}
                 }
+                app.persist();
                 for cmd in app.outbox.drain(..) {
                     client::send(&mut writer, &cmd)?;
                 }
@@ -189,23 +193,12 @@ mod tests {
 
     #[test]
     fn starts_on_the_home_menu_with_its_four_options() {
-        let app = App::new();
+        let app = app_with_routines();
         assert_eq!(app.screen, app::Screen::Home);
         let t = screen_text(&app, 80, 20);
         for s in ["Continuar", "Elegir otra rutina", "Ir a Focus", "Configuración", "1-4 directo"] {
             assert!(t.contains(s), "falta «{s}» en:\n{t}");
         }
-    }
-
-    #[test]
-    fn routines_options_say_they_are_not_there_yet() {
-        let mut app = App::new();
-        press(&mut app, "1");
-        assert!(app.notice.as_ref().unwrap().0.contains("todavía no está"));
-        assert_eq!(app.screen, app::Screen::Home);
-        press(&mut app, "2");
-        assert!(app.notice.as_ref().unwrap().0.contains("Elegir otra rutina"));
-        assert_eq!(app.screen, app::Screen::Home);
     }
 
     #[test]
@@ -235,14 +228,15 @@ mod tests {
     }
 
     #[test]
-    fn config_lists_its_entries_and_only_meditations_opens() {
+    fn config_lists_its_entries() {
         let mut app = App::new();
         press(&mut app, "4");
         let t = screen_text(&app, 80, 20);
         for s in ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"] {
             assert!(t.contains(s), "falta «{s}»");
         }
-        app.key(key(ratatui::crossterm::event::KeyCode::Enter)); // Rutinas
+        press(&mut app, "jj");
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter)); // Sonidos ambientales: etapa futura
         assert_eq!(app.screen, app::Screen::Config);
         assert!(app.notice.is_some());
     }
@@ -321,5 +315,442 @@ mod tests {
         let mut app = App::new();
         app.state.active = vec!["noise-brown".into()];
         assert!(!app.animating(), "con sonido en background, el menú no anima");
+    }
+
+    // ------------------------------------------------------------ rutinas
+
+    use crate::meditation::Category;
+    use crate::routine::{Routine, Step};
+    use ratatui::crossterm::event::KeyCode::{Down, Enter, Esc, Left, Right, Up};
+
+    fn cat(m: u32) -> Category {
+        Category::try_from(m).unwrap()
+    }
+
+    fn task(t: &str) -> Step {
+        Step::Task { text: t.into() }
+    }
+
+    fn sample_routine() -> Routine {
+        Routine {
+            name: "Mañana de estudio".into(),
+            steps: vec![
+                task("Ordenar el escritorio"),
+                task("Preparar mate"),
+                Step::Meditation { minutes: Some(cat(10)) },
+                task("Abrir el material"),
+            ],
+        }
+    }
+
+    fn app_with_routines() -> App {
+        let mut app = app_with_meditations();
+        app.routines = vec![
+            sample_routine(),
+            Routine { name: "Tarde".into(), steps: vec![task("x"), Step::Meditation { minutes: None }] },
+        ];
+        app
+    }
+
+    fn sent(app: &mut App) -> Vec<Command> {
+        std::mem::take(&mut app.outbox)
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        press(app, text);
+    }
+
+    #[test]
+    fn home_continues_the_last_routine_or_offers_to_create_the_first() {
+        let mut app = App::new();
+        assert!(screen_text(&app, 80, 20).contains("Crear mi primera rutina"));
+        press(&mut app, "1");
+        assert_eq!(app.screen, app::Screen::RoutineEditor, "sin rutinas, la opción 1 crea");
+        let mut app = app_with_routines();
+        assert!(screen_text(&app, 80, 20).contains("Continuar \"Mañana de estudio\""));
+        app.last_routine = Some("Tarde".into());
+        assert_eq!(app.home_items()[0], "Continuar \"Tarde\"");
+        press(&mut app, "1");
+        assert_eq!(app.screen, app::Screen::RoutineRun);
+        assert_eq!(app.run.as_ref().unwrap().routine.name, "Tarde");
+        assert!(app.last_dirty);
+    }
+
+    #[test]
+    fn a_missing_last_routine_falls_back_to_the_first() {
+        let mut app = app_with_routines();
+        app.last_routine = Some("Borrada".into());
+        assert_eq!(app.home_items()[0], "Continuar \"Mañana de estudio\"");
+    }
+
+    #[test]
+    fn list_shows_summaries_and_esc_goes_back_to_where_it_came_from() {
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        assert_eq!(app.screen, app::Screen::Routines);
+        let t = screen_text(&app, 80, 20);
+        for s in ["Mañana de estudio", "4 pasos · 1 meditación", "Enter", "empezar"] {
+            assert!(t.contains(s), "falta «{s}» en:\n{t}");
+        }
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Home);
+        press(&mut app, "4");
+        app.key(key(Enter)); // Rutinas
+        assert_eq!(app.screen, app::Screen::Routines);
+        assert!(!screen_text(&app, 80, 20).contains("empezar"), "desde Configuración no se empieza");
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Config);
+    }
+
+    #[test]
+    fn deleting_a_routine_asks_first_and_marks_the_file_dirty() {
+        let mut app = app_with_routines();
+        press(&mut app, "2d");
+        assert!(screen_text(&app, 80, 20).contains("¿Borrar la rutina «Mañana de estudio»?"));
+        app.key(key(Esc));
+        assert_eq!(app.routines.len(), 2);
+        assert!(!app.routines_dirty);
+        press(&mut app, "ds");
+        assert_eq!(app.routines.len(), 1);
+        assert_eq!(app.routines[0].name, "Tarde");
+        assert!(app.routines_dirty);
+    }
+
+    #[test]
+    fn a_broken_routines_file_is_never_overwritten() {
+        let mut app = app_with_routines();
+        app.routines_locked = Some("toml roto".into());
+        press(&mut app, "2ds");
+        assert_eq!(app.routines.len(), 2);
+        assert!(!app.routines_dirty);
+        press(&mut app, "n");
+        assert_eq!(app.screen, app::Screen::Routines);
+    }
+
+    #[test]
+    fn new_routine_asks_the_name_then_collects_steps_and_saves() {
+        let mut app = app_with_meditations();
+        press(&mut app, "2n");
+        assert_eq!(app.screen, app::Screen::RoutineEditor);
+        assert!(screen_text(&app, 80, 24).contains("Nombre de la rutina"));
+        app.key(key(Enter)); // vacío: no avanza
+        assert!(app.editor.as_ref().unwrap().popup.is_some());
+        type_text(&mut app, "Tarde");
+        app.key(key(Enter));
+        press(&mut app, "g");
+        assert_eq!(app.screen, app::Screen::RoutineEditor, "sin pasos no se guarda");
+        press(&mut app, "a");
+        app.key(key(Enter)); // Tarea
+        type_text(&mut app, "Preparar mate");
+        app.key(key(Enter));
+        press(&mut app, "a2"); // Meditación
+        assert_eq!(app.screen, app::Screen::RoutineStep);
+        app.key(key(Down));
+        app.key(key(Right)); // 10 -> 15
+        app.key(key(Enter));
+        assert_eq!(app.screen, app::Screen::RoutineEditor);
+        press(&mut app, "g");
+        assert_eq!(app.screen, app::Screen::Routines);
+        assert!(app.routines_dirty);
+        assert_eq!(app.routines.len(), 1);
+        assert_eq!(app.routines[0].name, "Tarde");
+        assert_eq!(app.routines[0].steps, vec![task("Preparar mate"), Step::Meditation { minutes: Some(cat(15)) }]);
+    }
+
+    #[test]
+    fn cancelling_the_name_of_a_new_routine_leaves_the_editor() {
+        let mut app = app_with_routines();
+        press(&mut app, "2n");
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Routines);
+        assert!(app.editor.is_none());
+    }
+
+    #[test]
+    fn names_cannot_repeat() {
+        let mut app = app_with_routines();
+        press(&mut app, "2e");
+        press(&mut app, "r");
+        for _ in 0..30 {
+            app.key(key(ratatui::crossterm::event::KeyCode::Backspace));
+        }
+        type_text(&mut app, "tarde");
+        app.key(key(Enter));
+        assert!(app.notice.as_ref().unwrap().0.contains("ya hay otra rutina"));
+        assert!(app.editor.as_ref().unwrap().popup.is_some());
+    }
+
+    #[test]
+    fn editor_moves_and_deletes_steps_with_confirmation() {
+        let mut app = app_with_routines();
+        press(&mut app, "2e");
+        assert!(screen_text(&app, 80, 24).contains("3  Meditación · 10 min fija"));
+        press(&mut app, "jj"); // paso 3
+        press(&mut app, "K");
+        let names: Vec<String> = app.editor.as_ref().unwrap().routine.steps.iter().map(Step::label).collect();
+        assert_eq!(names[1], "Meditación · 10 min fija");
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 1);
+        press(&mut app, "JJ");
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 3);
+        assert_eq!(app.editor.as_ref().unwrap().routine.steps[3].label(), "Meditación · 10 min fija");
+        press(&mut app, "d");
+        assert_eq!(app.editor.as_ref().unwrap().routine.steps.len(), 4);
+        assert!(screen_text(&app, 80, 24).contains("¿Borrar el paso"));
+        press(&mut app, "s");
+        assert_eq!(app.editor.as_ref().unwrap().routine.steps.len(), 3);
+        assert!(!app.routines_dirty, "hasta guardar no se toca la lista");
+    }
+
+    #[test]
+    fn esc_with_unsaved_changes_asks_and_without_them_just_leaves() {
+        let mut app = app_with_routines();
+        press(&mut app, "2e");
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Routines);
+        press(&mut app, "ed");
+        press(&mut app, "s");
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::RoutineEditor);
+        assert!(screen_text(&app, 80, 24).contains("cambios sin guardar"));
+        app.key(key(Esc)); // seguir editando
+        assert_eq!(app.screen, app::Screen::RoutineEditor);
+        app.key(key(Esc));
+        press(&mut app, "d"); // descartar
+        assert_eq!(app.screen, app::Screen::Routines);
+        assert_eq!(app.routines[0].steps.len(), 4);
+        press(&mut app, "eds");
+        app.key(key(Esc));
+        press(&mut app, "g"); // guardar
+        assert_eq!(app.screen, app::Screen::Routines);
+        assert_eq!(app.routines[0].steps.len(), 3);
+        assert!(app.routines_dirty);
+    }
+
+    #[test]
+    fn renaming_the_last_routine_keeps_it_as_the_last() {
+        let mut app = app_with_routines();
+        app.last_routine = Some("Mañana de estudio".into());
+        press(&mut app, "2er");
+        type_text(&mut app, "!");
+        app.key(key(Enter));
+        press(&mut app, "g");
+        assert_eq!(app.last_routine.as_deref(), Some("Mañana de estudio!"));
+        assert!(app.last_dirty);
+    }
+
+    #[test]
+    fn meditation_step_screen_switches_mode_and_duration() {
+        let mut app = app_with_routines();
+        press(&mut app, "2ejj");
+        app.key(key(Enter));
+        assert_eq!(app.screen, app::Screen::RoutineStep);
+        let t = screen_text(&app, 80, 20);
+        assert!(t.contains("Duración fija") && t.contains("10 minutos"), "{t}");
+        app.key(key(Down));
+        app.key(key(Left)); // 10 -> 5
+        app.key(key(Up));
+        app.key(key(Right)); // modo libre
+        let t = screen_text(&app, 80, 20);
+        assert!(t.contains("se elige en el momento"), "{t}");
+        app.key(key(Enter));
+        assert_eq!(app.editor.as_ref().unwrap().routine.steps[2], Step::Meditation { minutes: None });
+        press(&mut app, "g");
+        assert_eq!(app.routines[0].steps[2], Step::Meditation { minutes: None });
+    }
+
+    #[test]
+    fn esc_on_the_step_screen_discards_the_change() {
+        let mut app = app_with_routines();
+        press(&mut app, "2ejj");
+        app.key(key(Enter));
+        app.key(key(Right));
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::RoutineEditor);
+        assert!(!app.editor.as_ref().unwrap().dirty());
+    }
+
+    #[test]
+    fn running_a_routine_silences_ambient_sounds_and_gives_them_back() {
+        let mut app = app_with_routines();
+        app.state.active = vec!["noise-brown".into()];
+        press(&mut app, "1");
+        assert!(matches!(sent(&mut app).as_slice(), [Command::PauseAll]));
+        app.state.paused = true; // lo que contestaría el daemon
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Home);
+        assert!(app.run.is_none());
+        assert!(matches!(sent(&mut app).as_slice(), [Command::PauseAll]));
+    }
+
+    #[test]
+    fn running_does_not_touch_the_sound_when_nothing_was_playing() {
+        let mut app = app_with_routines();
+        press(&mut app, "1");
+        app.key(key(Esc));
+        assert!(sent(&mut app).is_empty());
+    }
+
+    #[test]
+    fn marks_go_in_any_order_count_and_undo_without_asking() {
+        let mut app = app_with_routines();
+        press(&mut app, "1");
+        assert!(screen_text(&app, 80, 24).contains("0 de 4 listos"));
+        press(&mut app, "jjj"); // último paso primero
+        press(&mut app, " ");
+        press(&mut app, "k");
+        press(&mut app, "k");
+        press(&mut app, "s"); // saltea el 2
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("2 de 4 listos") && t.contains("salteado"), "{t}");
+        press(&mut app, "u");
+        assert!(screen_text(&app, 80, 24).contains("1 de 4 listos"));
+        assert_eq!(app.run.as_ref().unwrap().cursor, 1, "u vuelve al paso deshecho");
+        press(&mut app, "uu");
+        assert!(app.notice.as_ref().unwrap().0.contains("nada para deshacer"));
+        assert!(screen_text(&app, 80, 24).contains("0 de 4 listos"));
+        assert!(app.popup.is_none() && app.med_popup.is_none());
+    }
+
+    #[test]
+    fn a_marked_step_is_not_marked_twice() {
+        let mut app = app_with_routines();
+        press(&mut app, "1 ");
+        app.key(key(Up));
+        press(&mut app, "s");
+        assert_eq!(app.run.as_ref().unwrap().done_count(), 1);
+        assert!(app.notice.is_some());
+    }
+
+    #[test]
+    fn finishing_every_step_enters_focus_and_gives_back_the_ambient() {
+        let mut app = app_with_routines();
+        app.state.active = vec!["noise-brown".into()];
+        press(&mut app, "1");
+        sent(&mut app);
+        app.state.paused = true;
+        press(&mut app, " s   ");
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert!(app.run.is_none());
+        let out = sent(&mut app);
+        assert!(out.iter().any(|c| matches!(c, Command::PauseAll)));
+        assert!(out.iter().any(|c| matches!(c, Command::Watch { levels: true })));
+    }
+
+    #[test]
+    fn fixed_meditation_gets_a_random_pick_and_enter_plays_then_toggles() {
+        let mut app = app_with_routines();
+        press(&mut app, "1jj");
+        let t = screen_text(&app, 90, 24);
+        assert!(t.contains("Meditación 10 min · ") && t.contains("(al azar)"), "{t}");
+        app.key(key(Enter));
+        let id = match sent(&mut app).pop() {
+            Some(Command::PlayMeditation { id }) => id,
+            other => panic!("salió {other:?}"),
+        };
+        assert!(id == "calma" || id == "scan", "tiene que ser de la categoría de 10: {id}");
+        app.state.meditation =
+            Some(crate::protocol::MeditationPlayback { id, position_secs: 192, total_secs: 600, paused: false });
+        assert!(screen_text(&app, 90, 24).contains("▶ 03:12 / 10:00"));
+        app.key(key(Enter));
+        assert!(matches!(sent(&mut app).pop(), Some(Command::ToggleMeditation)));
+        app.state.meditation.as_mut().unwrap().paused = true;
+        assert!(screen_text(&app, 90, 24).contains("⏸ 03:12 / 10:00"));
+    }
+
+    #[test]
+    fn the_audio_ending_does_not_mark_the_step() {
+        let mut app = app_with_routines();
+        press(&mut app, "1jj");
+        app.key(key(Enter));
+        app.state.meditation = None; // terminó
+        assert_eq!(app.run.as_ref().unwrap().marks[2], crate::tui::routines::Mark::Pending);
+    }
+
+    #[test]
+    fn free_meditation_asks_how_long_with_only_categories_that_have_something() {
+        let mut app = app_with_routines();
+        press(&mut app, "2j"); // «Tarde»
+        app.key(key(Enter));
+        press(&mut app, "j"); // paso 2: meditación libre
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("Meditación · duración libre") && t.contains("Enter para elegir"), "{t}");
+        app.key(key(Enter));
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("¿cuánto tiempo?") && t.contains("5 minutos") && t.contains("10 minutos"), "{t}");
+        assert!(!t.contains("20 minutos") && !t.contains("15 minutos"), "{t}");
+        app.key(key(Down));
+        app.key(key(Enter));
+        let run = app.run.as_ref().unwrap();
+        assert!(run.chooser.is_none());
+        assert_eq!(run.picks[1].as_ref().unwrap().category, cat(10));
+        assert!(sent(&mut app).is_empty(), "elegir la duración no reproduce todavía");
+        app.key(key(Enter));
+        assert!(matches!(sent(&mut app).pop(), Some(Command::PlayMeditation { .. })));
+    }
+
+    #[test]
+    fn esc_in_the_duration_screen_goes_back_to_the_steps() {
+        let mut app = app_with_routines();
+        press(&mut app, "2j");
+        app.key(key(Enter));
+        press(&mut app, "j");
+        app.key(key(Enter));
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::RoutineRun);
+        assert!(app.run.as_ref().unwrap().chooser.is_none());
+    }
+
+    #[test]
+    fn fixed_step_without_meditations_warns_and_lets_pick_another_duration_or_skip() {
+        let mut app = app_with_routines();
+        app.routines[0].steps[2] = Step::Meditation { minutes: Some(cat(20)) };
+        press(&mut app, "1jj");
+        let t = screen_text(&app, 90, 24);
+        assert!(t.contains("No hay meditaciones de 20 minutos") && t.contains("s saltea"), "{t}");
+        app.key(key(Enter));
+        assert!(screen_text(&app, 90, 24).contains("¿cuánto tiempo?"));
+        app.key(key(Enter)); // 5 minutos
+        assert_eq!(app.run.as_ref().unwrap().picks[2].as_ref().unwrap().id, "resp");
+        // Y la otra salida: saltearlo.
+        let mut app = app_with_routines();
+        app.routines[0].steps[2] = Step::Meditation { minutes: Some(cat(20)) };
+        press(&mut app, "1jjs");
+        assert_eq!(app.run.as_ref().unwrap().marks[2], crate::tui::routines::Mark::Skipped);
+    }
+
+    #[test]
+    fn meditations_that_are_not_downloaded_here_are_not_offered() {
+        let mut app = app_with_routines();
+        for m in &mut app.state.meditations {
+            m.available = m.category != cat(5);
+        }
+        assert_eq!(app.available_categories(), vec![cat(10)]);
+    }
+
+    #[test]
+    fn skipping_the_playing_meditation_stops_it() {
+        let mut app = app_with_routines();
+        press(&mut app, "1jj");
+        app.key(key(Enter));
+        sent(&mut app);
+        press(&mut app, "s");
+        assert!(matches!(sent(&mut app).as_slice(), [Command::StopMeditation]));
+    }
+
+    #[test]
+    fn leaving_a_routine_stops_the_meditation_it_started() {
+        let mut app = app_with_routines();
+        press(&mut app, "1jj");
+        app.key(key(Enter));
+        sent(&mut app);
+        app.key(key(Esc));
+        assert!(sent(&mut app).iter().any(|c| matches!(c, Command::StopMeditation)));
+    }
+
+    #[test]
+    fn routine_screens_do_not_animate() {
+        let mut app = app_with_routines();
+        press(&mut app, "1");
+        assert!(!app.animating());
     }
 }

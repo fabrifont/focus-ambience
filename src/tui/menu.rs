@@ -1,4 +1,5 @@
-//! Pantallas del flujo v2: menú de inicio, Configuración y Meditaciones. Quietas y con pocos
+//! Pantallas del flujo v2: menú de inicio, Configuración y Meditaciones (las de rutinas, en
+//! `routine_ui`). Quietas y con pocos
 //! colores (uno para lo seleccionado, el resto atenuado): no se animan para no gastar CPU.
 
 use ratatui::Frame;
@@ -7,7 +8,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
-use super::app::{App, CONFIG_ITEMS, HOME_ITEMS, MedPopup, Screen};
+use super::app::{App, CONFIG_ITEMS, MedPopup, Screen};
+use super::routine_ui;
 use super::theme::{self, Palette};
 use super::ui;
 use crate::meditation::{self, Category};
@@ -20,12 +22,18 @@ pub fn draw(f: &mut Frame, app: &App) {
         Layout::vertical([Constraint::Min(3), Constraint::Length(1), Constraint::Length(1)]).areas(area);
     let body = body.inner(ratatui::layout::Margin { horizontal: 2, vertical: 1 });
 
+    let mut routine_sel = 0;
     let (lines, hints): (Vec<Line>, &[(&str, &str)]) = match app.screen {
         Screen::Home => (
             home_lines(app, &pal),
             &[("↑↓", " mover  "), ("Enter", " elegir  "), ("1-4", " directo  "), ("q", " salir")],
         ),
         Screen::Config => (config_lines(app, &pal), &[("↑↓", " mover  "), ("Enter", " elegir  "), ("Esc", " volver")]),
+        Screen::Routines | Screen::RoutineEditor | Screen::RoutineStep | Screen::RoutineRun => {
+            let v = routine_ui::view(app, &pal, body.width as usize);
+            routine_sel = v.selected;
+            (v.lines, v.hints)
+        }
         _ => {
             let (lines, _) = meditation_lines(app, &pal, body.width as usize);
             (
@@ -44,6 +52,9 @@ pub fn draw(f: &mut Frame, app: &App) {
         Screen::Meditations => {
             let (_, sel) = meditation_lines(app, &pal, body.width as usize);
             (sel + 3).saturating_sub(body.height as usize) as u16
+        }
+        Screen::Routines | Screen::RoutineEditor | Screen::RoutineRun => {
+            (routine_sel + 3).saturating_sub(body.height as usize) as u16
         }
         _ => 0,
     };
@@ -64,14 +75,15 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Some(p) = &app.med_popup {
         draw_med_popup(f, p, &pal);
     }
+    routine_ui::draw_popup(f, app, &pal);
 }
 
-fn title(text: &str, pal: &Palette) -> Line<'static> {
+pub(super) fn title(text: &str, pal: &Palette) -> Line<'static> {
     Line::styled(text.to_string(), Style::new().fg(pal.fg.c()).add_modifier(Modifier::BOLD))
 }
 
 /// "> label" for the selected row, "  label" for the others.
-fn row(selected: bool, prefix: String, label: &str, pal: &Palette) -> Line<'static> {
+pub(super) fn row(selected: bool, prefix: String, label: &str, pal: &Palette) -> Line<'static> {
     let (mark, style) = if selected {
         ("> ", Style::new().fg(pal.accent.c()).add_modifier(Modifier::BOLD))
     } else {
@@ -86,7 +98,7 @@ fn row(selected: bool, prefix: String, label: &str, pal: &Palette) -> Line<'stat
 
 fn home_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
     let mut v = vec![title("WorkHub", pal), Line::raw("")];
-    for (i, label) in HOME_ITEMS.iter().enumerate() {
+    for (i, label) in app.home_items().iter().enumerate() {
         v.push(row(i == app.home_cursor, format!("{}  ", i + 1), label, pal));
     }
     v
@@ -216,17 +228,23 @@ fn draw_med_popup(f: &mut Frame, popup: &MedPopup, pal: &Palette) {
             ],
         ),
     };
+    draw_box(f, pal, title, lines);
+}
+
+/// Cuadro redondeado centrado con título, para los diálogos.
+pub(super) fn draw_box(f: &mut Frame, pal: &Palette, title: &str, lines: Vec<Line>) {
+    let acc = Style::new().fg(pal.accent.c());
     let area = ui::popup_area(f.area(), 54, lines.len() as u16 + 3);
     f.render_widget(Clear, area);
     let block = Block::bordered()
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::new().fg(pal.accent.lerp(pal.dim, 0.3).c()))
-        .title(Span::styled(title, acc.add_modifier(Modifier::BOLD)))
+        .title(Span::styled(title.to_string(), acc.add_modifier(Modifier::BOLD)))
         .style(Style::new().bg(pal.surface.c()));
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn trunc(s: &str, max: usize) -> String {
+pub(super) fn trunc(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
