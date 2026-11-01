@@ -721,6 +721,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                     row("+ -", "volumen general"),
                     row("p", "pausar / seguir todo"),
                     row("x", "apagar todo"),
+                    row("0", "reinicia los sonidos"),
                     row("r", "pausar / seguir el timer (el sonido sigue)"),
                     row("t", "temporizador"),
                     row("d", if app.deep == Deep::Off { "modo deep work" } else { "salir del modo deep work" }),

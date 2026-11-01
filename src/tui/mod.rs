@@ -1892,6 +1892,27 @@ mod tests {
     }
 
     #[test]
+    fn zero_restarts_sounds_only_on_the_focus_main_view() {
+        let mut app = focus_app();
+        press(&mut app, "0");
+        assert!(matches!(sent(&mut app).as_slice(), [Command::RestartSounds]));
+        // En el menú de inicio no es de Focus.
+        app.key(key(ratatui::crossterm::event::KeyCode::Esc));
+        app.outbox.clear();
+        press(&mut app, "0");
+        assert!(app.outbox.iter().all(|c| !matches!(c, Command::RestartSounds)));
+    }
+
+    #[test]
+    fn zero_in_the_custom_minutes_popup_stays_a_digit() {
+        let mut app = focus_app();
+        app.popup = Some(app::Popup::Timer { sel: 0, custom: Some(String::new()) });
+        press(&mut app, "50");
+        assert!(matches!(&app.popup, Some(app::Popup::Timer { custom: Some(s), .. }) if s == "50"));
+        assert!(app.outbox.iter().all(|c| !matches!(c, Command::RestartSounds)));
+    }
+
+    #[test]
     fn r_without_a_timer_only_shows_a_notice() {
         let mut app = focus_app();
         press(&mut app, "r");
