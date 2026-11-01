@@ -45,6 +45,8 @@ struct BgStar {
     phase: f32,
     speed: f32,
     bright: f32,
+    /// Calm mode only: drawn as ✦ / ✧ when bright enough.
+    big: bool,
 }
 
 pub struct Scene {
@@ -55,6 +57,8 @@ pub struct Scene {
     rng: fastrand::Rng,
     /// Fractional spawns carried over between frames, per visual.
     debt: [f32; 9],
+    /// Menu band: denser twinkling stars with ✦ ✧, a still background, no emitters.
+    calm: bool,
 }
 
 const MAX_PARTICLES: usize = 600;
@@ -68,7 +72,13 @@ impl Scene {
             t: 0.0,
             rng: fastrand::Rng::new(),
             debt: [0.0; 9],
+            calm: false,
         }
+    }
+
+    /// The quiet starfield for the menu screens: it never depends on the sound.
+    pub fn calm() -> Self {
+        Self { calm: true, ..Self::new() }
     }
 
     /// Whether anything is still moving (decides the frame rate).
@@ -160,14 +170,15 @@ impl Scene {
 
     fn reseed_stars(&mut self) {
         let (w, h) = self.size;
-        let n = (w as usize * h as usize) / 45;
+        let n = (w as usize * h as usize) / if self.calm { 28 } else { 45 };
         self.stars = (0..n)
             .map(|_| BgStar {
                 x: self.rng.u16(0..w.max(1)),
                 y: self.rng.u16(0..h.max(1)),
                 phase: self.rng.f32() * std::f32::consts::TAU,
                 speed: 0.4 + self.rng.f32() * 1.2,
-                bright: 0.15 + self.rng.f32() * 0.35,
+                bright: if self.calm { 0.25 + self.rng.f32() * 0.5 } else { 0.15 + self.rng.f32() * 0.35 },
+                big: self.calm && self.rng.f32() < 0.3,
             })
             .collect();
     }
@@ -259,7 +270,12 @@ impl Scene {
             let fy = y as f32 / h as f32;
             let row = pal.bg.lerp(pal.surface, (1.0 - fy) * 0.55);
             for x in 0..w {
-                let wave = ((x as f32 * 0.07 + t * 0.25 + fy * 2.0).sin() * 0.5 + 0.5) * (1.0 - fy).powi(2);
+                // Calm: a flat gradient, so only the twinkling stars change between frames.
+                let wave = if self.calm {
+                    0.0
+                } else {
+                    ((x as f32 * 0.07 + t * 0.25 + fy * 2.0).sin() * 0.5 + 0.5) * (1.0 - fy).powi(2)
+                };
                 let bg = row.lerp(pal.accent2, wave * 0.07);
                 buf[(area.x + x as u16, area.y + y as u16)].set_char(' ').set_bg(bg.c());
                 bgs.push(bg);
@@ -284,7 +300,12 @@ impl Scene {
         for s in &self.stars {
             if (s.x as usize) < w && (s.y as usize) < h {
                 let tw = ((t * s.speed + s.phase).sin() * 0.5 + 0.5) * s.bright;
-                let ch = if tw > 0.38 { '∙' } else { '·' };
+                let ch = match (s.big, tw > 0.38, tw > 0.25) {
+                    (true, true, _) => '✦',
+                    (true, false, true) => '✧',
+                    (_, true, _) => '∙',
+                    _ => '·',
+                };
                 put(buf, s.x as f32, s.y as f32, ch, pal.fg, tw * 0.7);
             }
         }

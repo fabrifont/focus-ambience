@@ -5,7 +5,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use super::app::{App, Screen};
-use super::menu::{draw_box, row, title, trunc};
+use super::menu::{draw_box, note, row, trunc};
 use super::routines::{EdPopup, Editor, ListPopup, Mark, Run};
 use super::theme::Palette;
 use crate::meditation::{self, Category};
@@ -31,25 +31,24 @@ pub fn view(app: &App, pal: &Palette, width: usize) -> View {
 
 fn list_view(app: &App, pal: &Palette, width: usize) -> View {
     let dim = Style::new().fg(pal.dim.c());
-    let mut lines = vec![title("Rutinas", pal), Line::raw("")];
-    let mut selected = lines.len();
+    let mut lines = Vec::new();
+    let mut selected = 0;
+    // Names padded to the longest one, so the summaries line up in a column.
+    let summary_w = app.routines.iter().map(|r| r.summary().chars().count()).max().unwrap_or(0);
+    let names: Vec<String> =
+        app.routines.iter().map(|r| trunc(&r.name, width.saturating_sub(summary_w + 10).max(8))).collect();
+    let name_w = names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
     for (i, r) in app.routines.iter().enumerate() {
         if i == app.list_cursor {
             selected = lines.len();
         }
-        let summary = r.summary();
-        let name = trunc(&r.name, width.saturating_sub(summary.chars().count() + 8).max(8));
-        let pad = width.saturating_sub(name.chars().count() + summary.chars().count() + 6).max(2);
-        let mut line = row(i == app.list_cursor, String::new(), &name, pal);
-        line.spans.push(Span::raw(" ".repeat(pad)));
-        line.spans.push(Span::styled(summary, dim));
+        let mut line = row(i == app.list_cursor, String::new(), &names[i], pal);
+        line.spans.push(Span::raw(" ".repeat(name_w - names[i].chars().count() + 3)));
+        line.spans.push(Span::styled(r.summary(), dim));
         lines.push(line);
     }
     if app.routines.is_empty() {
-        lines.push(Line::styled(
-            "Todavía no hay rutinas. Apretá n para crear una (o corré `focus sync` para traerlas).",
-            dim,
-        ));
+        lines.push(note("Todavía no hay rutinas. Apretá n para crear una (o corré `focus sync` para traerlas).", dim));
     }
     let hints: Hints = if app.list_from == Screen::Home {
         &[("Enter", " empezar  "), ("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("Esc", " volver")]
@@ -62,9 +61,8 @@ fn list_view(app: &App, pal: &Palette, width: usize) -> View {
 fn editor_view(app: &App, pal: &Palette, width: usize) -> View {
     let dim = Style::new().fg(pal.dim.c());
     let Some(ed) = &app.editor else { return View { lines: vec![], hints: &[], selected: 0 } };
-    let name = if ed.routine.name.is_empty() { "(sin nombre)" } else { ed.routine.name.as_str() };
-    let mut lines = vec![title(&format!("Editar · {}", trunc(name, width.saturating_sub(12))), pal), Line::raw("")];
-    let mut selected = lines.len();
+    let mut lines = Vec::new();
+    let mut selected = 0;
     for (i, t) in ed.routine.tasks.iter().enumerate() {
         if i == ed.cursor {
             selected = lines.len();
@@ -72,7 +70,7 @@ fn editor_view(app: &App, pal: &Palette, width: usize) -> View {
         lines.push(row(i == ed.cursor, format!("{}  ", i + 1), &trunc(t, width.saturating_sub(10)), pal));
     }
     if ed.routine.tasks.is_empty() {
-        lines.push(Line::styled("Sin tareas todavía. Apretá a para agregar una.", dim));
+        lines.push(note("Sin tareas todavía. Apretá a para agregar una.", dim));
     }
     // La meditación no es un paso de la lista: es un ajuste aparte, siempre al final.
     lines.push(Line::raw(""));
@@ -86,7 +84,7 @@ fn editor_view(app: &App, pal: &Palette, width: usize) -> View {
     lines.push(row(ed.cursor >= ed.routine.tasks.len(), String::new(), &med, pal));
     if ed.dirty() {
         lines.push(Line::raw(""));
-        lines.push(Line::styled("cambios sin guardar", dim));
+        lines.push(note("cambios sin guardar", dim));
     }
     View {
         lines,
@@ -108,7 +106,7 @@ fn step_view(app: &App, pal: &Palette) -> View {
     let dim = Style::new().fg(pal.dim.c());
     let acc = Style::new().fg(pal.accent.c());
     let fg = Style::new().fg(pal.fg.c());
-    let mut lines = vec![title("Meditación de la rutina", pal), Line::raw("")];
+    let mut lines = Vec::new();
     if let Some(d) = app.editor.as_ref().and_then(|e| e.step.as_ref()) {
         let pick = |on: bool| if on { acc.add_modifier(Modifier::BOLD) } else { dim };
         let mark = |field: usize| Span::styled(if d.field == field { "> " } else { "  " }, acc);
@@ -155,31 +153,28 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
     let dim = Style::new().fg(pal.dim.c());
     let acc = Style::new().fg(pal.accent.c());
     let fg = Style::new().fg(pal.fg.c());
+    let accent2 = Style::new().fg(pal.accent2.c());
+    // The routine's name is in the band; here, how far along it is.
     let counter = format!("{} de {} listos", run.done_count(), run.marks.len());
-    let name = trunc(&run.routine.name, width.saturating_sub(counter.chars().count() + 6).max(8));
-    let pad = width.saturating_sub(name.chars().count() + counter.chars().count()).max(2);
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled(name, fg.add_modifier(Modifier::BOLD)),
-            Span::raw(" ".repeat(pad)),
-            Span::styled(counter, dim),
-        ]),
-        Line::raw(""),
-    ];
+    let mut lines = vec![note(counter, dim), Line::raw("")];
     let mut selected = lines.len();
     for (i, step) in run.steps.iter().enumerate() {
         let sel = i == run.cursor;
         if sel {
             selected = lines.len();
         }
-        let (glyph, style) = match run.marks[i] {
-            Mark::Done => ("✓ ", acc),
-            Mark::Pending => ("  ", fg),
+        // The meditation is the second accent color, with its own icon.
+        let med = matches!(step, Step::Meditation { .. });
+        let (glyph, style) = match (run.marks[i], med) {
+            (Mark::Done, _) => ("✓ ", acc),
+            (Mark::Pending, true) => ("✿ ", accent2),
+            (Mark::Pending, false) => ("  ", fg),
         };
         let text = trunc(&step_text(run, i, step), width.saturating_sub(24));
+        let pending_style = if med { accent2 } else { fg };
         let text_style = match (run.marks[i], sel) {
-            (Mark::Pending, true) => acc.add_modifier(Modifier::BOLD),
-            (Mark::Pending, false) => fg,
+            (Mark::Pending, true) => if med { accent2 } else { acc }.add_modifier(Modifier::BOLD),
+            (Mark::Pending, false) => pending_style,
             // Lo hecho se tacha de un vistazo: atenuado.
             _ => dim,
         };
@@ -189,7 +184,7 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
             Span::styled(text, text_style),
         ];
         lines.push(Line::from(spans));
-        for extra in step_extra(app, run, i, pal) {
+        for extra in step_extra(app, run, i, pal, width) {
             lines.push(extra);
         }
     }
@@ -210,11 +205,10 @@ fn step_text(run: &Run, i: usize, step: &Step) -> String {
 }
 
 /// Líneas extra bajo un paso de meditación: progreso, aviso o qué hacer.
-fn step_extra(app: &App, run: &Run, i: usize, pal: &Palette) -> Vec<Line<'static>> {
+fn step_extra(app: &App, run: &Run, i: usize, pal: &Palette, width: usize) -> Vec<Line<'static>> {
     let dim = Style::new().fg(pal.dim.c());
-    let acc = Style::new().fg(pal.accent.c());
     let Step::Meditation { minutes } = &run.steps[i] else { return vec![] };
-    let indent = "       ";
+    let indent = "    ";
     match (&run.picks[i], minutes) {
         (Some(p), _) => {
             let Some(pb) = app.state.meditation.as_ref().filter(|m| m.id == p.id && run.playing_step == Some(i)) else {
@@ -222,7 +216,17 @@ fn step_extra(app: &App, run: &Run, i: usize, pal: &Palette) -> Vec<Line<'static
             };
             let icon = if pb.paused { "⏸" } else { "▶" };
             let text = format!("{icon} {} / {}", meditation::clock(pb.position_secs), meditation::clock(pb.total_secs));
-            vec![Line::from(vec![Span::raw(indent), Span::styled(text, acc)])]
+            // Progress bar: ━ done, ╌ to go.
+            let bar = 24usize.min(width.saturating_sub(40)).max(8);
+            let done = ((pb.position_secs as f32 / pb.total_secs.max(1) as f32) * bar as f32).round() as usize;
+            let done = done.min(bar);
+            let accent2 = Style::new().fg(pal.accent2.c());
+            vec![Line::from(vec![
+                Span::raw(indent),
+                Span::styled("━".repeat(done), accent2),
+                Span::styled("╌".repeat(bar - done), dim),
+                Span::styled(format!("  {text}"), accent2),
+            ])]
         }
         (None, Some(c)) if run.marks[i] == Mark::Pending => vec![
             Line::styled(format!("{indent}No hay meditaciones de {} en esta compu.", c.label()), dim),
@@ -237,7 +241,7 @@ fn step_extra(app: &App, run: &Run, i: usize, pal: &Palette) -> Vec<Line<'static
 
 fn chooser_view(app: &App, pal: &Palette, sel: usize) -> View {
     let dim = Style::new().fg(pal.dim.c());
-    let mut lines = vec![title("Meditación · ¿cuánto tiempo?", pal), Line::raw("")];
+    let mut lines = vec![note("Meditación · ¿cuánto tiempo?", Style::new().fg(pal.fg.c())), Line::raw("")];
     let cats = app.available_categories();
     let mut selected = lines.len();
     for (i, c) in cats.iter().enumerate() {
@@ -247,7 +251,7 @@ fn chooser_view(app: &App, pal: &Palette, sel: usize) -> View {
         lines.push(row(i == sel, String::new(), &c.label(), pal));
     }
     if cats.is_empty() {
-        lines.push(Line::styled("No hay meditaciones en esta compu. Corré `focus sync` o agregá una.", dim));
+        lines.push(note("No hay meditaciones en esta compu. Corré `focus sync` o agregá una.", dim));
     }
     View { lines, hints: &[("Enter", " elegir  "), ("Esc", " volver")], selected }
 }
