@@ -712,7 +712,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                     row("enter", "en presets: cargar el preset"),
                     row("esc", "volver al menú de inicio"),
                     row("q", "salir (pregunta si dejar sonando)"),
-                    row("Q", "apagar todo y salir"),
+                    row("Ctrl+Q", "apagar todo y salir"),
                 ],
             )
         }

@@ -99,7 +99,7 @@ flowchart TD
 1. Nombre de la rutina.
 2. Tareas con `a`: siempre agrega una **tarea** (un texto, como "Preparar mate"), sin preguntar de qué tipo.
 3. La **meditación** no es un paso de la lista: es un ajuste aparte, en una fila al final del editor (se abre con `m` desde cualquier lugar, o con `Enter` sobre la fila). Es sí o no, como máximo una por rutina. Si es sí, elige el modo: **duración fija** (y cuál, por ejemplo 10 minutos) o **duración libre** (se elige al hacerla). No se elige un audio puntual: la app pone uno al azar de esa duración.
-4. `K`/`J` reordenan las tareas, `g` guarda, `Esc` sale (si hay cambios sin guardar, pregunta).
+4. `Ctrl+K`/`Ctrl+J` reordenan las tareas, `g` guarda, `Esc` sale (si hay cambios sin guardar, pregunta).
 
 **Agregar una meditación**
 

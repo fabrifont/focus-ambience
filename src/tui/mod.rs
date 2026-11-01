@@ -161,6 +161,13 @@ mod tests {
         }
     }
 
+    fn ctrl(app: &mut App, keys: &str) {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        for c in keys.chars() {
+            app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+        }
+    }
+
     fn med(id: &str, name: &str, minutes: u32) -> crate::meditation::Meditation {
         crate::meditation::Meditation {
             id: id.into(),
@@ -512,7 +519,7 @@ mod tests {
     fn the_sound_cursor_stays_inside_the_list_after_a_delete() {
         let mut app = app_with_sounds();
         open_sounds(&mut app);
-        press(&mut app, "G");
+        ctrl(&mut app, "g");
         assert_eq!(app.sound_cursor, 2);
         let mut st = app.state.clone();
         st.sounds.remove(2);
@@ -758,14 +765,14 @@ mod tests {
     fn quitting_from_the_builder_restores_the_audio_like_esc() {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-        for exit in ["Q", "q", "c"] {
+        for exit in ["ctrl+q", "q", "c"] {
             let mut app = with_focus_playing(&["lluvia"], false);
             open_builder(&mut app);
             press(&mut app, " ");
             sent(&mut app);
             match exit {
                 "c" => app.key(ctrl_c),
-                "Q" => press(&mut app, "Q"),
+                "ctrl+q" => ctrl(&mut app, "q"),
                 _ => {
                     press(&mut app, "q");
                     press(&mut app, "s");
@@ -1167,11 +1174,11 @@ mod tests {
     fn editor_moves_and_deletes_tasks_with_confirmation() {
         let mut app = app_with_routines();
         press(&mut app, "2ej"); // tarea 2
-        press(&mut app, "K");
+        ctrl(&mut app, "k");
         assert_eq!(app.editor.as_ref().unwrap().routine.tasks[0], "Preparar mate");
         assert_eq!(app.editor.as_ref().unwrap().cursor, 0);
-        press(&mut app, "JJJ");
-        assert_eq!(app.editor.as_ref().unwrap().cursor, 2, "J no mueve tareas fuera de la lista");
+        ctrl(&mut app, "jjj");
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 2, "Ctrl+J no mueve tareas fuera de la lista");
         assert_eq!(app.editor.as_ref().unwrap().routine.tasks[2], "Preparar mate");
         press(&mut app, "d");
         assert_eq!(app.editor.as_ref().unwrap().routine.tasks.len(), 3);
@@ -1217,7 +1224,9 @@ mod tests {
     #[test]
     fn the_meditation_row_cannot_be_moved_or_deleted_like_a_task() {
         let mut app = app_with_routines();
-        press(&mut app, "2ejjjKd");
+        press(&mut app, "2ejjj");
+        ctrl(&mut app, "k");
+        press(&mut app, "d");
         let ed = app.editor.as_ref().unwrap();
         assert!(ed.popup.is_none() && !ed.dirty());
         assert_eq!(ed.cursor, 3);
@@ -1750,7 +1759,7 @@ mod tests {
         assert_eq!(app.home_cursor, 1);
         // En los popups de confirmación también.
         let mut app = app_with_routines();
-        press(&mut app, "Q");
+        ctrl(&mut app, "q");
         assert!(app.exit.is_some());
     }
 
@@ -1786,27 +1795,71 @@ mod tests {
     }
 
     #[test]
-    fn q_g_j_k_keep_their_own_meaning() {
+    fn ctrl_q_g_j_k_do_the_shortcuts_and_plain_letters_do_not() {
         use app::Screen;
-        for screen in [Screen::Home, Screen::Config, Screen::Sounds, Screen::Presets, Screen::Meditations] {
+        for screen in [Screen::Home, Screen::Config, Screen::Sounds, Screen::Presets, Screen::Meditations, Screen::Routines] {
             let mut app = app_with_presets();
+            app.list_from = Screen::Config;
             app.go(screen);
-            press(&mut app, "Q");
+            ctrl(&mut app, "q");
             assert!(matches!(app.exit, Some(app::Exit::Quit)), "{screen:?}");
         }
+        let mut app = focus_app();
+        ctrl(&mut app, "q");
+        assert!(matches!(app.exit, Some(app::Exit::Quit)));
+        // La q sola (y la Q, que es lo mismo) pregunta o sale como siempre, nunca apaga directo.
+        let mut app = app_with_presets();
+        app.go(app::Screen::Sounds);
+        press(&mut app, "Q");
+        assert!(!matches!(app.exit, Some(app::Exit::Quit)));
+        // Ctrl+C sigue soltando la TUI.
+        let mut app = app_with_presets();
+        ctrl(&mut app, "c");
+        assert!(matches!(app.exit, Some(app::Exit::Detach)));
+
+        // Ctrl+G va al final; la g sola va al principio.
         let mut app = app_with_sounds();
         app.go(Screen::Sounds);
-        press(&mut app, "G");
+        ctrl(&mut app, "g");
         assert_eq!(app.sound_cursor, app.file_sounds().len() - 1);
         assert!(app.sound_cursor > 0);
+        press(&mut app, "g");
+        assert_eq!(app.sound_cursor, 0);
+        press(&mut app, "G");
+        assert_eq!(app.sound_cursor, 0, "la G es una g: va al principio");
+
+        // Ctrl+J/Ctrl+K mueven la tarea; j/k/J/K solos mueven el cursor.
         let mut app = app_with_routines();
         app.list_from = Screen::Config;
         app.go(Screen::Routines);
         press(&mut app, "e");
-        press(&mut app, "J");
+        ctrl(&mut app, "j");
         assert_eq!(app.editor.as_ref().unwrap().routine.tasks[1], sample_routine().tasks[0]);
         assert_eq!(app.editor.as_ref().unwrap().cursor, 1);
-        press(&mut app, "K");
+        ctrl(&mut app, "k");
         assert_eq!(app.editor.as_ref().unwrap().routine.tasks, sample_routine().tasks);
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 0);
+        press(&mut app, "J");
+        press(&mut app, "j");
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 2);
+        press(&mut app, "K");
+        assert_eq!(app.editor.as_ref().unwrap().cursor, 1);
+        assert_eq!(app.editor.as_ref().unwrap().routine.tasks, sample_routine().tasks);
+
+        // Fuera del editor, Ctrl+J/Ctrl+K no disparan el movimiento de la letra sola.
+        let mut app = app_with_routines();
+        ctrl(&mut app, "jk");
+        assert_eq!(app.home_cursor, 0);
+        // En un campo de texto, Ctrl+letra no escribe nada ni sale (salvo Ctrl+C).
+        let mut app = app_with_routines();
+        app.list_from = Screen::Config;
+        app.go(Screen::Routines);
+        press(&mut app, "n");
+        ctrl(&mut app, "q");
+        assert!(app.exit.is_none());
+        match app.editor.as_ref().and_then(|e| e.popup.as_ref()) {
+            Some(routines::EdPopup::Name { text, .. }) => assert!(text.is_empty()),
+            _ => panic!("popup de nombre"),
+        }
     }
 }

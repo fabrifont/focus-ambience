@@ -2,7 +2,7 @@
 //! estado vive en `App` (para poder probarlo sin terminal ni disco); `App::persist` es lo único
 //! que escribe archivos y lo llama el bucle principal.
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{App, MAX_MINUTES, Screen};
 use crate::meditation::{self, Category};
@@ -209,7 +209,6 @@ impl App {
             }
             KeyCode::Esc => self.go(self.list_from),
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(super::app::Exit::Quit),
             _ => {}
         }
     }
@@ -257,7 +256,18 @@ impl App {
         // Las tareas y, después, la fila del ajuste de meditación.
         let n = ed.routine.tasks.len();
         let on_meditation = ed.cursor >= n;
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         match k.code {
+            // Ctrl+J/Ctrl+K mueven la tarea; sin tarea que mover no hacen nada.
+            KeyCode::Char('j' | 'k') if ctrl => {
+                if let KeyCode::Char('k') = k.code && !on_meditation && ed.cursor > 0 {
+                    ed.routine.tasks.swap(ed.cursor, ed.cursor - 1);
+                    ed.cursor -= 1;
+                } else if let KeyCode::Char('j') = k.code && ed.cursor + 1 < n {
+                    ed.routine.tasks.swap(ed.cursor, ed.cursor + 1);
+                    ed.cursor += 1;
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => ed.cursor = ed.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => ed.cursor = (ed.cursor + 1).min(n),
             KeyCode::Char('a') => ed.popup = Some(EdPopup::Task { text: String::new(), at: None }),
@@ -269,14 +279,6 @@ impl App {
             KeyCode::Enter => {
                 let text = ed.routine.tasks[ed.cursor].clone();
                 ed.popup = Some(EdPopup::Task { text, at: Some(ed.cursor) });
-            }
-            KeyCode::Char('K') if !on_meditation && ed.cursor > 0 => {
-                ed.routine.tasks.swap(ed.cursor, ed.cursor - 1);
-                ed.cursor -= 1;
-            }
-            KeyCode::Char('J') if ed.cursor + 1 < n => {
-                ed.routine.tasks.swap(ed.cursor, ed.cursor + 1);
-                ed.cursor += 1;
             }
             KeyCode::Char('d') | KeyCode::Delete if !on_meditation => {
                 ed.popup = Some(EdPopup::DeleteStep { at: ed.cursor });

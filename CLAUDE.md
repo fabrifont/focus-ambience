@@ -17,7 +17,7 @@ Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido
 - El audio se lee por streaming desde disco (no cargar archivos en RAM); se decodifica en bloques grandes para que la CPU duerma.
 - Al abrir arranca **sin sonar** (pero recuerda volúmenes y la posición de cada pista).
 - Modo background: un daemon (`focus daemon`) es dueño del audio; la TUI es un cliente por socket Unix.
-  - `q` → si algo suena, pregunta si dejarlo sonando en background. `Q` → apaga todo.
+  - `q` → si algo suena, pregunta si dejarlo sonando en background. `Ctrl+Q` → apaga todo. Los atajos no usan mayúsculas: Shift o Bloq Mayús se tratan como minúscula (salvo en campos de texto), y lo que necesita otra tecla va con Ctrl.
   - `focus quit` apaga desde cualquier terminal.
   - El daemon se cierra solo tras ~60 s sin clientes y sin nada sonando.
 - Temporizador simple (no pomodoro): al terminar, fade-out + notificación de escritorio, **sin sonido**.

@@ -472,7 +472,6 @@ impl App {
             KeyCode::Char(c @ '1'..='4') => self.choose_home(c as usize - '1' as usize),
             KeyCode::Enter => self.choose_home(self.home_cursor),
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
         }
     }
@@ -502,7 +501,6 @@ impl App {
             },
             KeyCode::Esc => self.go(Screen::Home),
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
         }
     }
@@ -518,7 +516,7 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.sound_cursor = self.sound_cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => self.sound_cursor = (self.sound_cursor + 1).min(n.saturating_sub(1)),
             KeyCode::Home | KeyCode::Char('g') => self.sound_cursor = 0,
-            KeyCode::End | KeyCode::Char('G') => self.sound_cursor = n.saturating_sub(1),
+            KeyCode::End => self.sound_cursor = n.saturating_sub(1),
             KeyCode::Char('a') => self.popup = Some(Popup::Add(Self::new_add_form(String::new()))),
             KeyCode::Char('d') | KeyCode::Delete => {
                 if let Some(s) = self.selected_file_sound() {
@@ -527,7 +525,6 @@ impl App {
             }
             KeyCode::Esc => self.go(Screen::Config),
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
         }
     }
@@ -540,7 +537,7 @@ impl App {
                 self.preset_list_cursor = (self.preset_list_cursor + 1).min(n.saturating_sub(1))
             }
             KeyCode::Home | KeyCode::Char('g') => self.preset_list_cursor = 0,
-            KeyCode::End | KeyCode::Char('G') => self.preset_list_cursor = n.saturating_sub(1),
+            KeyCode::End => self.preset_list_cursor = n.saturating_sub(1),
             KeyCode::Char('n') => {
                 self.enter_builder();
             }
@@ -551,7 +548,6 @@ impl App {
             }
             KeyCode::Esc => self.go(Screen::Config),
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
         }
     }
@@ -601,7 +597,7 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => b.cursor = b.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => b.cursor = (b.cursor + 1).min(n.saturating_sub(1)),
             KeyCode::Home => b.cursor = 0,
-            KeyCode::End | KeyCode::Char('G') => b.cursor = n.saturating_sub(1),
+            KeyCode::End => b.cursor = n.saturating_sub(1),
             KeyCode::Char(' ') | KeyCode::Enter => {
                 if let Some((id, available)) = current {
                     if b.picked.remove(&id) {
@@ -641,7 +637,6 @@ impl App {
                 self.go(Screen::Presets);
             }
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
         }
     }
@@ -652,7 +647,7 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.med_cursor = self.med_cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => self.med_cursor = (self.med_cursor + 1).min(n.saturating_sub(1)),
             KeyCode::Home | KeyCode::Char('g') => self.med_cursor = 0,
-            KeyCode::End | KeyCode::Char('G') => self.med_cursor = n.saturating_sub(1),
+            KeyCode::End => self.med_cursor = n.saturating_sub(1),
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(m) = self.selected_meditation() {
                     let id = m.id.clone();
@@ -668,7 +663,6 @@ impl App {
             }
             KeyCode::Esc => self.go(Screen::Config),
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
         }
     }
@@ -791,39 +785,57 @@ impl App {
     }
 
     /// Con Bloq Mayús (o Shift) las letras llegan en mayúscula: se pasan a minúscula para que
-    /// los atajos anden igual, salvo en campos de texto y en las mayúsculas con significado
-    /// propio (`Q` sale, `G` va al final y, en el editor de rutinas, `J`/`K` mueven la tarea).
+    /// los atajos anden igual, salvo en campos de texto. No hay atajos con mayúscula: los que
+    /// antes la usaban pasaron a Ctrl+letra.
     fn normalize(&self, mut k: KeyEvent) -> KeyEvent {
         if let KeyCode::Char(c) = k.code
             && c.is_ascii_uppercase()
             && !self.typing()
         {
-            let own = match c {
-                'Q' | 'G' => true,
-                'J' | 'K' => self.screen == Screen::RoutineEditor,
-                _ => false,
-            };
-            if !own {
-                k.code = KeyCode::Char(c.to_ascii_lowercase());
-            }
+            k.code = KeyCode::Char(c.to_ascii_lowercase());
         }
         k
     }
 
+    /// Ctrl+letra: Ctrl+C suelta la TUI, Ctrl+Q apaga todo, Ctrl+G va al final de la lista
+    /// (se vuelve `End`) y Ctrl+J/Ctrl+K quedan para el editor de rutinas. Cualquier otro
+    /// Ctrl+letra se ignora, para que no dispare el atajo de la letra sola. Devuelve el evento
+    /// a seguir procesando, si lo hay.
+    fn ctrl_key(&mut self, k: KeyEvent) -> Option<KeyEvent> {
+        let KeyCode::Char(c) = k.code else { return Some(k) };
+        if !k.modifiers.contains(KeyModifiers::CONTROL) {
+            return Some(k);
+        }
+        if c == 'c' {
+            self.exit = Some(Exit::Detach);
+            return None;
+        }
+        if self.typing() {
+            return None;
+        }
+        match c {
+            'q' => {
+                self.exit = Some(Exit::Quit);
+                None
+            }
+            'g' => Some(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)),
+            'j' | 'k' if self.screen == Screen::RoutineEditor => Some(k),
+            _ => None,
+        }
+    }
+
     pub fn key(&mut self, k: KeyEvent) {
         let k = self.normalize(k);
-        self.handle_key(k);
-        // Salir de la app (q, Q, Ctrl+C) desde el armado también devuelve el audio a como estaba.
+        if let Some(k) = self.ctrl_key(k) {
+            self.handle_key(k);
+        }
+        // Salir de la app (q, Ctrl+Q, Ctrl+C) desde el armado también devuelve el audio a como estaba.
         if self.exit.is_some() {
             self.leave_builder();
         }
     }
 
     fn handle_key(&mut self, k: KeyEvent) {
-        if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
-            self.exit = Some(Exit::Detach);
-            return;
-        }
         if self.popup.is_some() {
             self.popup_key(k);
             return;
@@ -848,7 +860,6 @@ impl App {
         let items = self.items().len();
         match k.code {
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             // Leaving Focus goes back to the home menu; the sound keeps playing.
             KeyCode::Esc => self.go(Screen::Home),
             KeyCode::Char('?') => self.popup = Some(Popup::Help),
@@ -873,7 +884,7 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.cursor = self.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => self.cursor = (self.cursor + 1).min(items.saturating_sub(1)),
             KeyCode::Home | KeyCode::Char('g') => self.cursor = 0,
-            KeyCode::End | KeyCode::Char('G') => self.cursor = items.saturating_sub(1),
+            KeyCode::End => self.cursor = items.saturating_sub(1),
             KeyCode::Left | KeyCode::Char('h') => self.change_volume(-0.05),
             KeyCode::Right | KeyCode::Char('l') => self.change_volume(0.05),
             KeyCode::Char(' ') | KeyCode::Enter => {
@@ -912,18 +923,18 @@ impl App {
             Popup::Help => None,
             Popup::Intro(intro) => self.intro_key(intro, k),
             Popup::Quit => match k.code {
-                KeyCode::Char('s' | 'S' | 'y') | KeyCode::Enter => {
+                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
                     self.exit = Some(Exit::Detach);
                     None
                 }
-                KeyCode::Char('n' | 'N' | 'q' | 'Q') => {
+                KeyCode::Char('n' | 'q') => {
                     self.exit = Some(Exit::Quit);
                     None
                 }
                 _ => Some(Popup::Quit),
             },
             Popup::ConfirmQuit => match k.code {
-                KeyCode::Char('s' | 'S' | 'y') | KeyCode::Enter => {
+                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
                     self.exit = Some(Exit::Quit);
                     None
                 }

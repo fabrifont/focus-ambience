@@ -61,7 +61,7 @@ Una rutina es un nombre, una lista ordenada de **tareas** (un texto, como «Prep
 
 - «Continuar "<rutina>"» (opción 1 del menú) arranca la última rutina usada. Sin rutinas dice «Crear mi primera rutina».
 - «Elegir otra rutina» (y Configuración → Rutinas) abre la lista: `Enter` empieza (en Configuración edita), `n` nueva, `e` editar, `d` borrar con confirmación, `Esc` vuelve.
-- Editor: `a` agrega una tarea, `Enter` edita la seleccionada, `K`/`J` la mueven, `d` la borra (con confirmación), `r` cambia el nombre, `g` guarda y `Esc` sale (si hay cambios sin guardar pregunta). `m` abre el ajuste de la meditación desde cualquier fila (también `Enter` sobre la última fila, «Meditación», que no es una tarea); en el ajuste `↑↓` eligen el campo, `←→` cambian sí/no, el modo y la duración, y `Enter` acepta.
+- Editor: `a` agrega una tarea, `Enter` edita la seleccionada, `Ctrl+K`/`Ctrl+J` la mueven, `d` la borra (con confirmación), `r` cambia el nombre, `g` guarda y `Esc` sale (si hay cambios sin guardar pregunta). `m` abre el ajuste de la meditación desde cualquier fila (también `Enter` sobre la última fila, «Meditación», que no es una tarea); en el ajuste `↑↓` eligen el campo, `←→` cambian sí/no, el modo y la duración, y `Enter` acepta.
 - En curso: `␣` marca hecho, `s` saltea, `u` deshace la última marca (sin preguntar), `↑↓` mueven, `Esc` vuelve al menú. Los pasos se marcan en cualquier orden y arriba se ve «N de M listos». En un paso de meditación, `Enter` reproduce o pausa (con el progreso); la app elige una meditación al azar de la duración (puede repetirse). Si la duración es libre, primero pregunta «¿cuánto tiempo?» con las categorías que tienen meditaciones; si una duración fija no tiene ninguna, avisa en el paso y deja elegir otra duración o saltearlo. Que termine el audio no marca el paso.
 - Durante la rutina no suenan los sonidos de ambiente (si sonaban, se silencian y se devuelven al salir); solo suena la meditación, que se corta al salir de la rutina.
 - Cuando todos los pasos quedan hechos o salteados se entra a Focus, con la ventanita de abajo.
@@ -80,11 +80,11 @@ Cada vez que se entra a Focus (desde el menú o al terminar una rutina) aparece 
 
 Dentro de Focus:
 
-- `␣`/`Enter` enciende o apaga el sonido seleccionado · `←→` (o `hl`) ajustan su volumen · `↑↓` (o `jk`), `g`/`G` mueven el cursor.
+- `␣`/`Enter` enciende o apaga el sonido seleccionado · `←→` (o `hl`) ajustan su volumen · `↑↓` (o `jk`), `g` va al principio y `Ctrl+G` (o `End`) al final.
 - `Tab` cambia entre el panel de sonidos y el de presets; en presets, `Enter` carga el preset seleccionado.
 - `p` pausa todo · `x` apaga todo · `+`/`-` suben/bajan el volumen general.
 - `t` abre el temporizador · `?` ayuda. Agregar y borrar sonidos y guardar y borrar presets ya no se hacen acá: están en Configuración.
-- `q` pregunta si dejar todo sonando en background (o sale directo si no hay nada sonando) · `Q` apaga todo y sale sin preguntar.
+- `q` pregunta si dejar todo sonando en background (o sale directo si no hay nada sonando) · `Ctrl+Q` apaga todo y sale sin preguntar.
 - `d` prende y apaga el **modo deep work**: la pantalla muestra solo el timer en dígitos grandes (o «FOCUS» grande si no hay timer), con los mismos dígitos del reloj de siempre pero agrandados (el doble del reloj normal, o más chico si no entra; no crece más aunque la pantalla sea grande) y la misma escena animada de fondo, y abajo nada más que `? ayuda` (la ayuda lista las teclas). Las teclas de sonido y volumen siguen funcionando aunque no se vean; `Esc` y `q` hacen lo mismo que en Focus normal (`Esc` además sale del modo). Si el timer llega a cero estando en el modo, la sesión termina: «¡Buen trabajo!» y «presioná d para volver»; `d` vuelve a Focus normal. Fuera del modo, llegar a cero no cambia. Si en «Antes de arrancar» elegís tiempo y un preset, el modo arranca prendido solo; con «Sonidos personalizados» o `Esc`, no.
 
 ## Sincronizar entre compus
