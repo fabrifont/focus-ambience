@@ -9,7 +9,7 @@ Ambientes para concentrarse, en la terminal. Mezclá música y ambientación de 
 
 ## Windows
 
-Los releases de GitHub traen un binario para cada sistema: `focus-windows-x86_64.exe` y `focus-linux-x86_64`. Bajá el que corresponda y poné el archivo en el `PATH`.
+Los releases de GitHub traen `focus-windows-x86_64.exe` para Windows y un `.deb` para Debian/Ubuntu/Mint. En Windows, bajá el `.exe` y poné el archivo en el `PATH`.
 
 Hace falta Windows 10 1803 o más nuevo: es la primera versión con sockets AF_UNIX, que es cómo la TUI le habla al daemon en background.
 
@@ -23,7 +23,15 @@ En los dos sistemas hacen falta además, en el `PATH` (o en `~/.local/bin` en Li
 
 ## Instalación
 
-Bajando el binario de GitHub Releases no hace falta compilar nada. Para compilar desde el código fuente hace falta Rust 1.88 o más nuevo (`rustc --version`): el de los paquetes de las distros suele quedarse atrás (Debian 13 trae 1.85), así que conviene instalar con [rustup](https://rustup.rs) en vez del paquete de la distro.
+Bajando el paquete de GitHub Releases no hace falta compilar nada.
+
+En Debian, Ubuntu o Mint, bajá el `.deb` y instalalo (trae el binario `focus` y las dependencias de audio; `rclone`, `yt-dlp` y `ffmpeg` quedan como recomendados y se instalan solos con apt; ojo que el `yt-dlp` de Debian puede ser viejo):
+
+```sh
+sudo apt install ./focus_1.0.0-1_amd64.deb
+```
+
+Si actualizás desde una versión anterior, corré `focus quit` una vez para que arranque el daemon nuevo. Para compilar desde el código fuente hace falta Rust 1.88 o más nuevo (`rustc --version`): el de los paquetes de las distros suele quedarse atrás (Debian 13 trae 1.85), así que conviene instalar con [rustup](https://rustup.rs) en vez del paquete de la distro.
 
 En Linux además:
 

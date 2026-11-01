@@ -38,22 +38,46 @@ jobs:
           # Windows: CRT estático, así no hace falta instalar el runtime de Visual C++.
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
       - name: Renombrar
+        if: runner.os != 'Linux'
         shell: bash
         run: cp target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.asset }}
       - uses: actions/upload-artifact@v4
+        if: runner.os != 'Linux'
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
+      - name: Instalar cargo-deb
+        if: runner.os == 'Linux'
+        run: cargo install cargo-deb --locked
+      - name: Armar el .deb
+        if: runner.os == 'Linux'
+        # El binario ya está compilado en target/<target>/release; cargo-deb lo arma
+        # en target/debian/focus_<versión>-1_amd64.deb.
+        run: cargo deb --locked --no-build --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: deb
+          path: target/${{ matrix.target }}/debian/*.deb
 
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
       - name: Publicar release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" focus-linux-x86_64 focus-windows-x86_64.exe --repo "${{ github.repository }}" --title "${{ github.ref_name }}" --generate-notes
+        run: |
+          if [ -f "docs/releases/${{ github.ref_name }}.md" ]; then
+            notes=(--notes-file "docs/releases/${{ github.ref_name }}.md")
+          else
+            notes=(--generate-notes)
+          fi
+          gh release create "${{ github.ref_name }}" ./*.deb focus-windows-x86_64.exe \
+            --repo "${{ github.repository }}" --title "${{ github.ref_name }}" \
+            --prerelease "${notes[@]}"
