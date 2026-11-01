@@ -196,8 +196,7 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
     View {
         lines,
         hints: &[
-            ("␣", " marca/desmarca  "),
-            ("Enter", " play/pausa  "),
+            ("␣", " marca (meditación: play/pausa)  "),
             ("↑↓", " mover  "),
             ("Esc", " menú"),
         ],
@@ -233,10 +232,10 @@ fn step_extra(app: &App, run: &Run, i: usize, pal: &Palette) -> Vec<Line<'static
         }
         (None, Some(c)) if run.marks[i] == Mark::Pending => vec![
             Line::styled(format!("{indent}No hay meditaciones de {} en esta compu.", c.label()), dim),
-            Line::styled(format!("{indent}Enter elige otra duración"), dim),
+            Line::styled(format!("{indent}␣ elige otra duración"), dim),
         ],
         (None, None) if run.marks[i] == Mark::Pending => {
-            vec![Line::styled(format!("{indent}Enter para elegir cuánto tiempo"), dim)]
+            vec![Line::styled(format!("{indent}␣ para elegir cuánto tiempo"), dim)]
         }
         _ => vec![],
     }

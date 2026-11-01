@@ -14,7 +14,7 @@ Solo los que sirven en una terminal (nada de animaciones, gestos ni transparenci
 - **Lo común primero.** El camino de todos los días ("empezar con mi rutina de siempre") es un solo `Enter`. Crear y editar quedan un nivel más adentro.
 - **Siempre saber dónde estás y cómo salir.** Cada pantalla tiene título arriba y la línea de teclas abajo. `Esc` siempre vuelve un paso atrás, en todas las pantallas.
 - **Respuesta al instante.** Cada tecla cambia algo visible en el momento (el paso se tacha, el contador avanza).
-- **Deshacer antes que confirmar.** Marcar o saltar un paso se deshace con `␣` sobre el paso marcado, sin preguntar. Solo se pide confirmación para lo que no tiene vuelta: borrar una rutina, un paso o una meditación.
+- **Deshacer antes que confirmar.** Marcar una tarea se deshace con `␣` sobre la tarea marcada, sin preguntar. Solo se pide confirmación para lo que no tiene vuelta: borrar una rutina, un paso o una meditación.
 - **Mismas teclas que focus.** `↑↓`/`jk` para moverse, `Enter` para elegir, `␣` para marcar, `a` agregar, `d` borrar, `?` ayuda. Lo que se ve igual se comporta igual.
 - **Nombres directos.** "Rutinas", "Meditaciones", "Ir a Focus", nada de "Inicio" o "Panel".
 - **Sensación buscada: calma.** Pocos colores (uno para lo seleccionado, otro para lo hecho), mucho aire y frases cortas. La rutina va en silencio, salvo la meditación.
@@ -74,8 +74,8 @@ flowchart TD
 
 1. Abre WorkHub y aparece el menú de inicio con la última rutina ya seleccionada.
 2. `Enter` y arranca la rutina, en silencio.
-3. Se mueve con `↑↓` entre los pasos y los marca en el orden que quiera: `␣` marca hecho (y desmarca un paso ya marcado).
-4. En el paso de meditación, si es de duración libre, primero elige la duración entre las categorías que tienen meditaciones; si es fija, no pregunta. La app pone una meditación al azar de esa duración y `Enter` la reproduce o pausa dentro de la app. Que termine el audio no marca el paso: lo marca él.
+3. Se mueve con `↑↓` entre los pasos y los marca en el orden que quiera: `␣` marca hecha una tarea (y desmarca una ya marcada). `Enter` no hace nada en la rutina en curso.
+4. En el paso de meditación, si es de duración libre, primero elige la duración entre las categorías que tienen meditaciones; si es fija, no pregunta. La app pone una meditación al azar de esa duración y `␣` la reproduce o pausa dentro de la app (en este paso `␣` nunca marca ni desmarca). El paso se marca solo cuando el audio llega al final (el daemon suelta la meditación y la última posición vista estaba a ≤4 s del final); una vez hecho no se desmarca. Si se corta a mitad, queda pendiente.
 5. Cuando todos quedan hechos, aparece la ventanita de Focus.
 6. Elige el tiempo, después el preset (o "Sonidos personalizados") y entra a Focus con el temporizador corriendo. Con `Esc` saltea la ventanita y entra directo a Focus.
 7. Al salir de Focus vuelve al menú de inicio.
@@ -223,7 +223,7 @@ Rutina en curso (los pasos se marcan en cualquier orden):
        ▶ 03:12 / 10:00
      Abrir el material
 
-  ␣ marca/desmarca · Enter play/pausa
+  ␣ marca (meditación: play/pausa)
   ↑↓ mover · Esc menú
 ```
 
@@ -264,7 +264,7 @@ Aprobadas por Fabrizio (31/10/2026):
 - Sin rutinas, el menú muestra "Crear mi primera rutina" en vez de "última rutina".
 - En la ventanita, el tiempo arranca con el último valor usado y se cambia con `↑↓` o escribiéndolo.
 - En el editor, guardar es `g`.
-- `␣` sobre un paso ya hecho lo vuelve a pendiente, sin pedir confirmación y sin mover el cursor. No hay estado «salteado» ni tecla `s`: los pasos están pendientes o hechos.
+- `␣` sobre una tarea ya hecha la vuelve a pendiente, sin pedir confirmación y sin mover el cursor. El paso de meditación es la excepción: se marca solo al terminar el audio y no se desmarca. No hay estado «salteado» ni tecla `s`: los pasos están pendientes o hechos.
 - Si un paso de duración fija se queda sin meditaciones, avisa y deja elegir otra duración.
 
 Rechazada: evitar repetir la meditación anterior (va al azar puro).

@@ -6,13 +6,17 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{App, MAX_MINUTES, Screen};
 use crate::meditation::{self, Category};
-use crate::protocol::Command;
+use crate::protocol::{Command, State};
 use crate::routine::{self, MeditationSetting, Routine, Step};
 
 /// Largo máximo de un nombre o de una tarea.
 const MAX_TEXT: usize = 80;
 /// Categoría con la que arranca una meditación recién activada.
 const DEFAULT_CATEGORY: usize = 1; // 10 minutos
+
+/// El daemon avisa el progreso cada segundo y suelta la meditación ~1,5 s después de que se
+/// acaba el archivo: si la última posición vista está a menos de esto del final, terminó sola.
+const MEDITATION_END_SLACK: u64 = 4;
 
 // ---------------------------------------------------------------- lista
 
@@ -531,7 +535,6 @@ impl App {
             KeyCode::Down | KeyCode::Char('j') => run.cursor = (run.cursor + 1).min(n - 1),
             KeyCode::Char(' ') => self.toggle_mark(),
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Enter => self.run_enter(),
             KeyCode::Esc => {
                 self.end_run();
                 self.go(Screen::Home);
@@ -540,21 +543,46 @@ impl App {
         }
     }
 
-    /// Espacio: marca hecho un paso pendiente; en uno ya hecho lo vuelve a pendiente.
+    /// Espacio: en una tarea, marca hecho un paso pendiente y en uno ya hecho lo vuelve a pendiente.
+    /// En la meditación hace lo que antes hacía Enter (arrancar, elegir duración, pausar); ese
+    /// paso se marca solo al terminar el audio y no se desmarca.
     fn toggle_mark(&mut self) {
         let Some(run) = self.run.as_mut() else { return };
         let i = run.cursor;
+        if matches!(run.steps[i], Step::Meditation { .. }) {
+            if run.marks[i] == Mark::Pending {
+                self.meditation_action(i);
+            }
+            return;
+        }
         if run.marks[i] == Mark::Done {
             run.marks[i] = Mark::Pending;
             return;
         }
+        self.mark_done(i, true);
+    }
+
+    fn mark_done(&mut self, i: usize, advance: bool) {
+        let Some(run) = self.run.as_mut() else { return };
         run.marks[i] = Mark::Done;
-        let run = self.run.as_mut().expect("still there");
         if run.marks.iter().all(|m| *m != Mark::Pending) {
             self.finish_run();
-        } else if let Some(next) = (i + 1..run.marks.len()).find(|&j| run.marks[j] == Mark::Pending) {
-            // Cómodo para ir marcando en orden; se puede volver a cualquier paso con ↑↓.
+        } else if advance && let Some(next) = (i + 1..run.marks.len()).find(|&j| run.marks[j] == Mark::Pending) {
             run.cursor = next;
+        }
+    }
+
+    /// Con `state` ya reemplazado (`old` es el anterior): si la meditación de la rutina desapareció estando cerca del
+    /// final, es que terminó (el daemon la suelta cuando el archivo se agota). Un corte a mitad
+    /// (otro cliente, borrarla) no la marca.
+    pub(super) fn meditation_ended(&mut self, old: &State) {
+        let Some(run) = self.run.as_ref() else { return };
+        let (Some(i), Some(old)) = (run.playing_step, old.meditation.as_ref()) else { return };
+        let same = run.picks[i].as_ref().is_some_and(|p| p.id == old.id);
+        let near_end = old.position_secs + MEDITATION_END_SLACK >= old.total_secs;
+        if same && near_end && self.state.meditation.is_none() && run.marks[i] == Mark::Pending {
+            self.run.as_mut().expect("in a run").playing_step = None;
+            self.mark_done(i, false);
         }
     }
 
@@ -563,12 +591,8 @@ impl App {
         self.enter_focus();
     }
 
-    fn run_enter(&mut self) {
+    fn meditation_action(&mut self, i: usize) {
         let Some(run) = self.run.as_mut() else { return };
-        let i = run.cursor;
-        if !matches!(run.steps[i], Step::Meditation { .. }) {
-            return;
-        }
         match run.picks[i].clone() {
             // Fija sin meditaciones, o libre sin elegir: primero la duración.
             None => self.open_chooser(i),
