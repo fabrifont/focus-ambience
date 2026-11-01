@@ -536,13 +536,13 @@ impl App {
             KeyCode::Home => b.cursor = 0,
             KeyCode::End | KeyCode::Char('G') => b.cursor = n.saturating_sub(1),
             KeyCode::Char(' ') | KeyCode::Enter => {
-                if let Some((id, available)) = current {
-                    if !b.picked.remove(&id) {
-                        if available {
-                            b.picked.insert(id);
-                        } else {
-                            self.notify("ese sonido no está en esta compu: corré `focus sync`");
-                        }
+                if let Some((id, available)) = current
+                    && !b.picked.remove(&id)
+                {
+                    if available {
+                        b.picked.insert(id);
+                    } else {
+                        self.notify("ese sonido no está en esta compu: corré `focus sync`");
                     }
                 }
             }
