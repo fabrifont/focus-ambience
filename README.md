@@ -69,7 +69,7 @@ Una rutina es un nombre, una lista ordenada de **tareas** (un texto, como «Prep
 ### Configuración: sonidos ambientales y presets
 
 - **Sonidos ambientales**: lista los sonidos descargados (los generados vienen con la app y no se tocan). `a` agrega desde YouTube (link, nombre, tema y recorte; también se puede pegar el link en esta pantalla), `d` borra con confirmación (saca la entrada de `sounds.toml` y el `.opus` de esta compu), `Esc` vuelve.
-- **Presets**: lista los presets con sus sonidos y volúmenes. `n` abre una vista parecida a Focus pero sin audio: `↑↓` mueven, `␣` elige o saca un sonido, `←→` ajustan su volumen, `g` guarda con un nombre (no puede repetir uno existente) y `Esc` descarta. `d` borra con confirmación.
+- **Presets**: lista los presets con sus sonidos y volúmenes. `n` abre una vista parecida a Focus donde lo que elegís suena en vivo con su volumen (al entrar se calla lo que sonaba en Focus): `↑↓` mueven, `␣` elige o saca un sonido, `←→` ajustan su volumen, `g` guarda con un nombre (no puede repetir uno existente) y `Esc` descarta; al salir, de cualquiera de las dos formas, el audio vuelve a como estaba (lo que sonaba en Focus, o silencio). `d` borra con confirmación.
 
 ### Focus
 
