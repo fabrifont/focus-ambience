@@ -1,4 +1,0 @@
-# Meditaciones guiadas. Los .opus viven en meditations/ (no versionados) y se
-# sincronizan con `focus sync`. Este archivo sí va en git.
-# `minutes` es la categoría: 5, 10, 15, 20, 25, 30, 40 o 60.
-

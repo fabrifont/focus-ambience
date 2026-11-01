@@ -1,5 +1,5 @@
 //! Rutinas: una lista ordenada de tareas de texto y, aparte, una meditación opcional. Viven en
-//! `library/routines.toml` (en git, igual que los presets); la última usada se recuerda aparte,
+//! `library/routines.toml` (en Drive, se sincroniza con `focus sync`); la última usada se recuerda aparte,
 //! en el estado local de la TUI.
 
 use std::path::PathBuf;
@@ -127,7 +127,7 @@ pub struct Routines {
 const HEADER: &str = "# Rutinas. Cada paso es una tarea (`text`). La meditación es un ajuste aparte, como mucho una\n\
 # por rutina: `[routine.meditation]` con `minutes` = la categoría (5, 10, 15, 20, 25, 30, 40 o 60);\n\
 # sin `minutes` la duración se elige en el momento. Sin ese bloque, la rutina no tiene meditación.\n\
-# Este archivo va en git.\n\n";
+# Este archivo vive en Drive (focus sync), no en git.\n\n";
 
 fn path() -> PathBuf {
     paths::library_dir().join("routines.toml")

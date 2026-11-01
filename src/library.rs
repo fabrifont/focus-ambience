@@ -137,33 +137,8 @@ pub struct ManifestEntry {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Sube cada vez que el manifest embebido en el binario cambia (nuevos sonidos, hashes
-    /// corregidos). Los manifests viejos no tienen este campo y quedan en 0, así que siempre
-    /// se actualizan la primera vez que corre un binario más nuevo. Ver `merge_manifest`.
-    #[serde(default)]
-    pub version: u32,
     #[serde(default, rename = "sound")]
     pub sounds: Vec<ManifestEntry>,
-}
-
-/// Mezcla el manifest embebido en el binario con el del usuario: las entradas cuyo id coincide
-/// se reemplazan por la versión embebida (así se corrigen hashes/duración stale sin que el
-/// usuario tenga que hacer nada), las que el usuario agregó con `focus add` se conservan tal
-/// cual, y las entradas nuevas del embebido se agregan al final.
-///
-/// Si el usuario editó a mano una entrada que también viene en el embebido (p. ej. el `trim`),
-/// esa edición se pierde en la próxima actualización: no hay forma de distinguir "el usuario la
-/// tocó a propósito" de "esto es una copia vieja que hay que corregir", y corregir sonidos stale
-/// es el caso que nos importa resolver.
-pub fn merge_manifest(mut user: Manifest, bundled: Manifest) -> Manifest {
-    for entry in bundled.sounds {
-        match user.sounds.iter_mut().find(|e| e.id == entry.id) {
-            Some(e) => *e = entry,
-            None => user.sounds.push(entry),
-        }
-    }
-    user.version = user.version.max(bundled.version);
-    user
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -197,16 +172,10 @@ pub fn load_manifest() -> Result<Manifest> {
 }
 
 const MANIFEST_HEADER: &str = "# Sonidos descargados. Los .opus viven en sounds/ (no versionados) y se\n\
-# sincronizan con `focus sync`. Este archivo sí va en git.\n\n";
+# sincronizan con `focus sync`. Este archivo también vive en Drive, no en git.\n\n";
 
 pub fn save_manifest(m: &Manifest) -> Result<()> {
-    write_manifest_at(&manifest_path(), m)
-}
-
-/// Como `save_manifest`, pero a una ruta explícita en vez de `library_dir()`. La usa
-/// `paths::seed_library` para no depender de `library_dir()`, que es quien dispara el seed.
-pub fn write_manifest_at(path: &std::path::Path, m: &Manifest) -> Result<()> {
-    write_atomic(path, &format!("{MANIFEST_HEADER}{}", toml::to_string_pretty(m)?))
+    write_atomic(&manifest_path(), &format!("{MANIFEST_HEADER}{}", toml::to_string_pretty(m)?))
 }
 
 pub fn load_presets() -> Presets {
@@ -307,54 +276,33 @@ mod tests {
     }
 
     #[test]
-    fn manifest_without_version_field_parses_as_zero() {
+    fn manifest_ignores_the_old_version_field() {
         let m: Manifest = toml::from_str(
-            "[[sound]]\nid = \"a\"\nname = \"a\"\ntheme = \"nature\"\n\
-            url = \"https://example.com\"\nfile = \"a.opus\"\nsha256 = \"old\"\nduration = 1\nbytes = 1\n",
+            "version = 4\n[[sound]]\nid = \"a\"\nname = \"a\"\ntheme = \"nature\"\n\
+            url = \"https://example.com\"\nfile = \"a.opus\"\nsha256 = \"x\"\nduration = 1\nbytes = 1\n",
         )
         .unwrap();
-        assert_eq!(m.version, 0);
+        assert_eq!(m.sounds.len(), 1);
     }
 
     #[test]
-    fn merge_updates_bundled_entry_in_place_by_id() {
-        let user = Manifest { version: 0, sounds: vec![entry("lluvia", "old-hash"), entry("chimenea", "c-hash")] };
-        let bundled = Manifest { version: 1, sounds: vec![entry("lluvia", "new-hash")] };
-        let merged = merge_manifest(user, bundled);
-        // Same position, hash updated.
-        assert_eq!(merged.sounds[0].id, "lluvia");
-        assert_eq!(merged.sounds[0].sha256, "new-hash");
-        assert_eq!(merged.sounds[1].id, "chimenea");
+    fn manifest_roundtrips_through_toml() {
+        let m = Manifest { sounds: vec![entry("lluvia", "h1"), entry("chimenea", "h2")] };
+        let back: Manifest = toml::from_str(&toml::to_string_pretty(&m).unwrap()).unwrap();
+        assert_eq!(back.sounds.len(), 2);
+        assert_eq!(back.sounds[1].sha256, "h2");
     }
 
     #[test]
-    fn merge_preserves_user_added_entries_not_in_bundled() {
-        let user = Manifest { version: 0, sounds: vec![entry("mio", "mi-hash")] };
-        let bundled = Manifest { version: 1, sounds: vec![entry("lluvia", "new-hash")] };
-        let merged = merge_manifest(user, bundled);
-        assert!(merged.sounds.iter().any(|e| e.id == "mio" && e.sha256 == "mi-hash"));
+    fn empty_files_parse_to_empty_lists() {
+        assert!(toml::from_str::<Manifest>("").unwrap().sounds.is_empty());
+        assert!(toml::from_str::<Presets>("").unwrap().presets.is_empty());
     }
 
     #[test]
-    fn merge_appends_new_bundled_entries() {
-        let user = Manifest { version: 0, sounds: vec![entry("lluvia", "hash")] };
-        let bundled = Manifest { version: 1, sounds: vec![entry("lluvia", "hash"), entry("chimenea", "c-hash")] };
-        let merged = merge_manifest(user, bundled);
-        assert_eq!(merged.sounds.len(), 2);
-        assert_eq!(merged.sounds[1].id, "chimenea");
-    }
-
-    #[test]
-    fn merge_bumps_version_to_bundled() {
-        let user = Manifest { version: 0, sounds: vec![] };
-        let bundled = Manifest { version: 3, sounds: vec![] };
-        assert_eq!(merge_manifest(user, bundled).version, 3);
-    }
-
-    #[test]
-    fn bundled_sounds_toml_parses_with_a_version() {
-        let m: Manifest = toml::from_str(include_str!("../library/sounds.toml")).unwrap();
-        assert!(m.version >= 1);
-        assert!(!m.sounds.is_empty());
+    fn presets_parse_from_a_fixture() {
+        let p: Presets = toml::from_str("[[preset]]\nname = \"Lluvia\"\n[preset.layers]\nrain = 0.5\n").unwrap();
+        assert_eq!(p.presets[0].name, "Lluvia");
+        assert_eq!(p.presets[0].layers["rain"], 0.5);
     }
 }

@@ -93,7 +93,7 @@ pub struct Meditation {
 }
 
 const HEADER: &str = "# Meditaciones guiadas. Los .opus viven en meditations/ (no versionados) y se\n\
-# sincronizan con `focus sync`. Este archivo sí va en git.\n\
+# sincronizan con `focus sync`. Este archivo también vive en Drive, no en git.\n\
 # `minutes` es la categoría: 5, 10, 15, 20, 25, 30, 40 o 60.\n\n";
 
 fn manifest_path() -> PathBuf {
@@ -268,8 +268,11 @@ mod tests {
     }
 
     #[test]
-    fn bundled_meditations_toml_parses() {
-        parse_manifest(include_str!("../library/meditations.toml")).unwrap();
+    fn manifest_parses_a_fixture() {
+        let ok = "[[meditation]]\nid = \"a\"\nname = \"A\"\nminutes = 10\nurl = \"u\"\nfile = \"a.opus\"\n\
+                  sha256 = \"x\"\nduration = 600\nbytes = 1\n";
+        let m = parse_manifest(ok).unwrap();
+        assert_eq!(m.meditations[0].minutes.minutes(), 10);
     }
 
     #[test]

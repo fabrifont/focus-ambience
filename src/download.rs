@@ -124,8 +124,6 @@ pub fn add(req: &AddRequest, progress: impl FnMut(&str, f32)) -> Result<Manifest
         Some(e) => *e = entry.clone(),
         None => manifest.sounds.push(entry.clone()),
     }
-    // So installed binaries pick up this entry once a release embeds the manifest.
-    manifest.version += 1;
     library::save_manifest(&manifest)?;
     Ok(entry)
 }
