@@ -1,4 +1,7 @@
 use ratatui::Frame;
+
+/// Deep work clock: at most twice the normal Focus clock, even on a big screen.
+pub(crate) const DEEP_MAX_SCALE: usize = 2;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -183,13 +186,13 @@ fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
         Some(tm) => format!("{}:{:02}", tm.remaining_secs / 60, tm.remaining_secs % 60),
         None => "FOCUS".to_string(),
     };
-    // The same font as the normal clock, scaled up as much as it fits (at least 1x).
+    // The same font as the normal clock, at most 2x (a bit bigger than the normal clock), smaller if it doesn't fit.
     let fits = |k: usize| {
         let (width, glyphs) = font::render(&text, k);
         let h = glyphs.first().map_or(0, |(_, rows)| rows.len());
         area.height >= h as u16 && area.width >= width as u16
     };
-    let scale = (1..=8).take_while(|&k| fits(k)).last();
+    let scale = (1..=DEEP_MAX_SCALE).take_while(|&k| fits(k)).last();
     let Some(scale) = scale else { return };
     let (width, glyphs) = font::render(&text, scale);
     let h = glyphs.first().map_or(0, |(_, rows)| rows.len()) as u16;

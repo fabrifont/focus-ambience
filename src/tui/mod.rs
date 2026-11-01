@@ -1682,8 +1682,20 @@ mod tests {
         let mut app = focus_app();
         press(&mut app, "d");
         let t = screen_text(&app, 80, 24);
-        assert!(t.contains("████████"), "{t}");
+        assert!(t.contains("██████"), "{t}");
         assert!(t.contains("? ayuda"));
+    }
+
+    #[test]
+    fn deep_work_clock_never_grows_past_twice_the_normal_one() {
+        let mut app = focus_app();
+        press(&mut app, "d");
+        let rows = |w, h| {
+            screen_text(&app, w, h).lines().filter(|l| l.contains('█') || l.contains('▀') || l.contains('▄')).count()
+        };
+        // Escala 2 de una fuente de 3 filas: como mucho 6 filas, aunque la pantalla sea enorme.
+        assert!(rows(80, 24) <= 6);
+        assert_eq!(rows(300, 100), rows(80, 24));
     }
 
     #[test]
