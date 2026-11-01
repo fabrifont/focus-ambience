@@ -74,7 +74,9 @@ pub fn config() -> Config {
         .unwrap_or_default()
 }
 
-/// Library lookup order: $FOCUS_LIBRARY, config file, and the user data dir. The lists
+/// Library lookup order: $FOCUS_LIBRARY, config file, the repo this binary was built from (so a
+/// build from a clone keeps using the lists and audio already in its `library/`), and the user
+/// data dir. The lists
 /// (`*.toml`) aren't created here: a missing one is an empty list until something is saved,
 /// and `focus sync` brings them from the remote.
 pub fn library_dir() -> PathBuf {
@@ -83,6 +85,10 @@ pub fn library_dir() -> PathBuf {
     }
     if let Some(p) = config().library {
         return p;
+    }
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("library");
+    if repo.is_dir() {
+        return repo;
     }
     data_dir().join("library")
 }
