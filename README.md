@@ -53,7 +53,18 @@ focus help
 
 Las categorías de duración son 5, 10, 15, 20, 25, 30, 40 y 60 minutos (1 hora); se eligen a mano. Una meditación se baja entera (sin recorte ni crossfade de loop) y se escucha una sola vez; al terminar se detiene sola.
 
-Al abrir `focus` aparece el menú de inicio: `↑↓` mueven, `Enter` elige, `1`-`4` van directo, `q` sale. «Continuar» y «Elegir otra rutina» todavía no están (llegan con las rutinas). «Ir a Focus» abre la interfaz de focus de abajo; `Esc` vuelve al menú sin cortar el sonido. «Configuración» → «Meditaciones» lista las meditaciones agrupadas por duración: `Enter` reproduce o pausa (con el tiempo transcurrido), `a` agrega desde un link de YouTube y pide la categoría, `d` borra (con confirmación), `Esc` vuelve.
+Al abrir `focus` aparece el menú de inicio: `↑↓` mueven, `Enter` elige, `1`-`4` van directo, `q` sale. «Ir a Focus» abre la interfaz de focus de abajo; `Esc` vuelve al menú sin cortar el sonido. «Configuración» → «Meditaciones» lista las meditaciones agrupadas por duración: `Enter` reproduce o pausa (con el tiempo transcurrido), `a` agrega desde un link de YouTube y pide la categoría, `d` borra (con confirmación), `Esc` vuelve.
+
+### Rutinas
+
+Una rutina es un nombre y una lista ordenada de pasos. Cada paso es una **tarea** (un texto, como «Preparar mate») o una **meditación**, de **duración fija** (una de las categorías) o **libre** (se elige en el momento). Se guardan en `library/routines.toml`, que va en git junto a los presets; la última usada se recuerda en el estado local (`ui.toml`).
+
+- «Continuar "<rutina>"» (opción 1 del menú) arranca la última rutina usada. Sin rutinas dice «Crear mi primera rutina».
+- «Elegir otra rutina» (y Configuración → Rutinas) abre la lista: `Enter` empieza (en Configuración edita), `n` nueva, `e` editar, `d` borrar con confirmación, `Esc` vuelve.
+- Editor: `a` agrega un paso, `Enter` edita el seleccionado, `K`/`J` lo mueven, `d` lo borra (con confirmación), `r` cambia el nombre, `g` guarda y `Esc` sale (si hay cambios sin guardar pregunta). En el paso de meditación, `←→` cambian el modo y la duración y `Enter` acepta.
+- En curso: `␣` marca hecho, `s` saltea, `u` deshace la última marca (sin preguntar), `↑↓` mueven, `Esc` vuelve al menú. Los pasos se marcan en cualquier orden y arriba se ve «N de M listos». En un paso de meditación, `Enter` reproduce o pausa (con el progreso); la app elige una meditación al azar de la duración (puede repetirse). Si la duración es libre, primero pregunta «¿cuánto tiempo?» con las categorías que tienen meditaciones; si una duración fija no tiene ninguna, avisa en el paso y deja elegir otra duración o saltearlo. Que termine el audio no marca el paso.
+- Durante la rutina no suenan los sonidos de ambiente (si sonaban, se silencian y se devuelven al salir); solo suena la meditación, que se corta al salir de la rutina.
+- Cuando todos los pasos quedan hechos o salteados se entra a Focus. La ventanita de tiempo y preset de entrada todavía no está: por ahora se entra directo.
 
 En Focus:
 

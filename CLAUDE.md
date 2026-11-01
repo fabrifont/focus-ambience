@@ -23,7 +23,7 @@ Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido
 - Temporizador simple (no pomodoro): al terminar, fade-out + notificación de escritorio, **sin sonido**.
 - Agregar sonidos: `focus add <url>` y también desde la TUI.
 - Versionado: el manifest (`library/sounds.toml`) y los presets (`library/presets.toml`) van en git; los `.opus` (`library/sounds/`, gitignored) se sincronizan con Google Drive vía rclone (`focus sync`). Repo GitHub **privado** (el audio tiene copyright).
-- Diseño v2 (cerrado): `docs/diseno/v2-estructura-y-rutina.md` manda. La TUI abre en un menú de inicio (Continuar, Elegir otra rutina, Ir a Focus, Configuración); `Esc` vuelve un paso; al salir de Focus se vuelve al menú. Etapa 1 hecha: meditaciones. Faltan rutinas, sonidos ambientales y presets en Configuración, y la ventanita de tiempo/preset al entrar a Focus.
+- Diseño v2 (cerrado): `docs/diseno/v2-estructura-y-rutina.md` manda. La TUI abre en un menú de inicio (Continuar, Elegir otra rutina, Ir a Focus, Configuración); `Esc` vuelve un paso; al salir de Focus se vuelve al menú. Etapas 1 y 2 hechas: meditaciones y rutinas. Faltan sonidos ambientales y presets en Configuración, y la ventanita de tiempo/preset al entrar a Focus (hoy, al terminar una rutina se entra a Focus directo; hay un `TODO(etapa 3)` en `finish_run`).
 - Meditaciones: biblioteca aparte de los sonidos (`library/meditations.toml` en git, `library/meditations/*.opus` gitignored, sync en `.../meditations` del remote). Categoría de duración fija elegida a mano (5, 10, 15, 20, 25, 30, 40, 60). Se bajan enteras (sin crossfade ni recorte) y suenan una vez, sin loop.
 - El usuario pidió que le pregunten las decisiones con opciones, salvo la selección de videos (elegir directo, él revisa después).
 
@@ -34,6 +34,7 @@ src/
   main.rs        CLI (dispatch de subcomandos)
   paths.rs       rutas: library, socket, estado, log; config opcional
   library.rs     manifest de sonidos, presets, fuentes generadas
+  routine.rs     rutinas (`library/routines.toml`, en git) y última rutina usada (`ui.toml` en el estado local)
   meditation.rs  manifest de meditaciones, categorías, agrupado, elección al azar (pick_random)
   protocol.rs    mensajes JSON-lines cliente <-> daemon
   client.rs      conectar al daemon (lanzándolo si no existe)
@@ -43,13 +44,15 @@ src/
     sources.rs   ruidos, binaural, lector Ogg/Opus con seek (open = loop, open_once = una vez)
   download.rs    yt-dlp -> ffmpeg -> .opus + sha256 (sonidos: crossfade del loop horneado; meditaciones: entero)
   sync.rs        rclone copy hacia/desde el remoto (sonidos y meditaciones)
-  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones; quietas), scene (animaciones), theme (paletas)
+  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones; quietas), routines (lista, editor, paso y rutina en curso: estado y teclas), routine_ui (su dibujo), scene (animaciones), theme (paletas)
 ```
 
 - Hilo del callback de audio: sin locks ni allocations en el camino normal. Cada capa tiene su ring buffer (`rtrb`) que llena un hilo "feeder"; volumen/estado van por atómicos.
 - Al descargar se hornea un crossfade de 3 s entre el final y el principio del archivo, así el loop no tiene corte.
 - La meditación es una capa más del motor (id `meditation:<id>:<n>`) con fuente `open_once`; el daemon lleva el reloj de reproducción (pausa = parar la capa y reabrir con seek). La TUI solo pide `Watch{levels}` mientras está en Focus.
 - Los sonidos de naturaleza se recortan (p. ej. 60 min) porque repetirlos no se nota; la música se baja entera.
+
+- Rutinas: la TUI lee y escribe `routines.toml` directamente (no pasa por el daemon; no es audio). Si el archivo está roto no se pisa: se avisa y se bloquean los cambios. `App::persist` es lo único con I/O de ese módulo, para poder probar teclas y pantallas sin disco. En una rutina en curso se manda `PauseAll` al empezar (si había ambiente sonando) y de nuevo al salir; la meditación se corta al salir.
 
 ## Comandos de desarrollo
 
