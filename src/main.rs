@@ -139,6 +139,9 @@ fn list() -> Result<()> {
         };
         println!("  {}{:<44} {}{extra}", if s.available { " " } else { "☁" }, s.name, s.id);
     }
+    if sounds.iter().all(|s| s.theme == Theme::Generated) {
+        println!("\ntodavía no hay sonidos descargados: corré focus sync (o focus add <url>)");
+    }
     let presets = library::load_presets();
     if !presets.presets.is_empty() {
         println!("\nPresets");
@@ -212,7 +215,7 @@ fn meditation_cmd(args: &[String]) -> Result<()> {
         Some("listar") => {
             let all = meditation::all_meditations()?;
             if all.is_empty() {
-                println!("no hay meditaciones todavía (focus meditacion agregar <url> <minutos>)");
+                println!("no hay meditaciones todavía (corré focus sync, o focus meditacion agregar <url> <minutos>)");
             }
             for (cat, items) in meditation::group(&all) {
                 println!("\n{}", cat.label());

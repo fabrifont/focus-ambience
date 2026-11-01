@@ -249,6 +249,10 @@ fn draw_sounds(f: &mut Frame, area: Rect, app: &App) {
     }
     if app.state.sounds.is_empty() {
         lines.push(Line::styled("  cargando…", Style::new().fg(pal.dim.c())));
+    } else if app.state.sounds.iter().all(|s| s.theme == Theme::Generated) {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("  todavía no hay sonidos descargados.", Style::new().fg(pal.dim.c())));
+        lines.push(Line::styled("  corré `focus sync` para traerlos.", Style::new().fg(pal.dim.c())));
     }
     let h = area.height as usize;
     let scroll = if cursor_line + 2 >= h { cursor_line + 3 - h } else { 0 };
@@ -288,8 +292,8 @@ fn draw_presets(f: &mut Frame, area: Rect, app: &App) {
     if app.state.presets.is_empty() {
         lines.push(Line::raw(""));
         lines.push(Line::styled("  todavía no hay presets.", Style::new().fg(pal.dim.c())));
-        lines.push(Line::styled("  encendé sonidos y apretá s", Style::new().fg(pal.dim.c())));
-        lines.push(Line::styled("  para guardar la mezcla.", Style::new().fg(pal.dim.c())));
+        lines.push(Line::styled("  corré `focus sync` para traerlos,", Style::new().fg(pal.dim.c())));
+        lines.push(Line::styled("  o encendé sonidos y apretá s.", Style::new().fg(pal.dim.c())));
     }
     let w = area.width as usize;
     for (i, p) in app.state.presets.iter().enumerate() {

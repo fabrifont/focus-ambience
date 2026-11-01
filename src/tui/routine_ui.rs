@@ -46,7 +46,10 @@ fn list_view(app: &App, pal: &Palette, width: usize) -> View {
         lines.push(line);
     }
     if app.routines.is_empty() {
-        lines.push(Line::styled("Todavía no hay rutinas. Apretá n para crear una.", dim));
+        lines.push(Line::styled(
+            "Todavía no hay rutinas. Apretá n para crear una (o corré `focus sync` para traerlas).",
+            dim,
+        ));
     }
     let hints: Hints = if app.list_from == Screen::Home {
         &[("Enter", " empezar  "), ("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("Esc", " volver")]

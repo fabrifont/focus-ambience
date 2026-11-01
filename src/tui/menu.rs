@@ -149,7 +149,7 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
         }
     }
     if app.state.meditations.is_empty() {
-        v.push(Line::styled("Todavía no hay meditaciones. Apretá a para agregar una.", dim));
+        v.push(Line::styled("Todavía no hay meditaciones. Corré `focus sync` o apretá a para agregar una.", dim));
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| d.meditation).collect();
     if !downloads.is_empty() {
