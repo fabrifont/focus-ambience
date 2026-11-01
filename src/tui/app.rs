@@ -387,9 +387,10 @@ impl App {
         self.screen = screen;
     }
 
-    /// Hay una sesión en curso: algo suena (según el daemon) o el temporizador está corriendo.
+    /// Hay una sesión en curso: algo suena (según el daemon), hay sonidos cargados aunque estén
+    /// en pausa, o el temporizador está corriendo.
     pub fn session_in_progress(&self) -> bool {
-        self.state.is_playing() || self.state.timer.is_some()
+        self.state.is_playing() || !self.state.active.is_empty() || self.state.timer.is_some()
     }
 
     /// Entra a Focus. Si no hay una sesión en curso muestra la ventanita de tiempo y preset;

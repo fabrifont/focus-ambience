@@ -228,7 +228,7 @@ Rutina en curso (los pasos se marcan en cualquier orden):
   ↑↓ mover · Esc menú
 ```
 
-La ventanita aparece al entrar a Focus solo si no hay una sesión en curso (algo sonando según el daemon, o el temporizador corriendo); si ya hay una, se entra directo a Focus mostrando el estado actual.
+La ventanita aparece al entrar a Focus solo si no hay una sesión en curso (algo sonando según el daemon, sonidos cargados aunque estén en pausa, o el temporizador corriendo; una meditación en pausa sola no cuenta); si ya hay una, se entra directo a Focus mostrando el estado actual.
 
 Ventanita de Focus, paso 1 de 2:
 

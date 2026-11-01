@@ -73,7 +73,7 @@ Una rutina es un nombre, una lista ordenada de **tareas** (un texto, como «Prep
 
 ### Focus
 
-Al entrar a Focus (desde el menú o al terminar una rutina) aparece la ventanita «Antes de arrancar», salvo que ya haya una sesión en curso (algo sonando o el temporizador corriendo): en ese caso se entra directo a Focus mostrando el estado actual, sin ventanita. Sonidos en pausa y sin temporizador no cuentan como sesión en curso.
+Al entrar a Focus (desde el menú o al terminar una rutina) aparece la ventanita «Antes de arrancar», salvo que ya haya una sesión en curso (algo sonando, sonidos cargados aunque estén en pausa, o el temporizador corriendo): en ese caso se entra directo a Focus mostrando el estado actual, sin ventanita. Una meditación en pausa, sin sonidos ni temporizador, no cuenta como sesión en curso.
 
 1. **Tiempo**: arranca en el último valor usado (50 la primera vez). `↑↓` suman o restan 5 minutos, o se escribe el número. `Enter` sigue y lo recuerda; `Esc` salta la ventanita y entra directo a Focus.
 2. **Sonidos**: los presets y, al final, «Sonidos personalizados». `Enter` arranca el temporizador y carga el preset (con «Sonidos personalizados» solo arranca el temporizador y se arma a mano). `Esc` entra a Focus sin arrancar nada, ni temporizador.

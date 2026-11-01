@@ -277,12 +277,13 @@ mod tests {
     }
 
     #[test]
-    fn going_to_focus_shows_the_popup_when_sounds_are_only_paused_and_no_timer() {
+    fn going_to_focus_skips_the_popup_when_sounds_are_only_paused_and_no_timer() {
         let mut app = app_with_presets();
         app.state.active = vec!["rain".into()];
         app.state.paused = true;
         press(&mut app, "3");
-        assert!(intro(&app).is_some());
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert!(app.popup.is_none());
     }
 
     #[test]
