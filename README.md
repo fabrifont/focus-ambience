@@ -50,7 +50,7 @@ Al abrir arranca sin sonar; recuerda volúmenes y la posición de cada pista.
 
 ## Teclas
 
-En todas las pantallas: `↑↓` (o `j` `k`) mueven, `Enter` elige, `Esc` vuelve un paso, `q` sale. Las letras no distinguen mayúsculas (salvo al escribir texto).
+En todas las pantallas: `↑↓` (o `j` `k`) mueven, `Enter` o `␣` eligen (hacen lo mismo en todas las pantallas; en los campos de texto `␣` escribe un espacio), `Esc` vuelve un paso, `q` sale. Las letras no distinguen mayúsculas (salvo al escribir texto).
 
 ### Salir
 
@@ -110,9 +110,9 @@ Solo el reloj grande y `? ayuda` abajo.
 | Lista | `Enter` empieza (desde Configuración, edita) · `n` nueva · `e` editar · `d` borrar |
 | Editor | `a` agrega tarea · `Enter` edita · `Ctrl+J` / `Ctrl+K` bajan / suben · `d` borra · `r` renombra · `m` meditación · `g` guarda · `Esc` sale |
 | Meditación | `↑↓` campo · `←→` cambia (sí/no, fija/libre, duración) · `Enter` acepta |
-| En curso | `␣` marca o desmarca una tarea · `↑↓` mueven · `Esc` vuelve al menú |
+| En curso | `␣` / `Enter` marca o desmarca una tarea · `↑↓` mueven · `Esc` vuelve al menú |
 
-- En el paso de meditación, `␣` reproduce o pausa y elige la duración si es libre. Se marca sola cuando el audio termina.
+- En el paso de meditación, `␣` / `Enter` reproduce o pausa y elige la duración si es libre. Se marca sola cuando el audio termina.
 - Durante la rutina se silencia el ambiente; se devuelve al salir.
 - Al completar todos los pasos se entra a Focus.
 
