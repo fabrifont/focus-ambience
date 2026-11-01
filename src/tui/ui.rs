@@ -402,6 +402,21 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                 Line::from(vec![Span::styled(" esc ", acc), Span::styled("volver", dim)]),
             ],
         ),
+        Popup::ConfirmQuit => (
+            " salir ",
+            40,
+            vec![
+                Line::raw(""),
+                Line::styled("  ¿Salir de WorkHub?", fg),
+                Line::raw(""),
+                Line::from(vec![
+                    Span::styled("   s ", acc),
+                    Span::styled("sí, salir    ", fg),
+                    Span::styled("esc ", acc),
+                    Span::styled("no", dim),
+                ]),
+            ],
+        ),
         Popup::DeletePreset { name } => (
             " borrar preset ",
             46,

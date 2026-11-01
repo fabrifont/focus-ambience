@@ -50,10 +50,19 @@ pub enum Pane {
 
 pub enum Popup {
     Quit,
+    /// «¿Salir?» fuera de Focus cuando no suena nada.
+    ConfirmQuit,
     Help,
-    Timer { sel: usize, custom: Option<String> },
-    SavePreset { name: String },
-    DeletePreset { name: String },
+    Timer {
+        sel: usize,
+        custom: Option<String>,
+    },
+    SavePreset {
+        name: String,
+    },
+    DeletePreset {
+        name: String,
+    },
     Add(AddForm),
 }
 
@@ -286,11 +295,7 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
-        if self.playing() {
-            self.popup = Some(Popup::Quit);
-        } else {
-            self.exit = Some(Exit::Quit);
-        }
+        self.popup = Some(if self.playing() { Popup::Quit } else { Popup::ConfirmQuit });
     }
 
     /// Las cuatro opciones del menú; la primera depende de si ya hay rutinas.
@@ -595,6 +600,14 @@ impl App {
                     None
                 }
                 _ => Some(Popup::Quit),
+            },
+            Popup::ConfirmQuit => match k.code {
+                KeyCode::Char('s' | 'S' | 'y') | KeyCode::Enter => {
+                    self.exit = Some(Exit::Quit);
+                    None
+                }
+                KeyCode::Char('n' | 'N') => None,
+                _ => Some(Popup::ConfirmQuit),
             },
             Popup::DeletePreset { name } => match k.code {
                 KeyCode::Char('s' | 'y') | KeyCode::Enter => {

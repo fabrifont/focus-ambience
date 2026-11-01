@@ -753,4 +753,62 @@ mod tests {
         press(&mut app, "1");
         assert!(!app.animating());
     }
+
+    #[test]
+    fn q_asks_before_quitting_on_every_screen_but_focus() {
+        use app::Screen::*;
+        // (teclas para llegar, pantalla esperada)
+        let routes = [
+            ("", Home),
+            ("4", Config),
+            ("4jk", Config),
+            ("4j\n", Meditations),
+            ("2", Routines),
+            ("2je", RoutineEditor),
+            ("2jej\n", RoutineStep),
+            ("1", RoutineRun),
+        ];
+        for (keys, screen) in routes {
+            let mut app = app_with_routines();
+            for c in keys.chars() {
+                if c == '\n' {
+                    app.key(key(Enter));
+                } else {
+                    press(&mut app, &c.to_string());
+                }
+            }
+            assert_eq!(app.screen, screen, "ruta «{keys}»");
+            sent(&mut app);
+
+            press(&mut app, "q");
+            assert!(matches!(app.popup, Some(app::Popup::ConfirmQuit)), "{screen:?}: q pregunta");
+            assert!(app.exit.is_none(), "{screen:?}: todavía no sale");
+            assert!(screen_text(&app, 80, 20).contains("¿Salir de WorkHub?"));
+
+            app.key(key(Esc));
+            assert!(app.popup.is_none() && app.exit.is_none(), "{screen:?}: Esc cancela");
+            assert_eq!(app.screen, screen);
+
+            press(&mut app, "qn");
+            assert!(app.popup.is_none() && app.exit.is_none(), "{screen:?}: n cancela");
+            assert_eq!(app.screen, screen);
+
+            press(&mut app, "qs");
+            assert!(app.exit == Some(app::Exit::Quit), "{screen:?}: s confirma");
+            app.exit = None;
+            press(&mut app, "q");
+            app.key(key(Enter));
+            assert!(app.exit == Some(app::Exit::Quit), "{screen:?}: Enter confirma");
+        }
+    }
+
+    #[test]
+    fn q_in_a_text_popup_types_instead_of_quitting() {
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        press(&mut app, "n");
+        assert!(app.editor.is_some());
+        press(&mut app, "q");
+        assert!(app.popup.is_none() && app.exit.is_none());
+    }
 }

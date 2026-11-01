@@ -283,6 +283,7 @@ impl App {
             }
             KeyCode::Char('d') | KeyCode::Delete if n > 0 => ed.popup = Some(EdPopup::DeleteStep { at: ed.cursor }),
             KeyCode::Char('g') => drop(self.save_editor()),
+            KeyCode::Char('q') => self.request_quit(),
             KeyCode::Esc => {
                 if ed.dirty() {
                     ed.popup = Some(EdPopup::Unsaved);
@@ -455,6 +456,7 @@ impl App {
                 ed.step = None;
                 self.go(Screen::RoutineEditor);
             }
+            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
@@ -539,6 +541,7 @@ impl App {
             KeyCode::Char(' ') => self.mark(Mark::Done),
             KeyCode::Char('s') => self.mark(Mark::Skipped),
             KeyCode::Char('u') => self.undo_mark(),
+            KeyCode::Char('q') => self.request_quit(),
             KeyCode::Enter => self.run_enter(),
             KeyCode::Esc => {
                 self.end_run();
