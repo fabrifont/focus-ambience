@@ -479,6 +479,21 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                 ]),
             ],
         ),
+        Popup::DiscardPreset => (
+            " descartar preset ",
+            46,
+            vec![
+                Line::raw(""),
+                Line::styled("  ¿Descartar el preset?", fg),
+                Line::raw(""),
+                Line::from(vec![
+                    Span::styled("   s ", acc),
+                    Span::styled("sí, descartar    ", fg),
+                    Span::styled("esc ", acc),
+                    Span::styled("seguir armando", dim),
+                ]),
+            ],
+        ),
         Popup::DeleteSound { name, .. } => (
             " borrar sonido ",
             52,

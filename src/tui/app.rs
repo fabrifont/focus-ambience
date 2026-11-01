@@ -105,6 +105,8 @@ pub enum Popup {
     DeletePreset {
         name: String,
     },
+    /// «¿Descartar el preset?» al apretar Esc en el armado con sonidos elegidos.
+    DiscardPreset,
     DeleteSound {
         id: String,
         name: String,
@@ -608,6 +610,7 @@ impl App {
                     self.popup = Some(Popup::SavePreset { name: String::new() });
                 }
             }
+            KeyCode::Esc if !b.picked.is_empty() => self.popup = Some(Popup::DiscardPreset),
             KeyCode::Esc => {
                 self.leave_builder();
                 self.go(Screen::Presets);
@@ -879,6 +882,15 @@ impl App {
                 }
                 KeyCode::Char('n') => None,
                 _ => Some(Popup::DeletePreset { name }),
+            },
+            Popup::DiscardPreset => match k.code {
+                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+                    self.leave_builder();
+                    self.go(Screen::Presets);
+                    None
+                }
+                KeyCode::Char('n') => None,
+                _ => Some(Popup::DiscardPreset),
             },
             Popup::SavePreset { mut name } => match k.code {
                 KeyCode::Enter if !name.trim().is_empty() => {

@@ -651,10 +651,33 @@ mod tests {
         assert!(app.popup.is_none() && app.builder.as_ref().is_some_and(|b| b.picked.len() == 1));
         assert_eq!(app.screen, app::Screen::PresetBuilder);
         sent(&mut app);
+        app.key(key(Esc)); // con sonidos elegidos pregunta
+        assert!(matches!(app.popup, Some(app::Popup::DiscardPreset)));
+        assert_eq!(app.screen, app::Screen::PresetBuilder);
+        press(&mut app, "x"); // otra tecla no hace nada
+        assert!(matches!(app.popup, Some(app::Popup::DiscardPreset)));
+        app.key(key(Esc)); // Esc sigue armando
+        assert!(app.popup.is_none() && app.builder.is_some());
+        press(&mut app, "n");
+        assert!(app.builder.is_some());
         app.key(key(Esc));
+        press(&mut app, "n"); // n también sigue armando
+        assert!(app.popup.is_none() && app.builder.is_some());
+        sent(&mut app);
+        app.key(key(Esc));
+        app.key(key(Enter)); // Enter descarta
         assert_eq!(app.screen, app::Screen::Presets);
         assert!(app.builder.is_none());
         assert!(!sent(&mut app).iter().any(|c| matches!(c, Command::StorePreset { .. })));
+    }
+
+    #[test]
+    fn esc_in_an_empty_builder_leaves_without_asking() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        app.key(key(Esc));
+        assert!(app.popup.is_none() && app.builder.is_none());
+        assert_eq!(app.screen, app::Screen::Presets);
     }
 
     fn with_focus_playing(ids: &[&str], paused: bool) -> App {
@@ -712,6 +735,7 @@ mod tests {
         press(&mut app, " ");
         sent(&mut app);
         app.key(key(Esc));
+        app.key(key(Enter)); // confirma el descarte
         let cmds = sent(&mut app);
         assert_eq!(
             active_ids(&cmds),
@@ -771,6 +795,7 @@ mod tests {
         press(&mut app, " ");
         sent(&mut app);
         app.key(key(Esc));
+        app.key(key(Enter)); // confirma el descarte
         assert_eq!(active_ids(&sent(&mut app)), [("templo".to_string(), false)], "queda en silencio");
     }
 
