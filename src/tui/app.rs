@@ -359,8 +359,12 @@ impl App {
 
         for s in &self.state.sounds {
             let real = self.volume(&s.id);
-            let e = self.shown_volume.entry(s.id.clone()).or_insert(real);
-            *e += (real - *e) * (dt * 12.0).min(1.0);
+            // `get_mut` first: `entry` would clone the id on every frame.
+            if let Some(e) = self.shown_volume.get_mut(&s.id) {
+                *e += (real - *e) * (dt * 12.0).min(1.0);
+            } else {
+                self.shown_volume.insert(s.id.clone(), real);
+            }
         }
         for l in self.levels.values_mut() {
             *l *= 1.0 - (dt * 1.5).min(1.0) * 0.3;
