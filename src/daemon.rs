@@ -331,6 +331,7 @@ impl Daemon {
                 let name = req.name.clone();
                 self.start_download(req.url.clone(), name, false, move |p| download::add(&req, p).map(|e| e.name));
             }
+            Command::DeleteSound { id } => self.delete_sound(&id),
             Command::AddMeditation(req) => self.add_meditation(req),
             Command::DeleteMeditation { id } => self.delete_meditation(&id),
             Command::PlayMeditation { id } => self.play_meditation(&id),
@@ -524,6 +525,30 @@ impl Daemon {
         }
         let name = req.name.clone();
         self.start_download(req.url.clone(), name, true, move |p| download::add_meditation(&req, p).map(|e| e.name));
+    }
+
+    fn delete_sound(&mut self, id: &str) {
+        let Some(sound) = self.sounds.iter().find(|s| s.id == id).cloned() else { return };
+        let SoundKind::File { file } = &sound.kind else {
+            self.notice(format!("«{}» viene con la app: no se puede borrar", sound.name));
+            return;
+        };
+        let res = library::load_manifest().and_then(|mut manifest| {
+            manifest.sounds.retain(|e| e.id != id);
+            library::save_manifest(&manifest)
+        });
+        match res {
+            Ok(()) => {
+                // `apply` (al final del comando) corta la capa si estaba sonando.
+                self.active.retain(|a| a != id);
+                self.volumes.remove(id);
+                self.positions.remove(id);
+                let _ = std::fs::remove_file(paths::sounds_dir().join(file));
+                self.reload();
+                self.notice(format!("«{}» borrado", sound.name));
+            }
+            Err(e) => self.notice(format!("no pude borrar «{}»: {e}", sound.name)),
+        }
     }
 
     fn delete_meditation(&mut self, id: &str) {

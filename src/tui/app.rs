@@ -6,7 +6,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::routines::{Editor, ListPopup, Run};
 use super::scene::{Emitter, Scene};
 use super::theme::{self, Palette};
-use crate::library::{Sound, Theme};
+use crate::library::{Sound, SoundKind, Theme};
 use crate::meditation::{self, Category, Meditation};
 use crate::protocol::{AddMeditationRequest, AddRequest, Command, State};
 use crate::routine::Routine;
@@ -20,6 +20,8 @@ pub enum Screen {
     Focus,
     Config,
     Meditations,
+    /// Configuración > Sonidos ambientales.
+    Sounds,
     Routines,
     RoutineEditor,
     /// Paso de meditación dentro del editor.
@@ -80,6 +82,10 @@ pub enum Popup {
     DeletePreset {
         name: String,
     },
+    DeleteSound {
+        id: String,
+        name: String,
+    },
     Add(AddForm),
 }
 
@@ -107,6 +113,8 @@ pub struct App {
     pub config_cursor: usize,
     pub med_cursor: usize,
     pub med_popup: Option<MedPopup>,
+    /// Cursor de Configuración > Sonidos ambientales (sobre `file_sounds`).
+    pub sound_cursor: usize,
     pub routines: Vec<Routine>,
     /// Por qué no se puede escribir routines.toml (archivo roto): no se pisa.
     pub routines_locked: Option<String>,
@@ -158,6 +166,7 @@ impl App {
             config_cursor: 0,
             med_cursor: 0,
             med_popup: None,
+            sound_cursor: 0,
             routines: Vec::new(),
             routines_locked: None,
             last_routine: None,
@@ -193,6 +202,15 @@ impl App {
         v
     }
 
+    /// Sonidos descargados (los generados vienen con la app y no se agregan ni se borran).
+    pub fn file_sounds(&self) -> Vec<&Sound> {
+        self.state.sounds.iter().filter(|s| matches!(s.kind, SoundKind::File { .. })).collect()
+    }
+
+    pub fn selected_file_sound(&self) -> Option<&Sound> {
+        self.file_sounds().get(self.sound_cursor).copied()
+    }
+
     pub fn selected_sound(&self) -> Option<&Sound> {
         match self.items().get(self.cursor) {
             Some(Item::Sound(i)) => self.state.sounds.get(*i),
@@ -223,6 +241,7 @@ impl App {
         self.cursor = self.cursor.min(n.saturating_sub(1));
         self.preset_cursor = self.preset_cursor.min(self.state.presets.len().saturating_sub(1));
         self.med_cursor = self.med_cursor.min(self.state.meditations.len().saturating_sub(1));
+        self.sound_cursor = self.sound_cursor.min(self.file_sounds().len().saturating_sub(1));
     }
 
     pub fn set_levels(&mut self, layers: Vec<(String, f32)>) {
@@ -421,9 +440,35 @@ impl App {
             KeyCode::Enter => match self.config_cursor {
                 0 => self.open_routines(Screen::Config),
                 1 => self.go(Screen::Meditations),
+                2 => self.go(Screen::Sounds),
                 i => self.notify(format!("«{}» todavía no está", CONFIG_ITEMS[i])),
             },
             KeyCode::Esc => self.go(Screen::Home),
+            KeyCode::Char('q') => self.request_quit(),
+            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
+            _ => {}
+        }
+    }
+
+    fn new_add_form(url: String) -> AddForm {
+        // Con el link ya pegado, el cursor arranca en el nombre.
+        AddForm { field: if url.is_empty() { 0 } else { 1 }, url, name: String::new(), theme: 0, trim: String::new() }
+    }
+
+    fn sounds_key(&mut self, k: KeyEvent) {
+        let n = self.file_sounds().len();
+        match k.code {
+            KeyCode::Up | KeyCode::Char('k') => self.sound_cursor = self.sound_cursor.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => self.sound_cursor = (self.sound_cursor + 1).min(n.saturating_sub(1)),
+            KeyCode::Home | KeyCode::Char('g') => self.sound_cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => self.sound_cursor = n.saturating_sub(1),
+            KeyCode::Char('a') => self.popup = Some(Popup::Add(Self::new_add_form(String::new()))),
+            KeyCode::Char('d') | KeyCode::Delete => {
+                if let Some(s) = self.selected_file_sound() {
+                    self.popup = Some(Popup::DeleteSound { id: s.id.clone(), name: s.name.clone() });
+                }
+            }
+            KeyCode::Esc => self.go(Screen::Config),
             KeyCode::Char('q') => self.request_quit(),
             KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
@@ -524,42 +569,35 @@ impl App {
 
     pub fn paste(&mut self, text: &str) {
         let text = text.trim();
-        if self.screen != Screen::Focus {
-            if let Some(ed) = &mut self.editor
-                && let Some(
-                    super::routines::EdPopup::Name { text: t, .. } | super::routines::EdPopup::Task { text: t, .. },
-                ) = &mut ed.popup
-            {
-                t.push_str(&text.replace(['\n', '\r'], " "));
-                return;
-            }
-            match &mut self.med_popup {
-                Some(MedPopup::Add { url, category: None }) => url.push_str(text),
-                None if self.screen == Screen::Meditations && text.starts_with("http") => {
-                    // Pasting a link on the meditations screen jumps straight to picking the category.
-                    self.med_popup = Some(MedPopup::Add { url: text.into(), category: Some(0) });
-                }
+        if let Some(popup) = &mut self.popup {
+            match popup {
+                Popup::Add(f) => match f.field {
+                    0 => f.url.push_str(text),
+                    1 => f.name.push_str(text),
+                    3 => f.trim.extend(text.chars().filter(char::is_ascii_digit)),
+                    _ => {}
+                },
+                Popup::SavePreset { name } => name.push_str(&text.replace(['\n', '\r'], " ")),
                 _ => {}
             }
             return;
         }
-        match &mut self.popup {
-            Some(Popup::Add(f)) => match f.field {
-                0 => f.url.push_str(text),
-                1 => f.name.push_str(text),
-                3 => f.trim.extend(text.chars().filter(char::is_ascii_digit)),
-                _ => {}
-            },
-            Some(Popup::SavePreset { name }) => name.push_str(text),
-            None if text.starts_with("http") => {
-                // Pasting a link anywhere opens the add dialog with it.
-                self.popup = Some(Popup::Add(AddForm {
-                    field: 1,
-                    url: text.into(),
-                    name: String::new(),
-                    theme: 0,
-                    trim: String::new(),
-                }));
+        if let Some(ed) = &mut self.editor
+            && let Some(super::routines::EdPopup::Name { text: t, .. } | super::routines::EdPopup::Task { text: t, .. }) =
+                &mut ed.popup
+        {
+            t.push_str(&text.replace(['\n', '\r'], " "));
+            return;
+        }
+        match &mut self.med_popup {
+            Some(MedPopup::Add { url, category: None }) => url.push_str(text),
+            None if self.screen == Screen::Meditations && text.starts_with("http") => {
+                // Pasting a link on the meditations screen jumps straight to picking the category.
+                self.med_popup = Some(MedPopup::Add { url: text.into(), category: Some(0) });
+            }
+            None if self.screen == Screen::Sounds && text.starts_with("http") => {
+                // Same on the sounds screen: the add dialog opens with the link, on the name.
+                self.popup = Some(Popup::Add(Self::new_add_form(text.into())));
             }
             _ => {}
         }
@@ -582,6 +620,7 @@ impl App {
             Screen::Home => return self.home_key(k),
             Screen::Config => return self.config_key(k),
             Screen::Meditations => return self.meditations_key(k),
+            Screen::Sounds => return self.sounds_key(k),
             Screen::Routines => return self.routines_key(k),
             Screen::RoutineEditor => return self.editor_key(k),
             Screen::RoutineStep => return self.step_key(k),
@@ -692,6 +731,14 @@ impl App {
                 }
                 KeyCode::Char('n' | 'N') => None,
                 _ => Some(Popup::ConfirmQuit),
+            },
+            Popup::DeleteSound { id, name } => match k.code {
+                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+                    self.send(Command::DeleteSound { id });
+                    None
+                }
+                KeyCode::Char('n') => None,
+                _ => Some(Popup::DeleteSound { id, name }),
             },
             Popup::DeletePreset { name } => match k.code {
                 KeyCode::Char('s' | 'y') | KeyCode::Enter => {

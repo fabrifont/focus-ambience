@@ -34,6 +34,10 @@ pub fn draw(f: &mut Frame, app: &App) {
             routine_sel = v.selected;
             (v.lines, v.hints)
         }
+        Screen::Sounds => (
+            sound_lines(app, &pal, body.width as usize).0,
+            &[("a", " agregar desde YouTube  "), ("d", " borrar  "), ("Esc", " volver")],
+        ),
         _ => {
             let (lines, _) = meditation_lines(app, &pal, body.width as usize);
             (
@@ -51,6 +55,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     let scroll = match app.screen {
         Screen::Meditations => {
             let (_, sel) = meditation_lines(app, &pal, body.width as usize);
+            (sel + 3).saturating_sub(body.height as usize) as u16
+        }
+        Screen::Sounds => {
+            let (_, sel) = sound_lines(app, &pal, body.width as usize);
             (sel + 3).saturating_sub(body.height as usize) as u16
         }
         Screen::Routines | Screen::RoutineEditor | Screen::RoutineRun => {
@@ -152,6 +160,45 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
         v.push(Line::styled("Todavía no hay meditaciones. Corré `focus sync` o apretá a para agregar una.", dim));
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| d.meditation).collect();
+    if !downloads.is_empty() {
+        v.push(Line::raw(""));
+    }
+    for d in downloads {
+        let text = match (&d.error, d.progress) {
+            (Some(e), _) => format!("✗ {}: {}", trunc(&d.name, 30), trunc(e, width.saturating_sub(40))),
+            (None, p) if p >= 0.0 => format!("↓ {}  {} {:.0}%", trunc(&d.name, 30), d.stage, p * 100.0),
+            _ => format!("↓ {}  {}…", trunc(&d.name, 30), d.stage),
+        };
+        v.push(Line::styled(text, dim));
+    }
+    (v, selected_line)
+}
+
+/// Downloaded sounds grouped by theme, plus the index of the selected line.
+fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
+    let dim = Style::new().fg(pal.dim.c());
+    let mut v = vec![title("Sonidos ambientales", pal), Line::raw("")];
+    let mut selected_line = v.len();
+    let mut theme = None;
+    for (index, s) in app.file_sounds().into_iter().enumerate() {
+        if theme != Some(s.theme) {
+            theme = Some(s.theme);
+            v.push(Line::styled(s.theme.label(), Style::new().fg(pal.fg.c())));
+        }
+        let sel = index == app.sound_cursor;
+        if sel {
+            selected_line = v.len();
+        }
+        let cloud = if s.available { "" } else { "☁ " };
+        v.push(row(sel, format!("  {cloud}"), &trunc(&s.name, width.saturating_sub(8)), pal));
+    }
+    if app.file_sounds().is_empty() {
+        v.push(Line::styled(
+            "Todavía no hay sonidos descargados. Corré `focus sync` o apretá a para agregar uno.",
+            dim,
+        ));
+    }
+    let downloads: Vec<_> = app.state.downloads.iter().filter(|d| !d.meditation).collect();
     if !downloads.is_empty() {
         v.push(Line::raw(""));
     }

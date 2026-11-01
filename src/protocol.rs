@@ -40,6 +40,10 @@ pub enum Command {
         name: String,
     },
     Add(AddRequest),
+    /// Remove a downloaded sound (manifest entry and .opus). Built-in generators can't be removed.
+    DeleteSound {
+        id: String,
+    },
     AddMeditation(AddMeditationRequest),
     DeleteMeditation {
         id: String,

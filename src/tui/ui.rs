@@ -481,6 +481,22 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                 ]),
             ],
         ),
+        Popup::DeleteSound { name, .. } => (
+            " borrar sonido ",
+            52,
+            vec![
+                Line::raw(""),
+                Line::styled(format!("  ¿Borrar «{}»?", truncate(name, 34)), fg),
+                Line::styled("  Se borra también el archivo de esta compu.", dim),
+                Line::raw(""),
+                Line::from(vec![
+                    Span::styled("   s ", acc),
+                    Span::styled("sí, borrar    ", fg),
+                    Span::styled("esc ", acc),
+                    Span::styled("no", dim),
+                ]),
+            ],
+        ),
         Popup::SavePreset { name } => (
             " guardar preset ",
             50,

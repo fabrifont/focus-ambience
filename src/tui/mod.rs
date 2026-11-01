@@ -398,6 +398,131 @@ mod tests {
         assert!(app.exit.is_none());
     }
 
+    // ------------------------------------- Configuración > Sonidos ambientales
+
+    fn file_sound(id: &str, name: &str, theme: library::Theme, available: bool) -> library::Sound {
+        library::Sound {
+            id: id.into(),
+            name: name.into(),
+            theme,
+            visual: theme.default_visual(),
+            kind: library::SoundKind::File { file: format!("{id}.opus") },
+            duration: 3600,
+            available,
+        }
+    }
+
+    fn app_with_sounds() -> App {
+        let mut app = App::new();
+        let mut sounds = vec![
+            file_sound("templo", "Templo Jedi", library::Theme::Starwars, true),
+            file_sound("lluvia", "Lluvia", library::Theme::Nature, true),
+            file_sound("fuego", "Fuego", library::Theme::Nature, false),
+        ];
+        sounds.extend(library::all_sounds().unwrap().into_iter().filter(|s| s.theme == library::Theme::Generated));
+        app.set_state(crate::protocol::State { sounds, ..Default::default() });
+        app
+    }
+
+    fn open_sounds(app: &mut App) {
+        press(app, "4jj");
+        app.key(key(Enter));
+        assert_eq!(app.screen, app::Screen::Sounds);
+    }
+
+    #[test]
+    fn config_opens_the_sounds_list_with_downloaded_sounds_only() {
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        let t = screen_text(&app, 80, 24);
+        for s in ["Sonidos ambientales", "Templo Jedi", "Lluvia", "☁ Fuego", "agregar desde YouTube", "borrar"] {
+            assert!(t.contains(s), "falta «{s}» en:\n{t}");
+        }
+        assert!(!t.contains("Ruido blanco") && !t.contains("Binaural"), "los generados no se listan:\n{t}");
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Config);
+    }
+
+    #[test]
+    fn empty_sounds_list_says_what_to_do_and_d_does_nothing() {
+        let mut app = App::new();
+        open_sounds(&mut app);
+        assert!(screen_text(&app, 100, 24).contains("Todavía no hay sonidos descargados"));
+        press(&mut app, "d");
+        assert!(app.popup.is_none());
+    }
+
+    #[test]
+    fn a_adds_a_sound_with_the_same_form_and_flow_as_before() {
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        press(&mut app, "a");
+        assert!(matches!(app.popup, Some(app::Popup::Add(_))));
+        assert!(screen_text(&app, 90, 30).contains("agregar desde YouTube"));
+        app.paste("https://youtu.be/xyz");
+        app.key(key(Enter)); // URL -> nombre
+        app.key(key(Enter)); // nombre -> tema
+        app.key(key(Enter)); // tema -> recorte
+        app.key(key(Enter)); // descargar
+        assert!(app.popup.is_none());
+        match sent(&mut app).pop() {
+            Some(Command::Add(r)) => assert_eq!(r.url, "https://youtu.be/xyz"),
+            other => panic!("salió {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pasting_a_link_on_the_sounds_screen_opens_the_form_with_it() {
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        app.paste("https://youtu.be/xyz");
+        match &app.popup {
+            Some(app::Popup::Add(f)) => assert_eq!((f.url.as_str(), f.field), ("https://youtu.be/xyz", 1)),
+            _ => panic!("no abrió el formulario"),
+        }
+        app.key(key(Esc));
+        app.paste("hola");
+        assert!(app.popup.is_none(), "un texto que no es un link no abre nada");
+    }
+
+    #[test]
+    fn d_asks_before_deleting_the_selected_sound() {
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        // En pantalla van agrupados por tema: el orden del estado manda para el cursor.
+        let first = app.selected_file_sound().unwrap().name.clone();
+        press(&mut app, "d");
+        assert!(sent(&mut app).is_empty());
+        assert!(screen_text(&app, 80, 24).contains(&format!("¿Borrar «{first}»?")));
+        app.key(key(Esc));
+        assert!(app.popup.is_none() && sent(&mut app).is_empty());
+        press(&mut app, "dn");
+        assert!(app.popup.is_none() && sent(&mut app).is_empty());
+        press(&mut app, "j");
+        let second = app.selected_file_sound().unwrap().id.clone();
+        press(&mut app, "ds");
+        assert!(matches!(sent(&mut app).pop(), Some(Command::DeleteSound { id }) if id == second));
+    }
+
+    #[test]
+    fn the_sound_cursor_stays_inside_the_list_after_a_delete() {
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        press(&mut app, "G");
+        assert_eq!(app.sound_cursor, 2);
+        let mut st = app.state.clone();
+        st.sounds.remove(2);
+        app.set_state(st);
+        assert_eq!(app.sound_cursor, 1);
+    }
+
+    #[test]
+    fn the_sounds_screen_is_still() {
+        let mut app = app_with_sounds();
+        open_sounds(&mut app);
+        assert!(!app.animating());
+    }
+
     #[test]
     fn esc_walks_back_one_step_at_a_time() {
         use ratatui::crossterm::event::KeyCode::{Enter, Esc};
@@ -421,8 +546,8 @@ mod tests {
         for s in ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"] {
             assert!(t.contains(s), "falta «{s}»");
         }
-        press(&mut app, "jj");
-        app.key(key(ratatui::crossterm::event::KeyCode::Enter)); // Sonidos ambientales: etapa futura
+        press(&mut app, "jjj");
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter)); // Presets: etapa 3, parte 3
         assert_eq!(app.screen, app::Screen::Config);
         assert!(app.notice.is_some());
     }
@@ -1042,6 +1167,7 @@ mod tests {
             ("4", Config),
             ("4jk", Config),
             ("4j\n", Meditations),
+            ("4jj\n", Sounds),
             ("2", Routines),
             ("2je", RoutineEditor),
             ("2jej\n", RoutineStep),
