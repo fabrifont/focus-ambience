@@ -300,7 +300,7 @@ fn draw_presets(f: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::raw(""));
         lines.push(Line::styled("  todavía no hay presets.", Style::new().fg(pal.dim.c())));
         lines.push(Line::styled("  corré `focus sync` para traerlos,", Style::new().fg(pal.dim.c())));
-        lines.push(Line::styled("  o encendé sonidos y apretá s.", Style::new().fg(pal.dim.c())));
+        lines.push(Line::styled("  o armalos en Configuración.", Style::new().fg(pal.dim.c())));
     }
     let w = area.width as usize;
     for (i, p) in app.state.presets.iter().enumerate() {
@@ -340,22 +340,13 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     let txt = |d: &'static str| Span::styled(d, Style::new().fg(pal.dim.c()));
     let mut hints = vec![Span::raw(" ")];
     let pairs: &[(&str, &str)] = if app.pane == Pane::Presets {
-        &[
-            ("␣", " cargar  "),
-            ("d", " borrar  "),
-            ("tab", " sonidos  "),
-            ("t", " timer  "),
-            ("?", " ayuda  "),
-            ("q", " salir"),
-        ]
+        &[("␣", " cargar  "), ("tab", " sonidos  "), ("t", " timer  "), ("?", " ayuda  "), ("q", " salir")]
     } else {
         &[
             ("␣", " encender  "),
             ("←→", " volumen  "),
             ("p", " pausa  "),
             ("t", " timer  "),
-            ("s", " guardar  "),
-            ("a", " agregar  "),
             ("?", " ayuda  "),
             ("q", " salir"),
         ]
@@ -615,10 +606,8 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                     row("p", "pausar / seguir todo"),
                     row("x", "apagar todo"),
                     row("t", "temporizador"),
-                    row("s", "guardar la mezcla como preset"),
                     row("tab", "sonidos ⇄ presets"),
-                    row("a", "agregar sonido de YouTube"),
-                    row("ctrl+v", "pegar un link abre «agregar»"),
+                    row("enter", "en presets: cargar el preset"),
                     row("esc", "volver al menú de inicio"),
                     row("q", "salir (pregunta si dejar sonando)"),
                     row("Q", "apagar todo y salir"),

@@ -749,22 +749,6 @@ impl App {
             KeyCode::Char('t') => {
                 self.popup = Some(Popup::Timer { sel: 0, custom: None });
             }
-            KeyCode::Char('a') => {
-                self.popup = Some(Popup::Add(AddForm {
-                    field: 0,
-                    url: String::new(),
-                    name: String::new(),
-                    theme: 0,
-                    trim: String::new(),
-                }));
-            }
-            KeyCode::Char('s') => {
-                if self.state.active.is_empty() {
-                    self.notify("encendé algunos sonidos antes de guardar un preset");
-                } else {
-                    self.popup = Some(Popup::SavePreset { name: String::new() });
-                }
-            }
             _ if self.pane == Pane::Presets => self.preset_key(k),
             KeyCode::Up | KeyCode::Char('k') => self.cursor = self.cursor.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => self.cursor = (self.cursor + 1).min(items.saturating_sub(1)),
@@ -793,11 +777,6 @@ impl App {
                 if let Some(p) = self.state.presets.get(self.preset_cursor) {
                     let name = p.name.clone();
                     self.send(Command::LoadPreset { name });
-                }
-            }
-            KeyCode::Char('d') | KeyCode::Delete => {
-                if let Some(p) = self.state.presets.get(self.preset_cursor) {
-                    self.popup = Some(Popup::DeletePreset { name: p.name.clone() });
                 }
             }
             _ => {}

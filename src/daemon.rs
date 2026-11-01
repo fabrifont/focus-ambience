@@ -317,12 +317,6 @@ impl Daemon {
                     }
                 }
             }
-            Command::SavePreset { name } => {
-                let layers = self.active.iter().map(|id| (id.clone(), self.volume(id))).collect();
-                self.presets.presets.retain(|p| p.name != name);
-                self.presets.presets.push(Preset { name: name.clone(), layers });
-                self.save_presets(format!("preset «{name}» guardado"));
-            }
             Command::StorePreset { name, layers } => {
                 let layers = layers.into_iter().map(|(id, v)| (id, v.clamp(0.0, 1.0))).collect();
                 self.presets.presets.retain(|p| p.name != name);

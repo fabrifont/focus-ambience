@@ -33,9 +33,6 @@ pub enum Command {
     LoadPreset {
         name: String,
     },
-    SavePreset {
-        name: String,
-    },
     DeletePreset {
         name: String,
     },

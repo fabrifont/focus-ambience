@@ -681,6 +681,45 @@ mod tests {
         }
     }
 
+    // ------------------------------------------------ Focus sin a, s, d
+
+    #[test]
+    fn focus_no_longer_adds_saves_or_deletes() {
+        let mut app = app_with_sounds_and_presets();
+        press(&mut app, "3");
+        app.key(key(Esc)); // saltea la ventanita
+        app.state.active = vec!["noise-brown".into()];
+        sent(&mut app);
+        press(&mut app, "asd");
+        assert!(app.popup.is_none() && sent(&mut app).is_empty());
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab)); // panel de presets
+        press(&mut app, "ad");
+        assert!(app.popup.is_none() && sent(&mut app).is_empty());
+        app.paste("https://youtu.be/xyz");
+        assert!(app.popup.is_none(), "pegar un link en Focus ya no abre «agregar»");
+    }
+
+    #[test]
+    fn focus_hints_and_help_no_longer_mention_a_s_d() {
+        let mut app = app_with_sounds_and_presets();
+        press(&mut app, "3");
+        app.key(key(Esc));
+        let t = screen_text(&app, 120, 34);
+        for gone in ["guardar", "agregar", "borrar"] {
+            assert!(!t.contains(gone), "no tendría que decir «{gone}»:\n{t}");
+        }
+        app.popup = Some(app::Popup::Help);
+        let t = screen_text(&app, 80, 30);
+        for gone in ["guardar la mezcla", "agregar sonido", "pegar un link"] {
+            assert!(!t.contains(gone), "la ayuda no tendría que decir «{gone}»:\n{t}");
+        }
+        assert!(t.contains("temporizador") && t.contains("volver al menú"));
+        app.popup = None;
+        app.key(key(ratatui::crossterm::event::KeyCode::Tab));
+        let t = screen_text(&app, 120, 34);
+        assert!(t.contains("cargar") && !t.contains("borrar"), "{t}");
+    }
+
     #[test]
     fn esc_walks_back_one_step_at_a_time() {
         use ratatui::crossterm::event::KeyCode::{Enter, Esc};
