@@ -108,7 +108,8 @@ impl Playback {
             self.ended_at = Some(Instant::now());
         }
         let drained = self.ended_at.is_some_and(|t| t.elapsed() >= MEDITATION_DRAIN);
-        let overdue = self.played + self.since.map_or(Duration::ZERO, |t| t.elapsed()) > self.total + Duration::from_secs(5);
+        let overdue =
+            self.played + self.since.map_or(Duration::ZERO, |t| t.elapsed()) > self.total + Duration::from_secs(5);
         drained || overdue
     }
 

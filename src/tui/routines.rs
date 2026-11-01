@@ -259,10 +259,15 @@ impl App {
         match k.code {
             // Ctrl+J/Ctrl+K mueven la tarea; sin tarea que mover no hacen nada.
             KeyCode::Char('j' | 'k') if ctrl => {
-                if let KeyCode::Char('k') = k.code && !on_meditation && ed.cursor > 0 {
+                if let KeyCode::Char('k') = k.code
+                    && !on_meditation
+                    && ed.cursor > 0
+                {
                     ed.routine.tasks.swap(ed.cursor, ed.cursor - 1);
                     ed.cursor -= 1;
-                } else if let KeyCode::Char('j') = k.code && ed.cursor + 1 < n {
+                } else if let KeyCode::Char('j') = k.code
+                    && ed.cursor + 1 < n
+                {
                     ed.routine.tasks.swap(ed.cursor, ed.cursor + 1);
                     ed.cursor += 1;
                 }

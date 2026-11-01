@@ -1901,7 +1901,9 @@ mod tests {
     #[test]
     fn ctrl_q_g_j_k_do_the_shortcuts_and_plain_letters_do_not() {
         use app::Screen;
-        for screen in [Screen::Home, Screen::Config, Screen::Sounds, Screen::Presets, Screen::Meditations, Screen::Routines] {
+        for screen in
+            [Screen::Home, Screen::Config, Screen::Sounds, Screen::Presets, Screen::Meditations, Screen::Routines]
+        {
             let mut app = app_with_presets();
             app.list_from = Screen::Config;
             app.go(screen);

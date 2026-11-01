@@ -194,13 +194,7 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
         }
     }
     View {
-        lines,
-        hints: &[
-            ("␣", " marca (meditación: play/pausa)  "),
-            ("↑↓", " mover  "),
-            ("Esc", " menú"),
-        ],
-        selected,
+        lines, hints: &[("␣", " marca (meditación: play/pausa)  "), ("↑↓", " mover  "), ("Esc", " menú")], selected
     }
 }
 
