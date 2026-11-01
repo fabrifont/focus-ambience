@@ -4,7 +4,7 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use super::app::{App, Screen};
+use super::app::{App, MAX_MINUTES, Screen};
 use crate::meditation::{self, Category};
 use crate::protocol::Command;
 use crate::routine::{self, MeditationSetting, Routine, Step};
@@ -124,7 +124,11 @@ impl App {
                 self.notify("no pude leer routines.toml: no se van a guardar cambios hasta arreglarlo");
             }
         }
-        self.last_routine = routine::load_last();
+        let ui = routine::load_ui();
+        self.last_routine = ui.last_routine;
+        if let Some(m) = ui.focus_minutes.filter(|m| (1..=MAX_MINUTES).contains(m)) {
+            self.focus_minutes = m;
+        }
     }
 
     /// Escribe a disco lo que cambió. Es lo único con I/O de este módulo.
@@ -135,11 +139,12 @@ impl App {
                 self.notify(format!("no pude guardar las rutinas: {e:#}"));
             }
         }
-        if std::mem::take(&mut self.last_dirty)
-            && let Some(name) = &self.last_routine
-            && let Err(e) = routine::save_last(name)
-        {
-            self.notify(format!("no pude recordar la última rutina: {e:#}"));
+        if std::mem::take(&mut self.last_dirty) {
+            let ui =
+                routine::UiState { last_routine: self.last_routine.clone(), focus_minutes: Some(self.focus_minutes) };
+            if let Err(e) = routine::save_ui(&ui) {
+                self.notify(format!("no pude recordar la última rutina ni el tiempo: {e:#}"));
+            }
         }
     }
 
@@ -575,10 +580,7 @@ impl App {
 
     fn finish_run(&mut self) {
         self.end_run();
-        // TODO(etapa 3): acá va la ventanita «Antes de arrancar» (tiempo y preset). Por ahora se
-        // entra a Focus directo, como con «Ir a Focus».
-        self.notify("rutina lista: entrás a Focus");
-        self.go(Screen::Focus);
+        self.enter_focus();
     }
 
     fn run_enter(&mut self) {

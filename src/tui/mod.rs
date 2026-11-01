@@ -207,9 +207,195 @@ mod tests {
         press(&mut app, "3");
         assert_eq!(app.screen, app::Screen::Focus);
         assert!(matches!(app.outbox.last(), Some(Command::Watch { levels: true })));
+        app.key(key(ratatui::crossterm::event::KeyCode::Esc)); // saltea la ventanita
+        assert_eq!(app.screen, app::Screen::Focus);
         app.key(key(ratatui::crossterm::event::KeyCode::Esc));
         assert_eq!(app.screen, app::Screen::Home);
         assert!(matches!(app.outbox.last(), Some(Command::Watch { levels: false })));
+    }
+
+    // ------------------------------------------------- ventanita de Focus
+
+    fn app_with_presets() -> App {
+        use crate::library::Preset;
+        let mut app = App::new();
+        app.set_state(crate::protocol::State {
+            presets: vec![
+                Preset { name: "Templo Jedi".into(), layers: [("noise-brown".to_string(), 0.3)].into() },
+                Preset { name: "Lluvia y fuego".into(), layers: [("noise-pink".to_string(), 0.4)].into() },
+            ],
+            ..Default::default()
+        });
+        app
+    }
+
+    fn intro(app: &App) -> Option<app::Intro> {
+        match app.popup {
+            Some(app::Popup::Intro(i)) => Some(i),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn going_to_focus_opens_the_time_step_with_the_last_value() {
+        let mut app = app_with_presets();
+        app.focus_minutes = 35;
+        press(&mut app, "3");
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 35, typed: false }));
+        let t = screen_text(&app, 90, 30);
+        assert!(t.contains("Antes de arrancar · 1 de 2") && t.contains("[ 35 ] minutos"), "{t}");
+        assert!(app.outbox.iter().all(|c| !matches!(c, Command::Timer { .. })), "todavía no arranca nada");
+    }
+
+    #[test]
+    fn the_first_run_starts_at_fifty_minutes() {
+        let mut app = App::new();
+        press(&mut app, "3");
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 50, typed: false }));
+    }
+
+    #[test]
+    fn arrows_change_the_time_by_five_and_never_below_one() {
+        let mut app = App::new();
+        press(&mut app, "3");
+        app.key(key(Up));
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 55, typed: false }));
+        for _ in 0..20 {
+            app.key(key(Down));
+        }
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 1, typed: false }));
+    }
+
+    #[test]
+    fn typing_replaces_the_value_then_appends_and_backspace_erases() {
+        let mut app = App::new();
+        press(&mut app, "3");
+        press(&mut app, "4");
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 4, typed: true }));
+        press(&mut app, "5");
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 45, typed: true }));
+        press(&mut app, "99"); // 4599 no entra: el tope es 999
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 459, typed: true }));
+        app.key(key(ratatui::crossterm::event::KeyCode::Backspace));
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 45, typed: true }));
+        press(&mut app, "x"); // letras no hacen nada
+        assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 45, typed: true }));
+    }
+
+    #[test]
+    fn zero_minutes_cannot_continue() {
+        let mut app = App::new();
+        press(&mut app, "3");
+        press(&mut app, "0");
+        app.key(key(Enter));
+        assert!(matches!(intro(&app), Some(app::Intro::Time { minutes: 0, .. })));
+        assert!(app.notice.is_some());
+    }
+
+    #[test]
+    fn esc_on_the_time_step_goes_straight_to_focus_without_starting_anything() {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        sent(&mut app);
+        app.key(key(Esc));
+        assert!(app.popup.is_none());
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert!(sent(&mut app).is_empty());
+        assert!(!app.last_dirty, "no recuerda nada si se saltea");
+    }
+
+    #[test]
+    fn enter_remembers_the_time_and_moves_to_the_sounds_step_listing_presets_and_custom() {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        press(&mut app, "25");
+        app.key(key(Enter));
+        assert_eq!(app.focus_minutes, 25);
+        assert!(app.last_dirty);
+        assert_eq!(intro(&app), Some(app::Intro::Sounds { minutes: 25, sel: 0 }));
+        let t = screen_text(&app, 90, 30);
+        let pos = |s: &str| t.find(s).unwrap_or_else(|| panic!("falta «{s}» en:\n{t}"));
+        assert!(t.contains("2 de 2"));
+        assert!(pos("Templo Jedi") < pos("Lluvia y fuego") && pos("Lluvia y fuego") < pos("Sonidos personalizados"));
+    }
+
+    #[test]
+    fn esc_on_the_sounds_step_enters_focus_without_a_timer_or_a_preset() {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        app.key(key(Enter));
+        sent(&mut app);
+        app.key(key(Esc));
+        assert!(app.popup.is_none());
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert!(sent(&mut app).is_empty());
+    }
+
+    #[test]
+    fn choosing_a_preset_starts_the_timer_and_loads_it() {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        press(&mut app, "30");
+        app.key(key(Enter));
+        app.key(key(Down));
+        app.key(key(Enter));
+        assert!(app.popup.is_none());
+        let out = sent(&mut app);
+        assert!(out.iter().any(|c| matches!(c, Command::Timer { minutes: Some(30) })));
+        assert!(out.iter().any(|c| matches!(c, Command::LoadPreset { name } if name == "Lluvia y fuego")));
+    }
+
+    #[test]
+    fn custom_sounds_starts_only_the_timer() {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        app.key(key(Enter));
+        press(&mut app, "jjj"); // más allá de la última fila no pasa
+        assert_eq!(intro(&app), Some(app::Intro::Sounds { minutes: 50, sel: 2 }));
+        app.key(key(Enter));
+        let out = sent(&mut app);
+        assert!(out.iter().any(|c| matches!(c, Command::Timer { minutes: Some(50) })));
+        assert!(!out.iter().any(|c| matches!(c, Command::LoadPreset { .. })));
+        assert_eq!(app.screen, app::Screen::Focus);
+    }
+
+    #[test]
+    fn without_presets_the_only_option_is_custom_sounds() {
+        let mut app = App::new();
+        press(&mut app, "3");
+        app.key(key(Enter));
+        assert!(screen_text(&app, 90, 30).contains("Sonidos personalizados"));
+        app.key(key(Enter));
+        assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Timer { minutes: Some(50) })));
+    }
+
+    #[test]
+    fn the_window_also_opens_when_a_routine_ends() {
+        let mut app = app_with_routines();
+        press(&mut app, "1");
+        press(&mut app, " s   ");
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert!(matches!(intro(&app), Some(app::Intro::Time { .. })));
+    }
+
+    #[test]
+    fn it_shows_up_every_time_focus_is_entered() {
+        let mut app = App::new();
+        press(&mut app, "3");
+        app.key(key(Esc));
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Home);
+        press(&mut app, "3");
+        assert!(intro(&app).is_some());
+    }
+
+    #[test]
+    fn q_does_not_quit_from_inside_the_window() {
+        let mut app = App::new();
+        press(&mut app, "3");
+        press(&mut app, "qQ");
+        assert!(app.exit.is_none());
     }
 
     #[test]

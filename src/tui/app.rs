@@ -48,7 +48,24 @@ pub enum Pane {
     Presets,
 }
 
+/// Ventanita «Antes de arrancar» que aparece cada vez que se entra a Focus.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Intro {
+    /// Paso 1: cuánto se va a trabajar. `typed`: ya se escribió un dígito (el siguiente suma, no reemplaza).
+    Time { minutes: u32, typed: bool },
+    /// Paso 2: preset (o «Sonidos personalizados», que es la última fila). El tiempo ya está elegido.
+    Sounds { minutes: u32, sel: usize },
+}
+
+/// Tiempo de trabajo con el que arranca la ventanita la primera vez.
+pub const DEFAULT_MINUTES: u32 = 50;
+/// Lo más largo que se puede escribir (tres dígitos, como el temporizador).
+pub const MAX_MINUTES: u32 = 999;
+/// Cuánto mueven `↑↓` el tiempo.
+const MINUTES_STEP: u32 = 5;
+
 pub enum Popup {
+    Intro(Intro),
     Quit,
     /// «¿Salir?» fuera de Focus cuando no suena nada.
     ConfirmQuit,
@@ -96,7 +113,10 @@ pub struct App {
     pub last_routine: Option<String>,
     /// Hay que escribir `routines`/`last_routine` a disco (lo hace `persist`).
     pub routines_dirty: bool,
+    /// Hay que escribir `ui.toml` (última rutina y último tiempo de trabajo).
     pub last_dirty: bool,
+    /// Último tiempo de trabajo elegido en la ventanita de Focus.
+    pub focus_minutes: u32,
     pub list_cursor: usize,
     /// Desde dónde se abrió la lista de rutinas: Esc vuelve ahí.
     pub list_from: Screen,
@@ -143,6 +163,7 @@ impl App {
             last_routine: None,
             routines_dirty: false,
             last_dirty: false,
+            focus_minutes: DEFAULT_MINUTES,
             list_cursor: 0,
             list_from: Screen::Home,
             list_popup: None,
@@ -294,6 +315,68 @@ impl App {
         self.screen = screen;
     }
 
+    /// Entra a Focus mostrando la ventanita de tiempo y preset (siempre, venga de donde venga).
+    pub fn enter_focus(&mut self) {
+        self.go(Screen::Focus);
+        self.popup = Some(Popup::Intro(Intro::Time { minutes: self.focus_minutes, typed: false }));
+    }
+
+    fn intro_key(&mut self, intro: Intro, k: KeyEvent) -> Option<Popup> {
+        match intro {
+            Intro::Time { mut minutes, mut typed } => {
+                match k.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        minutes = (minutes + MINUTES_STEP).min(MAX_MINUTES);
+                        typed = false;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        minutes = minutes.saturating_sub(MINUTES_STEP).max(1);
+                        typed = false;
+                    }
+                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                        // El primer dígito reemplaza el valor que había; los siguientes se suman.
+                        let base = if typed { minutes } else { 0 };
+                        let n = base * 10 + c.to_digit(10).expect("is a digit");
+                        if n <= MAX_MINUTES {
+                            minutes = n;
+                        }
+                        typed = true;
+                    }
+                    KeyCode::Backspace => {
+                        minutes /= 10;
+                        typed = true;
+                    }
+                    KeyCode::Enter if minutes == 0 => self.notify("poné al menos 1 minuto (Esc saltea la ventanita)"),
+                    KeyCode::Enter => {
+                        self.focus_minutes = minutes;
+                        self.last_dirty = true;
+                        return Some(Popup::Intro(Intro::Sounds { minutes, sel: 0 }));
+                    }
+                    _ => {}
+                }
+                Some(Popup::Intro(Intro::Time { minutes, typed }))
+            }
+            Intro::Sounds { minutes, mut sel } => {
+                let last = self.state.presets.len();
+                match k.code {
+                    KeyCode::Up | KeyCode::Char('k') => sel = sel.saturating_sub(1),
+                    KeyCode::Down | KeyCode::Char('j') => sel = (sel + 1).min(last),
+                    KeyCode::Enter => {
+                        self.send(Command::Timer { minutes: Some(minutes) });
+                        // La última fila, «Sonidos personalizados», no carga nada.
+                        if let Some(p) = self.state.presets.get(sel) {
+                            let name = p.name.clone();
+                            self.send(Command::LoadPreset { name });
+                        }
+                        return None;
+                    }
+                    _ => {}
+                }
+                Some(Popup::Intro(Intro::Sounds { minutes, sel }))
+            }
+        }
+    }
+
     pub(super) fn request_quit(&mut self) {
         self.popup = Some(if self.playing() { Popup::Quit } else { Popup::ConfirmQuit });
     }
@@ -324,7 +407,7 @@ impl App {
         match i {
             0 => self.choose_continue(),
             1 => self.open_routines(Screen::Home),
-            2 => self.go(Screen::Focus),
+            2 => self.enter_focus(),
             _ => self.go(Screen::Config),
         }
     }
@@ -590,6 +673,7 @@ impl App {
         }
         self.popup = match popup {
             Popup::Help => None,
+            Popup::Intro(intro) => self.intro_key(intro, k),
             Popup::Quit => match k.code {
                 KeyCode::Char('s' | 'S' | 'y') | KeyCode::Enter => {
                     self.exit = Some(Exit::Detach);

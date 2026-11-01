@@ -166,19 +166,21 @@ fn last_path() -> PathBuf {
     paths::state_dir().join("ui.toml")
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct UiState {
-    last_routine: Option<String>,
+/// Lo que la TUI recuerda entre sesiones (`ui.toml` en el estado local, no viaja por Drive).
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiState {
+    pub last_routine: Option<String>,
+    /// Último tiempo de trabajo elegido en la ventanita de Focus, en minutos.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_minutes: Option<u32>,
 }
 
-pub fn load_last() -> Option<String> {
-    let s = std::fs::read_to_string(last_path()).ok()?;
-    toml::from_str::<UiState>(&s).ok()?.last_routine
+pub fn load_ui() -> UiState {
+    std::fs::read_to_string(last_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
 }
 
-pub fn save_last(name: &str) -> Result<()> {
-    let s = toml::to_string(&UiState { last_routine: Some(name.to_string()) })?;
-    write_atomic(&last_path(), &s)
+pub fn save_ui(ui: &UiState) -> Result<()> {
+    write_atomic(&last_path(), &toml::to_string(ui)?)
 }
 
 #[cfg(test)]
@@ -288,6 +290,14 @@ mod tests {
         assert_eq!(meditation_label(Some(cat(10))), "Meditación · 10 min fija");
         assert_eq!(meditation_label(Some(cat(60))), "Meditación · 1 hora fija");
         assert_eq!(meditation_label(None), "Meditación · duración libre");
+    }
+
+    #[test]
+    fn ui_state_roundtrips_and_old_files_without_minutes_still_parse() {
+        let ui = UiState { last_routine: Some("A".into()), focus_minutes: Some(50) };
+        assert_eq!(toml::from_str::<UiState>(&toml::to_string(&ui).unwrap()).unwrap(), ui);
+        let old: UiState = toml::from_str("last_routine = \"A\"\n").unwrap();
+        assert_eq!(old, UiState { last_routine: Some("A".into()), focus_minutes: None });
     }
 
     #[test]

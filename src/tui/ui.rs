@@ -5,7 +5,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
-use super::app::{ADD_THEMES, App, Item, Pane, Popup, Screen, TIMER_CHOICES};
+use super::app::{ADD_THEMES, App, Intro, Item, Pane, Popup, Screen, TIMER_CHOICES};
 use super::font;
 use super::theme::{self, Palette, Rgb};
 use crate::library::Theme;
@@ -394,6 +394,51 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
     let cursor = if ((elapsed(app) * 2.0) as u32).is_multiple_of(2) { "▏" } else { " " };
 
     let (title, w, lines): (&str, u16, Vec<Line>) = match popup {
+        Popup::Intro(Intro::Time { minutes, .. }) => (
+            " Antes de arrancar · 1 de 2 ",
+            46,
+            vec![
+                Line::raw(""),
+                Line::styled("  ¿Cuánto vas a trabajar?", fg),
+                Line::raw(""),
+                Line::from(vec![
+                    Span::styled("    [ ", dim),
+                    Span::styled(format!("{minutes}"), fg.add_modifier(Modifier::BOLD)),
+                    Span::styled(" ] minutos", dim),
+                ]),
+                Line::raw(""),
+                Line::from(vec![
+                    Span::styled("  ↑↓ ", acc),
+                    Span::styled("cambiar  ", dim),
+                    Span::styled("Enter ", acc),
+                    Span::styled("seguir  ", dim),
+                    Span::styled("Esc ", acc),
+                    Span::styled("saltear", dim),
+                ]),
+            ],
+        ),
+        Popup::Intro(Intro::Sounds { sel, .. }) => {
+            let mut names: Vec<String> = app.state.presets.iter().map(|p| truncate(&p.name, 36)).collect();
+            names.push("Sonidos personalizados".into());
+            // Ventana de 8 filas que sigue a la selección.
+            let top = (*sel + 1).saturating_sub(8);
+            let mut lines = vec![Line::raw(""), Line::styled("  ¿Qué sonidos?", fg), Line::raw("")];
+            for (i, n) in names.iter().enumerate().skip(top).take(8) {
+                let s = i == *sel;
+                lines.push(Line::from(vec![
+                    Span::styled(if s { "  > " } else { "    " }, acc),
+                    Span::styled(n.clone(), if s { fg.add_modifier(Modifier::BOLD) } else { dim }),
+                ]));
+            }
+            lines.push(Line::raw(""));
+            lines.push(Line::from(vec![
+                Span::styled("  Enter ", acc),
+                Span::styled("arrancar  ", dim),
+                Span::styled("Esc ", acc),
+                Span::styled("saltear", dim),
+            ]));
+            (" Antes de arrancar · 2 de 2 ", 46, lines)
+        }
         Popup::Quit => (
             " salir ",
             48,
