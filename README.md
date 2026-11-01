@@ -80,7 +80,7 @@ En Focus:
 
 ```sh
 rclone config               # una vez: crear un remote "gdrive" de tipo Google Drive
-focus sync                  # baja lo que falte y sube lo nuevo
+focus sync                  # baja lo que falte y sube lo nuevo (.opus, rutinas y manifiesto de meditaciones)
 ```
 
 El destino se cambia en `~/.config/focus-ambience/config.toml`:
