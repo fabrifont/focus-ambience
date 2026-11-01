@@ -44,7 +44,7 @@ src/
     sources.rs   ruidos, binaural, lector Ogg/Opus con seek (open = loop, open_once = una vez)
   download.rs    yt-dlp -> ffmpeg -> .opus + sha256 (sonidos: crossfade del loop horneado; meditaciones: entero)
   sync.rs        rclone copy hacia/desde el remoto (sonidos y meditaciones)
-  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones; quietas), routines (lista, editor, paso y rutina en curso: estado y teclas), routine_ui (su dibujo), scene (animaciones), theme (paletas)
+  tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones; quietas), routines (lista, editor, ajuste de meditación y rutina en curso: estado y teclas), routine_ui (su dibujo), scene (animaciones), theme (paletas)
 ```
 
 - Hilo del callback de audio: sin locks ni allocations en el camino normal. Cada capa tiene su ring buffer (`rtrb`) que llena un hilo "feeder"; volumen/estado van por atómicos.
@@ -52,7 +52,7 @@ src/
 - La meditación es una capa más del motor (id `meditation:<id>:<n>`) con fuente `open_once`; el daemon lleva el reloj de reproducción (pausa = parar la capa y reabrir con seek). La TUI solo pide `Watch{levels}` mientras está en Focus.
 - Los sonidos de naturaleza se recortan (p. ej. 60 min) porque repetirlos no se nota; la música se baja entera.
 
-- Rutinas: la TUI lee y escribe `routines.toml` directamente (no pasa por el daemon; no es audio). Si el archivo está roto no se pisa: se avisa y se bloquean los cambios. `App::persist` es lo único con I/O de ese módulo, para poder probar teclas y pantallas sin disco. En una rutina en curso se manda `PauseAll` al empezar (si había ambiente sonando) y de nuevo al salir; la meditación se corta al salir.
+- Rutinas: tareas (`Routine.tasks`) + meditación opcional aparte (`Routine.meditation`, como mucho una); `Routine::run_steps()` arma los pasos de la rutina en curso con la meditación al final. En el archivo, los `[[routine.step]]` viejos de tipo meditación se migran al leer (la primera pasa a ser `[routine.meditation]`, las demás se descartan). La TUI lee y escribe `routines.toml` directamente (no pasa por el daemon; no es audio). Si el archivo está roto no se pisa: se avisa y se bloquean los cambios. `App::persist` es lo único con I/O de ese módulo, para poder probar teclas y pantallas sin disco. En una rutina en curso se manda `PauseAll` al empezar (si había ambiente sonando) y de nuevo al salir; la meditación se corta al salir.
 
 ## Comandos de desarrollo
 

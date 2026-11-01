@@ -33,14 +33,14 @@ Solo los que sirven en una terminal (nada de animaciones, gestos ni transparenci
 - Las meditaciones van en una lista aparte de los sonidos de focus.
 - Durante la rutina no suenan sonidos de ambiente; solo suena la meditación.
 - Un paso se puede saltar con una tecla y queda marcado como salteado.
-- Los pasos se marcan en cualquier orden y en cualquier momento.
+- Los pasos se marcan en cualquier orden y en cualquier momento. En la rutina en curso la meditación aparece como un paso más, siempre al final de la lista.
 - Cuando todos los pasos quedan hechos o salteados, se entra a Focus.
 - Siempre que se entra a Focus (después de una rutina o con "Ir a Focus"), primero aparece una ventanita: pregunta cuánto tiempo va a trabajar y arranca el temporizador; después pregunta qué preset de sonidos usar, con una última opción "Sonidos personalizados" que lleva a elegirlos a mano como en Focus hoy.
 - Rutinas y meditaciones se sincronizan entre compus con `focus sync`, igual que presets y sonidos.
 - `Esc` en la ventanita de tiempo y preset no vuelve al menú: la saltea y entra directo a Focus. Si ya eligió el tiempo y aprieta `Esc` en la parte de sonidos, no arranca nada (ni temporizador) y entra a Focus como hoy.
 - Las meditaciones se ordenan solo por duración, en categorías fijas: 5, 10, 15, 20, 25, 30, 40 minutos y 1 hora. Una categoría solo aparece si tiene al menos una meditación. Al bajar una, Fabrizio elige a mano en qué categoría va.
 - En la rutina se elige una duración y la app pone una meditación al azar de esa categoría.
-- El paso de meditación tiene dos modos: **duración fija** (la duración se elige al armar la rutina y en el momento no pregunta nada) o **duración libre** (en ese paso pregunta qué duración).
+- La meditación de una rutina (como máximo una, aparte de las tareas) tiene dos modos: **duración fija** (la duración se elige al armar la rutina y en el momento no pregunta nada) o **duración libre** (en ese paso pregunta qué duración).
 - Al salir de Focus se vuelve al menú de inicio.
 
 ## Mapa de la app
@@ -58,8 +58,8 @@ flowchart TD
   L2 --> E
   L -->|Enter| R
   L -->|n / e| E[Editor de rutina]
-  E -->|a / Enter| P[Paso]
-  P -->|meditación: modo y duración| P
+  E -->|Enter en la fila de meditación| P[Ajuste de meditación]
+  P -->|sí/no, modo y duración| P
   P --> E
   E -->|g guardar| L
   R -->|todo hecho o salteado| V
@@ -97,9 +97,9 @@ flowchart TD
 **Crear o editar una rutina**
 
 1. Nombre de la rutina.
-2. Pasos con `a`. Cada paso es una **tarea** (un texto, como "Preparar mate") o una **meditación**.
-3. Para una meditación elige el modo: **duración fija** (y cuál, por ejemplo 10 minutos) o **duración libre** (se elige en el momento). No se elige un audio puntual: la app pone uno al azar de esa duración.
-4. `K`/`J` reordenan, `g` guarda, `Esc` sale (si hay cambios sin guardar, pregunta).
+2. Tareas con `a`: siempre agrega una **tarea** (un texto, como "Preparar mate"), sin preguntar de qué tipo.
+3. La **meditación** no es un paso de la lista: es un ajuste aparte, en una fila al final del editor (`Enter` la abre). Es sí o no, como máximo una por rutina. Si es sí, elige el modo: **duración fija** (y cuál, por ejemplo 10 minutos) o **duración libre** (se elige al hacerla). No se elige un audio puntual: la app pone uno al azar de esa duración.
+4. `K`/`J` reordenan las tareas, `g` guarda, `Esc` sale (si hay cambios sin guardar, pregunta).
 
 **Agregar una meditación**
 
@@ -121,7 +121,7 @@ flowchart TD
 1. Menú de inicio.
 2. Rutinas (lista).
 3. Editor de rutina.
-4. Paso (tarea, o meditación con duración fija o libre).
+4. Ajuste de meditación (sí/no, duración fija o libre).
 5. Configuración (Rutinas, Meditaciones, Sonidos ambientales).
 5b. Meditaciones (dentro de Configuración, agrupada por duración, con `a` para agregar desde YouTube y elegir categoría).
 5c. Sonidos ambientales (dentro de Configuración: agregar desde YouTube y borrar, lo que hoy está en Focus).
@@ -165,10 +165,11 @@ Editor de rutina:
 
     1  Ordenar el escritorio
     2  Preparar mate
-  > 3  Meditación · 10 min fija
-    4  Abrir el material
+  > 3  Abrir el material
 
-  a agregar · Enter editar · K/J mover · d borrar
+    Meditación · 10 min fija
+
+  a tarea · Enter editar · K/J mover · d borrar
   g guardar · Esc volver
 ```
 
@@ -188,13 +189,14 @@ Meditaciones:
 
 Solo se ven las categorías con al menos una meditación.
 
-Paso de meditación en el editor:
+Ajuste de meditación en el editor (con «No» se ocultan el modo y la duración):
 
 ```javascript
-  Paso · Meditación
+  Meditación de la rutina
 
-  Modo:      > Duración fija     Duración libre
-  Duración:    10 minutos
+  > Meditación: > Sí     No
+    Modo:       > Duración fija     Duración libre
+    Duración:     10 minutos
 
   ←→ cambiar · ↑↓ mover · Enter listo · Esc volver
 ```
