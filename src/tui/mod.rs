@@ -50,7 +50,7 @@ pub fn run() -> Result<()> {
                 match ev {
                     Some(Event::State(s)) => {
                         app.connected = true;
-                        app.set_state(s);
+                        app.set_state(*s);
                     }
                     Some(Event::Levels { layers, .. }) => app.set_levels(layers),
                     Some(Event::Notice { text }) => app.notify(text),
@@ -1473,14 +1473,19 @@ mod tests {
         id
     }
 
-    /// El daemon avisa el último segundo y después suelta la meditación.
-    fn end_meditation(app: &mut App, id: &str) {
+    /// El daemon suelta la meditación; con `entera` también avisa que terminó (contador e id).
+    fn release_meditation(app: &mut App, id: &str, entera: bool) {
         let mut s = app.state.clone();
-        s.meditation =
-            Some(crate::protocol::MeditationPlayback { id: id.into(), position_secs: 599, total_secs: 600, paused: false });
-        app.set_state(s.clone());
         s.meditation = None;
+        if entera {
+            s.meditations_finished += 1;
+            s.last_meditation_finished = Some(id.into());
+        }
         app.set_state(s);
+    }
+
+    fn end_meditation(app: &mut App, id: &str) {
+        release_meditation(app, id, true);
     }
 
     #[test]
@@ -1527,11 +1532,29 @@ mod tests {
     fn a_meditation_cut_midway_does_not_mark_the_step() {
         let mut app = app_with_routines();
         press(&mut app, "1");
-        start_meditation(&mut app);
-        let mut s = app.state.clone();
-        s.meditation = None;
-        app.set_state(s);
+        let id = start_meditation(&mut app);
+        // Aunque la última posición vista estuviera pegada al final: sin señal no se marca.
+        app.state.meditation.as_mut().unwrap().position_secs = 599;
+        release_meditation(&mut app, &id, false);
         assert_eq!(app.run.as_ref().unwrap().marks[3], crate::tui::routines::Mark::Pending);
+    }
+
+    #[test]
+    fn a_finish_signal_from_before_starting_or_for_another_meditation_does_not_mark() {
+        use crate::tui::routines::Mark;
+        let mut app = app_with_routines();
+        // Ya había terminado una antes de entrar a la rutina.
+        app.state.meditations_finished = 3;
+        app.state.last_meditation_finished = Some("scan".into());
+        press(&mut app, "1");
+        let id = start_meditation(&mut app);
+        let mut s = app.state.clone();
+        s.meditations_finished += 1;
+        s.last_meditation_finished = Some("otra".into());
+        app.set_state(s);
+        assert_eq!(app.run.as_ref().unwrap().marks[3], Mark::Pending);
+        end_meditation(&mut app, &id);
+        assert_eq!(app.run.as_ref().unwrap().marks[3], Mark::Done);
     }
 
     #[test]

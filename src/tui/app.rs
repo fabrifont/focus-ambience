@@ -285,8 +285,8 @@ impl App {
             (Deep::Done, _, Some(_)) => self.deep = Deep::On,
             _ => {}
         }
-        let old = std::mem::replace(&mut self.state, s);
-        self.meditation_ended(&old);
+        self.state = s;
+        self.meditation_ended();
         let n = self.items().len();
         self.cursor = self.cursor.min(n.saturating_sub(1));
         self.preset_cursor = self.preset_cursor.min(self.state.presets.len().saturating_sub(1));

@@ -100,6 +100,18 @@ struct Playback {
 }
 
 impl Playback {
+    /// Called on every tick while playing: notes when the decoder hit the end and says whether the
+    /// meditation is over, i.e. the file ran out and the buffer drained (or the clock ran past the
+    /// end because the decoder never reported it).
+    fn finished(&mut self, decoder_ended: bool) -> bool {
+        if self.ended_at.is_none() && decoder_ended {
+            self.ended_at = Some(Instant::now());
+        }
+        let drained = self.ended_at.is_some_and(|t| t.elapsed() >= MEDITATION_DRAIN);
+        let overdue = self.played + self.since.map_or(Duration::ZERO, |t| t.elapsed()) > self.total + Duration::from_secs(5);
+        drained || overdue
+    }
+
     fn position(&self) -> Duration {
         (self.played + self.since.map_or(Duration::ZERO, |t| t.elapsed())).min(self.total)
     }
@@ -111,6 +123,9 @@ struct Daemon {
     meditations: Vec<Meditation>,
     playback: Option<Playback>,
     playback_seq: u64,
+    /// Meditations that played to their real end, and which one was the last.
+    meditations_finished: u64,
+    last_meditation_finished: Option<String>,
     presets: Presets,
     volumes: BTreeMap<String, f32>,
     positions: BTreeMap<String, u64>,
@@ -156,6 +171,8 @@ pub fn run() -> Result<()> {
         meditations: meditation::all_meditations().unwrap_or_default(),
         playback: None,
         playback_seq: 0,
+        meditations_finished: 0,
+        last_meditation_finished: None,
         presets: library::load_presets(),
         volumes: persisted.volumes,
         positions: persisted.positions,
@@ -233,7 +250,7 @@ impl Daemon {
         match msg {
             Msg::Connected(id, stream) => {
                 self.clients.insert(id, Client { stream, levels: false });
-                let state = Event::State(self.state());
+                let state = Event::State(Box::new(self.state()));
                 self.send_to(id, &state);
             }
             Msg::Disconnected(id) => {
@@ -505,6 +522,8 @@ impl Daemon {
                 total_secs: p.total.as_secs(),
                 paused: p.since.is_none(),
             }),
+            meditations_finished: self.meditations_finished,
+            last_meditation_finished: self.last_meditation_finished.clone(),
         }
     }
 
@@ -641,14 +660,12 @@ impl Daemon {
         if p.since.is_none() {
             return;
         }
-        if p.ended_at.is_none() && self.engine.has_ended(&p.layer) {
-            p.ended_at = Some(Instant::now());
-        }
-        // The clock check covers a decoder that never reports the end.
-        let drained = p.ended_at.is_some_and(|t| t.elapsed() >= MEDITATION_DRAIN);
-        let overdue = p.played + p.since.map_or(Duration::ZERO, |t| t.elapsed()) > p.total + Duration::from_secs(5);
-        if drained || overdue {
-            let name = self.meditations.iter().find(|m| m.id == p.id).map(|m| m.name.clone());
+        let decoder_ended = self.engine.has_ended(&p.layer);
+        if p.finished(decoder_ended) {
+            let id = p.id.clone();
+            let name = self.meditations.iter().find(|m| m.id == id).map(|m| m.name.clone());
+            self.meditations_finished += 1;
+            self.last_meditation_finished = Some(id);
             self.stop_meditation();
             if let Some(name) = name {
                 self.notice(format!("«{name}» terminó"));
@@ -711,7 +728,7 @@ impl Daemon {
     }
 
     fn broadcast_state(&mut self) {
-        let ev = Event::State(self.state());
+        let ev = Event::State(Box::new(self.state()));
         self.broadcast(&ev);
         self.last_state = Instant::now();
     }
@@ -779,6 +796,45 @@ fn toast(title: &str, body: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn playback(total: u64) -> Playback {
+        Playback {
+            id: "calma".into(),
+            layer: "meditation:calma:1".into(),
+            total: Duration::from_secs(total),
+            played: Duration::ZERO,
+            since: Some(Instant::now()),
+            ended_at: None,
+        }
+    }
+
+    #[test]
+    fn a_meditation_finishes_only_once_the_file_ran_out_and_the_buffer_drained() {
+        let mut p = playback(600);
+        assert!(!p.finished(false), "sigue sonando");
+        assert!(!p.finished(true), "el decoder llegó al final pero queda buffer por vaciar");
+        p.ended_at = Some(Instant::now() - MEDITATION_DRAIN);
+        assert!(p.finished(false), "buffer vacío: terminó entera");
+    }
+
+    #[test]
+    fn a_meditation_far_from_its_end_does_not_finish_by_itself() {
+        // Cortada, reemplazada o borrada: el daemon la saca sin pasar por `finished`.
+        let mut p = playback(600);
+        p.played = Duration::from_secs(595);
+        assert!(!p.finished(false));
+        // Si el decoder nunca avisa, el reloj la da por terminada pasado el final.
+        let mut p = playback(1);
+        p.since = Some(Instant::now() - Duration::from_secs(7));
+        assert!(p.finished(false));
+    }
+
+    #[test]
+    fn state_without_the_finished_signal_still_parses() {
+        let json = r#"{"sounds":[],"presets":[],"volumes":{},"active":[],"paused":false,"master":1.0,"timer":null,"downloads":[]}"#;
+        let s: State = serde_json::from_str(json).unwrap();
+        assert_eq!((s.meditations_finished, s.last_meditation_finished), (0, None));
+    }
 
     #[test]
     fn meditation_pauses_the_ambient_and_gives_it_back() {

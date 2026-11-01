@@ -75,7 +75,7 @@ flowchart TD
 1. Abre WorkHub y aparece el menú de inicio con la última rutina ya seleccionada.
 2. `Enter` y arranca la rutina, en silencio.
 3. Se mueve con `↑↓` entre los pasos y los marca en el orden que quiera: `␣` marca hecha una tarea (y desmarca una ya marcada). `Enter` no hace nada en la rutina en curso.
-4. En el paso de meditación, si es de duración libre, primero elige la duración entre las categorías que tienen meditaciones; si es fija, no pregunta. La app pone una meditación al azar de esa duración y `␣` la reproduce o pausa dentro de la app (en este paso `␣` nunca marca ni desmarca). El paso se marca solo cuando el audio llega al final (el daemon suelta la meditación y la última posición vista estaba a ≤4 s del final); una vez hecho no se desmarca. Si se corta a mitad, queda pendiente.
+4. En el paso de meditación, si es de duración libre, primero elige la duración entre las categorías que tienen meditaciones; si es fija, no pregunta. La app pone una meditación al azar de esa duración y `␣` la reproduce o pausa dentro de la app (en este paso `␣` nunca marca ni desmarca). El paso se marca solo cuando el daemon avisa que el audio terminó entero (contador `meditations_finished` e id `last_meditation_finished` en el estado; no sube si se corta, se reemplaza o se borra, y la app lo compara con el contador que vio al arrancarla desde el paso); una vez hecho no se desmarca. Si se corta a mitad, queda pendiente.
 5. Cuando todos quedan hechos, aparece la ventanita de Focus.
 6. Elige el tiempo, después el preset (o "Sonidos personalizados") y entra a Focus con el temporizador corriendo. Con `Esc` saltea la ventanita y entra directo a Focus.
 7. Al salir de Focus vuelve al menú de inicio.

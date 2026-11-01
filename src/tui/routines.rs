@@ -6,17 +6,13 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{App, MAX_MINUTES, Screen};
 use crate::meditation::{self, Category};
-use crate::protocol::{Command, State};
+use crate::protocol::Command;
 use crate::routine::{self, MeditationSetting, Routine, Step};
 
 /// Largo máximo de un nombre o de una tarea.
 const MAX_TEXT: usize = 80;
 /// Categoría con la que arranca una meditación recién activada.
 const DEFAULT_CATEGORY: usize = 1; // 10 minutos
-
-/// El daemon avisa el progreso cada segundo y suelta la meditación ~1,5 s después de que se
-/// acaba el archivo: si la última posición vista está a menos de esto del final, terminó sola.
-const MEDITATION_END_SLACK: u64 = 4;
 
 // ---------------------------------------------------------------- lista
 
@@ -103,6 +99,8 @@ pub struct Run {
     pub chooser: Option<Chooser>,
     /// Paso al que pertenece la meditación que arrancamos.
     pub playing_step: Option<usize>,
+    /// Contador de meditaciones terminadas del daemon cuando la arrancamos desde el paso.
+    finished_base: u64,
     /// Silenciamos los sonidos de ambiente al empezar y hay que devolverlos.
     muted_ambient: bool,
 }
@@ -505,6 +503,7 @@ impl App {
             picks,
             chooser: None,
             playing_step: None,
+            finished_base: self.state.meditations_finished,
             muted_ambient,
             steps,
             routine,
@@ -572,15 +571,14 @@ impl App {
         }
     }
 
-    /// Con `state` ya reemplazado (`old` es el anterior): si la meditación de la rutina desapareció estando cerca del
-    /// final, es que terminó (el daemon la suelta cuando el archivo se agota). Un corte a mitad
-    /// (otro cliente, borrarla) no la marca.
-    pub(super) fn meditation_ended(&mut self, old: &State) {
+    /// Con `state` ya reemplazado: marca el paso de meditación si el daemon avisa que la que
+    /// arrancamos desde el paso terminó entera (contador por encima del que vimos al arrancarla y
+    /// último id igual al elegido). Un corte a mitad (otro cliente, borrarla) no suma al contador.
+    pub(super) fn meditation_ended(&mut self) {
         let Some(run) = self.run.as_ref() else { return };
-        let (Some(i), Some(old)) = (run.playing_step, old.meditation.as_ref()) else { return };
-        let same = run.picks[i].as_ref().is_some_and(|p| p.id == old.id);
-        let near_end = old.position_secs + MEDITATION_END_SLACK >= old.total_secs;
-        if same && near_end && self.state.meditation.is_none() && run.marks[i] == Mark::Pending {
+        let Some(i) = run.playing_step else { return };
+        let same = run.picks[i].as_ref().is_some_and(|p| self.state.last_meditation_finished.as_ref() == Some(&p.id));
+        if same && self.state.meditations_finished > run.finished_base && run.marks[i] == Mark::Pending {
             self.run.as_mut().expect("in a run").playing_step = None;
             self.mark_done(i, false);
         }
@@ -600,6 +598,9 @@ impl App {
                 let id = p.id;
                 let loaded = run.playing_step == Some(i) && self.state.meditation.as_ref().is_some_and(|m| m.id == id);
                 run.playing_step = Some(i);
+                if !loaded {
+                    run.finished_base = self.state.meditations_finished;
+                }
                 self.send(if loaded { Command::ToggleMeditation } else { Command::PlayMeditation { id } });
             }
         }

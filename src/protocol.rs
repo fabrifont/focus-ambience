@@ -86,7 +86,7 @@ pub struct AddMeditationRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    State(State),
+    State(Box<State>),
     Levels { master: f32, layers: Vec<(String, f32)> },
     Notice { text: String },
 }
@@ -108,6 +108,13 @@ pub struct State {
     /// The meditation loaded in the player (playing or paused); gone once it finishes.
     #[serde(default)]
     pub meditation: Option<MeditationPlayback>,
+    /// How many meditations have played through to the real end of their audio since the daemon
+    /// started (never counts one that was stopped, replaced or deleted).
+    #[serde(default)]
+    pub meditations_finished: u64,
+    /// Id of the last meditation counted in `meditations_finished`.
+    #[serde(default)]
+    pub last_meditation_finished: Option<String>,
 }
 
 impl State {
