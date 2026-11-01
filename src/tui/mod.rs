@@ -24,40 +24,56 @@ use app::{App, Exit};
 const FRAME_BUSY: Duration = Duration::from_millis(50);
 const FRAME_IDLE: Duration = Duration::from_millis(250);
 
+/// Everything the main loop waits on arrives through one channel, so a key
+/// or an answer from the daemon wakes it up right away.
+enum Msg {
+    Term(TermEvent),
+    TermClosed,
+    Daemon(Option<Event>),
+}
+
+/// How long to wait for messages before the next frame is due (`None` = already due).
+fn wait_until(deadline: Instant, now: Instant) -> Option<Duration> {
+    deadline.checked_duration_since(now).filter(|d| !d.is_zero())
+}
+
+fn frame_for(busy: bool) -> Duration {
+    if busy { FRAME_BUSY } else { FRAME_IDLE }
+}
+
 pub fn run() -> Result<()> {
     let stream = client::connect_or_spawn()?;
     let mut writer = stream.try_clone()?;
-    let (tx, rx) = mpsc::channel::<Option<Event>>();
+    let (tx, rx) = mpsc::channel::<Msg>();
+    let daemon_tx = tx.clone();
     thread::spawn(move || {
         for line in BufReader::new(stream).lines().map_while(Result::ok) {
             if let Ok(ev) = serde_json::from_str::<Event>(&line)
-                && tx.send(Some(ev)).is_err()
+                && daemon_tx.send(Msg::Daemon(Some(ev))).is_err()
             {
                 return;
             }
         }
-        let _ = tx.send(None);
+        let _ = daemon_tx.send(Msg::Daemon(None));
     });
 
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableBracketedPaste);
+    // Only reads: it never touches the terminal modes, so leaving it blocked
+    // on `read` when the process exits is harmless.
+    thread::spawn(move || {
+        while let Ok(ev) = event::read() {
+            if tx.send(Msg::Term(ev)).is_err() {
+                return;
+            }
+        }
+        let _ = tx.send(Msg::TermClosed);
+    });
     let mut app = App::new();
     app.load_routines();
     let result = (|| -> Result<Exit> {
         let mut last = Instant::now();
         loop {
-            while let Ok(ev) = rx.try_recv() {
-                match ev {
-                    Some(Event::State(s)) => {
-                        app.connected = true;
-                        app.set_state(*s);
-                    }
-                    Some(Event::Levels { layers, .. }) => app.set_levels(layers),
-                    Some(Event::Notice { text }) => app.notify(text),
-                    None => anyhow::bail!("se perdió la conexión con el audio"),
-                }
-            }
-
             let now = Instant::now();
             let dt = (now - last).as_secs_f32().min(0.25);
             last = now;
@@ -67,24 +83,20 @@ pub fn run() -> Result<()> {
             app.animate(dt, scene.width, scene.height);
             terminal.draw(|f| ui::draw(f, &app))?;
 
-            let frame = if app.animating() || app.popup.is_some() { FRAME_BUSY } else { FRAME_IDLE };
-            let deadline = now + frame;
-            // Wait for input until the next frame is due.
-            while let Some(wait) = deadline.checked_duration_since(Instant::now()) {
-                if !event::poll(wait)? {
-                    break;
-                }
-                match event::read()? {
-                    TermEvent::Key(k) if k.kind == KeyEventKind::Press => app.key(k),
-                    TermEvent::Paste(s) => app.paste(&s),
-                    TermEvent::Resize(..) => break,
-                    _ => {}
+            let deadline = now + frame_for(app.animating() || app.popup.is_some());
+            // Sleep until the next frame is due; input or daemon news cut it short.
+            while let Some(wait) = wait_until(deadline, Instant::now()) {
+                let Ok(first) = rx.recv_timeout(wait) else { break };
+                let mut redraw = handle(&mut app, first)?;
+                // Key repeat: apply everything already queued, then draw once.
+                while let Ok(msg) = rx.try_recv() {
+                    redraw |= handle(&mut app, msg)?;
                 }
                 app.persist();
                 for cmd in app.outbox.drain(..) {
                     client::send(&mut writer, &cmd)?;
                 }
-                if app.exit.is_some() {
+                if app.exit.is_some() || redraw {
                     break;
                 }
             }
@@ -106,6 +118,38 @@ pub fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Applies one message; returns whether the screen needs redrawing right away.
+/// Level meters are left for the next frame so they don't force extra draws.
+fn handle(app: &mut App, msg: Msg) -> Result<bool> {
+    Ok(match msg {
+        Msg::Term(TermEvent::Key(k)) if k.kind == KeyEventKind::Press => {
+            app.key(k);
+            true
+        }
+        Msg::Term(TermEvent::Paste(s)) => {
+            app.paste(&s);
+            true
+        }
+        Msg::Term(TermEvent::Resize(..)) => true,
+        Msg::Term(_) => false,
+        Msg::TermClosed => anyhow::bail!("se cerró la entrada de la terminal"),
+        Msg::Daemon(Some(Event::State(s))) => {
+            app.connected = true;
+            app.set_state(*s);
+            true
+        }
+        Msg::Daemon(Some(Event::Levels { layers, .. })) => {
+            app.set_levels(layers);
+            false
+        }
+        Msg::Daemon(Some(Event::Notice { text })) => {
+            app.notify(text);
+            true
+        }
+        Msg::Daemon(None) => anyhow::bail!("se perdió la conexión con el audio"),
+    })
 }
 
 #[cfg(test)]
@@ -135,6 +179,24 @@ mod tests {
         term.draw(|f| ui::draw(f, &app)).unwrap();
         let buf = term.backend().buffer().clone();
         (0..h).map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect()
+    }
+
+    #[test]
+    fn wait_until_is_none_once_the_deadline_passed() {
+        let now = Instant::now();
+        assert_eq!(wait_until(now + FRAME_IDLE, now), Some(FRAME_IDLE));
+        assert_eq!(wait_until(now, now), None);
+        assert_eq!(wait_until(now, now + FRAME_BUSY), None);
+        assert!(frame_for(true) < frame_for(false));
+    }
+
+    #[test]
+    fn levels_do_not_force_a_redraw_but_state_and_keys_do() {
+        let mut app = App::new();
+        assert!(!handle(&mut app, Msg::Daemon(Some(Event::Levels { layers: vec![], master: 0.0 }))).unwrap());
+        assert!(handle(&mut app, Msg::Daemon(Some(Event::Notice { text: "hola".into() }))).unwrap());
+        assert!(handle(&mut app, Msg::Term(TermEvent::Resize(80, 24))).unwrap());
+        assert!(handle(&mut app, Msg::Daemon(None)).is_err());
     }
 
     #[test]
