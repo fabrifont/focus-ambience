@@ -336,6 +336,7 @@ impl Daemon {
                 self.paused = false;
                 self.stop_meditation();
             }
+            Command::RestartSounds => self.restart_sounds(),
             Command::Timer { minutes } => {
                 self.timer = minutes.filter(|&m| m > 0).map(|m| {
                     let total = Duration::from_secs(m as u64 * 60);
@@ -476,6 +477,21 @@ impl Daemon {
                     self.notice(format!("no pude reproducir «{}»: {e}", sound.name));
                 }
             }
+        }
+    }
+
+    /// Fade out every layer that is sounding and let `apply` reopen it from the start. Reopening
+    /// (instead of seeking) also drops what the ring buffer had queued, and works for generators.
+    fn restart_sounds(&mut self) {
+        let ids: Vec<String> = self.playing.iter().cloned().collect();
+        if ids.is_empty() {
+            self.notice("no hay sonidos sonando".to_string());
+            return;
+        }
+        for id in ids {
+            self.engine.stop(&id);
+            self.playing.remove(&id);
+            self.positions.insert(id, 0);
         }
     }
 
@@ -902,6 +918,10 @@ mod tests {
     fn timer_state_from_an_older_daemon_parses_as_running() {
         let t: TimerState = serde_json::from_str(r#"{"total_secs":60,"remaining_secs":30}"#).unwrap();
         assert!(!t.paused);
+        let c: Command = serde_json::from_str(r#"{"cmd":"restart_sounds"}"#).unwrap();
+        assert!(matches!(c, Command::RestartSounds));
+        let back = serde_json::to_string(&Command::RestartSounds).unwrap();
+        assert_eq!(back, r#"{"cmd":"restart_sounds"}"#);
         let c: Command = serde_json::from_str(r#"{"cmd":"toggle_timer_pause"}"#).unwrap();
         assert!(matches!(c, Command::ToggleTimerPause));
     }

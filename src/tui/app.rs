@@ -901,6 +901,7 @@ impl App {
             }
             KeyCode::Char('p') => self.send(Command::PauseAll),
             KeyCode::Char('x') => self.send(Command::StopAll),
+            KeyCode::Char('0') => self.send(Command::RestartSounds),
             // La `p` ya pausa los sonidos: el reloj se pausa con `r` y el audio no se toca.
             KeyCode::Char('r') => {
                 if self.state.timer.is_some() {
