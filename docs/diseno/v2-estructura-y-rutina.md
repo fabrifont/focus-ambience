@@ -282,6 +282,17 @@ Ventanita de Focus, Configuración > Sonidos ambientales y Presets, y fuera `a`,
 - En el armado de presets los sonidos elegidos suenan en vivo con su volumen (decisión de Fabrizio, preview real por el daemon con `SetActive`/`SetVolume`). Al entrar se callan los sonidos de Focus y se guarda qué sonaba; al salir (guardar o `Esc`) se apaga el preview y se restauran sonidos, volúmenes y pausa (sin nada sonando, queda silencio). `␣` elige, `←→` volumen, `g` guarda, `Esc` descarta: sin sonidos elegidos sale directo; con al menos uno pregunta «¿Descartar el preset?» (`s`/`y`/`Enter` descarta, `n`/`Esc` sigue armando). El volumen inicial es el que tiene el sonido en Focus. No deja repetir el nombre de un preset (ni cambiando mayúsculas).
 - `q` en la ventanita no hace nada (solo Ctrl+C sale).
 
+## Modo deep work en Focus (1/11/2026)
+
+`d` en Focus prende y apaga el modo (en Focus ya no había otro uso de `d`, y los popups tienen prioridad sobre las teclas de Focus, así que no chocan). En el modo: la escena animada ocupa toda la pantalla, en el centro va el timer (`m:ss`) en dígitos de 5 filas con el mismo degradé y brillo que el reloj de siempre, o «FOCUS» grande si no hay timer; abajo solo `? ayuda`. Las teclas de sonido, volumen, timer, `Esc` y `q` siguen igual. Al llegar el timer a cero estando en el modo: «¡Buen trabajo!» y «presioná d para volver»; `d` vuelve a Focus normal. Fuera del modo no cambia nada. Decisiones por lo más simple (a validar):
+
+- Cómo se sabe que «llegó a cero» y no que lo cancelaron: el daemon manda el estado cada segundo; si el timer desaparece y en el estado anterior quedaban ≤ 2 s, terminó.
+- Sale del modo (queda `Off`) al salir de Focus con `Esc` y al volver a entrar a Focus.
+- `Esc` en el modo hace lo de Focus normal: vuelve al menú de inicio (no solo sale del modo).
+- Los avisos (`notice`) y el volumen general no se ven en el modo; el reloj no tiene barra de progreso ni lista de sonidos.
+- Si no entra el reloj grande (terminal chica) se usa el de 3 filas.
+- En la pantalla final todas las teclas siguen activas; si se arranca otro timer con `t`, vuelve el reloj.
+
 ## Dudas abiertas (para Fabrizio, vía Jefe, de a una)
 
 Ninguna por ahora.

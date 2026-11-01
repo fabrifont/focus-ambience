@@ -85,6 +85,7 @@ Dentro de Focus:
 - `p` pausa todo · `x` apaga todo · `+`/`-` suben/bajan el volumen general.
 - `t` abre el temporizador · `?` ayuda. Agregar y borrar sonidos y guardar y borrar presets ya no se hacen acá: están en Configuración.
 - `q` pregunta si dejar todo sonando en background (o sale directo si no hay nada sonando) · `Q` apaga todo y sale sin preguntar.
+- `d` prende y apaga el **modo deep work**: la pantalla muestra solo el timer en dígitos grandes (o «FOCUS» grande si no hay timer), con la misma escena animada de fondo, y abajo nada más que `? ayuda` (la ayuda lista las teclas). Las teclas de sonido y volumen siguen funcionando aunque no se vean; `Esc` y `q` hacen lo mismo que en Focus normal (`Esc` además sale del modo). Si el timer llega a cero estando en el modo, la sesión termina: «¡Buen trabajo!» y «presioná d para volver»; `d` vuelve a Focus normal. Fuera del modo, llegar a cero no cambia.
 
 ## Sincronizar entre compus
 
