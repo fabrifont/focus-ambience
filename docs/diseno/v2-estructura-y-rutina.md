@@ -128,7 +128,7 @@ flowchart TD
 5d. Presets (dentro de Configuración: armar, guardar y borrar).
 6. Elegir duración (solo en pasos de duración libre, durante la rutina).
 7. Rutina en curso.
-8. Ventanita de Focus: tiempo y después preset.
+8. Ventanita de Focus: tiempo y después preset (solo si no hay una sesión en curso).
 9. Confirmaciones: borrar rutina, borrar paso, borrar meditación, salir sin guardar.
 10. Focus, minimalista: solo elegir sonidos, volumen y temporizador. Sin agregar ni borrar sonidos, sin guardar ni borrar presets (se sacan `a`, `s` y `d`).
 
@@ -227,6 +227,8 @@ Rutina en curso (los pasos se marcan en cualquier orden):
   ␣ hecho · s saltear · u deshacer · Enter play/pausa
   ↑↓ mover · Esc menú
 ```
+
+La ventanita aparece al entrar a Focus solo si no hay una sesión en curso (algo sonando según el daemon, o el temporizador corriendo); si ya hay una, se entra directo a Focus mostrando el estado actual.
 
 Ventanita de Focus, paso 1 de 2:
 

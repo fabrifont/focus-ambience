@@ -257,6 +257,35 @@ mod tests {
     }
 
     #[test]
+    fn going_to_focus_skips_the_popup_when_a_sound_is_playing() {
+        let mut app = app_with_presets();
+        app.state.active = vec!["rain".into()];
+        app.state.paused = false;
+        press(&mut app, "3");
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert!(app.popup.is_none());
+        assert_eq!(app.deep, app::Deep::Off);
+    }
+
+    #[test]
+    fn going_to_focus_skips_the_popup_when_the_timer_is_running() {
+        let mut app = app_with_presets();
+        app.state.timer = Some(crate::protocol::TimerState { total_secs: 600, remaining_secs: 300 });
+        press(&mut app, "3");
+        assert_eq!(app.screen, app::Screen::Focus);
+        assert!(app.popup.is_none());
+    }
+
+    #[test]
+    fn going_to_focus_shows_the_popup_when_sounds_are_only_paused_and_no_timer() {
+        let mut app = app_with_presets();
+        app.state.active = vec!["rain".into()];
+        app.state.paused = true;
+        press(&mut app, "3");
+        assert!(intro(&app).is_some());
+    }
+
+    #[test]
     fn the_first_run_starts_at_fifty_minutes() {
         let mut app = App::new();
         press(&mut app, "3");

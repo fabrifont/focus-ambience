@@ -82,7 +82,7 @@ pub enum Pane {
     Presets,
 }
 
-/// Ventanita «Antes de arrancar» que aparece cada vez que se entra a Focus.
+/// Ventanita «Antes de arrancar» que aparece al entrar a Focus si no hay una sesión en curso.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Intro {
     /// Paso 1: cuánto se va a trabajar. `typed`: ya se escribió un dígito (el siguiente suma, no reemplaza).
@@ -387,10 +387,19 @@ impl App {
         self.screen = screen;
     }
 
-    /// Entra a Focus mostrando la ventanita de tiempo y preset (siempre, venga de donde venga).
+    /// Hay una sesión en curso: algo suena (según el daemon) o el temporizador está corriendo.
+    pub fn session_in_progress(&self) -> bool {
+        self.state.is_playing() || self.state.timer.is_some()
+    }
+
+    /// Entra a Focus. Si no hay una sesión en curso muestra la ventanita de tiempo y preset;
+    /// si ya la hay, entra directo mostrando el estado actual.
     pub fn enter_focus(&mut self) {
         self.go(Screen::Focus);
         self.deep = Deep::Off;
+        if self.session_in_progress() {
+            return;
+        }
         self.popup = Some(Popup::Intro(Intro::Time { minutes: self.focus_minutes, typed: false }));
     }
 
