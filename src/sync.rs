@@ -32,8 +32,9 @@ fn sibling_remote(remote: &str, name: &str) -> String {
     }
 }
 
-/// Manifest files that travel with the audio, relative to the library folder.
-const DATA_FILES: [&str; 2] = ["routines.toml", "meditations.toml"];
+/// Lists that travel with the audio, relative to the library folder. They live only in Drive
+/// (and each machine's library folder), never in git.
+const DATA_FILES: [&str; 4] = ["sounds.toml", "presets.toml", "meditations.toml", "routines.toml"];
 
 fn data_remote() -> String {
     sibling_remote(&remote(), "library")
@@ -89,7 +90,8 @@ fn rclone(from: &str, to: &str, only: Option<&[String]>, update: bool) -> Result
     Ok(())
 }
 
-/// Copy routines.toml and meditations.toml; the newer copy wins, so neither side clobbers fresh edits.
+/// Copy the lists; the newer copy wins (`--update`), and a file missing on the source side is
+/// simply not copied, so an empty remote never overwrites a local list and vice versa.
 fn sync_data(from: &str, to: &str) -> Result<()> {
     let files = DATA_FILES.map(String::from);
     rclone(from, to, Some(&files), true)
@@ -99,10 +101,16 @@ pub fn run(dir: Direction) -> Result<()> {
     let library = paths::library_dir();
     std::fs::create_dir_all(&library)?;
     let data_local = library.to_string_lossy().into_owned();
-    // Before reading the manifests: a pulled meditations.toml says which .opus to fetch.
+    // Before reading the manifests: a pulled sounds.toml says which .opus to fetch.
     if dir != Direction::Push {
-        println!("⇣ bajando rutinas y manifiesto de meditaciones");
-        sync_data(&data_remote(), &data_local)?;
+        println!("⇣ bajando las listas (sonidos, presets, meditaciones, rutinas)");
+        let pulled = sync_data(&data_remote(), &data_local);
+        // First sync: the remote folder doesn't exist yet. Keep going so the push below creates
+        // it with the local lists.
+        match pulled {
+            Err(e) if dir == Direction::Both => println!("  (no pude bajar las listas: {e}; sigo con lo local)"),
+            other => other?,
+        }
     }
     let sets = sets()?;
     for set in &sets {
@@ -126,7 +134,7 @@ pub fn run(dir: Direction) -> Result<()> {
             println!("⇡ subiendo {} nuevos", set.label);
             rclone(&set.local.to_string_lossy(), &set.remote, None, false)?;
         }
-        println!("⇡ subiendo rutinas y manifiesto de meditaciones");
+        println!("⇡ subiendo las listas (gana la más nueva)");
         sync_data(&data_local, &data_remote())?;
     }
     verify()
@@ -183,7 +191,9 @@ mod tests {
     #[test]
     fn data_files_go_to_a_library_folder_next_to_the_sounds() {
         assert_eq!(sibling_remote("gdrive:focus-ambience/sounds", "library"), "gdrive:focus-ambience/library");
-        assert!(DATA_FILES.contains(&"routines.toml") && DATA_FILES.contains(&"meditations.toml"));
+        for f in ["sounds.toml", "presets.toml", "meditations.toml", "routines.toml"] {
+            assert!(DATA_FILES.contains(&f), "{f}");
+        }
     }
 
     #[test]
