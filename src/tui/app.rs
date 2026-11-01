@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -22,6 +22,10 @@ pub enum Screen {
     Meditations,
     /// Configuración > Sonidos ambientales.
     Sounds,
+    /// Configuración > Presets.
+    Presets,
+    /// Armar un preset a mano (vista parecida a Focus, sin audio).
+    PresetBuilder,
     Routines,
     RoutineEditor,
     /// Paso de meditación dentro del editor.
@@ -30,6 +34,16 @@ pub enum Screen {
 }
 
 pub const CONFIG_ITEMS: [&str; 4] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"];
+
+/// Preset que se está armando en Configuración > Presets.
+#[derive(Default)]
+pub struct PresetDraft {
+    pub cursor: usize,
+    /// Sonidos que van en el preset.
+    pub picked: BTreeSet<String>,
+    /// Volumen de cada sonido tocado; los demás parten del volumen que tienen en Focus.
+    pub volumes: HashMap<String, f32>,
+}
 
 /// Dialogs of the meditations screen.
 pub enum MedPopup {
@@ -115,6 +129,9 @@ pub struct App {
     pub med_popup: Option<MedPopup>,
     /// Cursor de Configuración > Sonidos ambientales (sobre `file_sounds`).
     pub sound_cursor: usize,
+    /// Cursor de Configuración > Presets.
+    pub preset_list_cursor: usize,
+    pub builder: Option<PresetDraft>,
     pub routines: Vec<Routine>,
     /// Por qué no se puede escribir routines.toml (archivo roto): no se pisa.
     pub routines_locked: Option<String>,
@@ -167,6 +184,8 @@ impl App {
             med_cursor: 0,
             med_popup: None,
             sound_cursor: 0,
+            preset_list_cursor: 0,
+            builder: None,
             routines: Vec::new(),
             routines_locked: None,
             last_routine: None,
@@ -241,6 +260,7 @@ impl App {
         self.cursor = self.cursor.min(n.saturating_sub(1));
         self.preset_cursor = self.preset_cursor.min(self.state.presets.len().saturating_sub(1));
         self.med_cursor = self.med_cursor.min(self.state.meditations.len().saturating_sub(1));
+        self.preset_list_cursor = self.preset_list_cursor.min(self.state.presets.len().saturating_sub(1));
         self.sound_cursor = self.sound_cursor.min(self.file_sounds().len().saturating_sub(1));
     }
 
@@ -441,7 +461,8 @@ impl App {
                 0 => self.open_routines(Screen::Config),
                 1 => self.go(Screen::Meditations),
                 2 => self.go(Screen::Sounds),
-                i => self.notify(format!("«{}» todavía no está", CONFIG_ITEMS[i])),
+                3 => self.go(Screen::Presets),
+                _ => {}
             },
             KeyCode::Esc => self.go(Screen::Home),
             KeyCode::Char('q') => self.request_quit(),
@@ -469,6 +490,82 @@ impl App {
                 }
             }
             KeyCode::Esc => self.go(Screen::Config),
+            KeyCode::Char('q') => self.request_quit(),
+            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
+            _ => {}
+        }
+    }
+
+    fn presets_key(&mut self, k: KeyEvent) {
+        let n = self.state.presets.len();
+        match k.code {
+            KeyCode::Up | KeyCode::Char('k') => self.preset_list_cursor = self.preset_list_cursor.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.preset_list_cursor = (self.preset_list_cursor + 1).min(n.saturating_sub(1))
+            }
+            KeyCode::Home | KeyCode::Char('g') => self.preset_list_cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => self.preset_list_cursor = n.saturating_sub(1),
+            KeyCode::Char('n') => {
+                self.builder = Some(PresetDraft::default());
+                self.go(Screen::PresetBuilder);
+            }
+            KeyCode::Char('d') | KeyCode::Delete => {
+                if let Some(p) = self.state.presets.get(self.preset_list_cursor) {
+                    self.popup = Some(Popup::DeletePreset { name: p.name.clone() });
+                }
+            }
+            KeyCode::Esc => self.go(Screen::Config),
+            KeyCode::Char('q') => self.request_quit(),
+            KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
+            _ => {}
+        }
+    }
+
+    /// Volumen del sonido en el borrador: el que ya se tocó o el de Focus.
+    pub fn draft_volume(&self, id: &str) -> f32 {
+        self.builder.as_ref().and_then(|b| b.volumes.get(id).copied()).unwrap_or_else(|| self.volume(id))
+    }
+
+    fn builder_key(&mut self, k: KeyEvent) {
+        let n = self.state.sounds.len();
+        let Some(b) = self.builder.as_mut() else { return self.go(Screen::Presets) };
+        let current = self.state.sounds.get(b.cursor).map(|s| (s.id.clone(), s.available));
+        match k.code {
+            KeyCode::Up | KeyCode::Char('k') => b.cursor = b.cursor.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => b.cursor = (b.cursor + 1).min(n.saturating_sub(1)),
+            KeyCode::Home => b.cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => b.cursor = n.saturating_sub(1),
+            KeyCode::Char(' ') | KeyCode::Enter => {
+                if let Some((id, available)) = current {
+                    if !b.picked.remove(&id) {
+                        if available {
+                            b.picked.insert(id);
+                        } else {
+                            self.notify("ese sonido no está en esta compu: corré `focus sync`");
+                        }
+                    }
+                }
+            }
+            KeyCode::Left | KeyCode::Char('h') | KeyCode::Right | KeyCode::Char('l') => {
+                let delta = if matches!(k.code, KeyCode::Left | KeyCode::Char('h')) { -0.05 } else { 0.05 };
+                if let Some((id, _)) = current {
+                    let v = (self.draft_volume(&id) + delta).clamp(0.0, 1.0);
+                    if let Some(b) = self.builder.as_mut() {
+                        b.volumes.insert(id, v);
+                    }
+                }
+            }
+            KeyCode::Char('g') => {
+                if b.picked.is_empty() {
+                    self.notify("elegí al menos un sonido con espacio");
+                } else {
+                    self.popup = Some(Popup::SavePreset { name: String::new() });
+                }
+            }
+            KeyCode::Esc => {
+                self.builder = None;
+                self.go(Screen::Presets);
+            }
             KeyCode::Char('q') => self.request_quit(),
             KeyCode::Char('Q') => self.exit = Some(Exit::Quit),
             _ => {}
@@ -621,6 +718,8 @@ impl App {
             Screen::Config => return self.config_key(k),
             Screen::Meditations => return self.meditations_key(k),
             Screen::Sounds => return self.sounds_key(k),
+            Screen::Presets => return self.presets_key(k),
+            Screen::PresetBuilder => return self.builder_key(k),
             Screen::Routines => return self.routines_key(k),
             Screen::RoutineEditor => return self.editor_key(k),
             Screen::RoutineStep => return self.step_key(k),
@@ -750,7 +849,21 @@ impl App {
             },
             Popup::SavePreset { mut name } => match k.code {
                 KeyCode::Enter if !name.trim().is_empty() => {
-                    self.send(Command::SavePreset { name: name.trim().to_string() });
+                    let name = name.trim().to_string();
+                    if self.state.presets.iter().any(|p| p.name.to_lowercase() == name.to_lowercase()) {
+                        self.notify("ya hay un preset con ese nombre");
+                        return self.popup = Some(Popup::SavePreset { name });
+                    }
+                    let layers: BTreeMap<String, f32> = match self.builder.take() {
+                        Some(b) => b
+                            .picked
+                            .iter()
+                            .map(|id| (id.clone(), b.volumes.get(id).copied().unwrap_or_else(|| self.volume(id))))
+                            .collect(),
+                        None => return,
+                    };
+                    self.send(Command::StorePreset { name, layers });
+                    self.go(Screen::Presets);
                     None
                 }
                 KeyCode::Backspace => {

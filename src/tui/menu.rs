@@ -38,6 +38,14 @@ pub fn draw(f: &mut Frame, app: &App) {
             sound_lines(app, &pal, body.width as usize).0,
             &[("a", " agregar desde YouTube  "), ("d", " borrar  "), ("Esc", " volver")],
         ),
+        Screen::Presets => (
+            preset_lines(app, &pal, body.width as usize).0,
+            &[("n", " nuevo  "), ("d", " borrar  "), ("Esc", " volver")],
+        ),
+        Screen::PresetBuilder => (
+            builder_lines(app, &pal, body.width as usize).0,
+            &[("␣", " elegir  "), ("←→", " volumen  "), ("g", " guardar  "), ("Esc", " cancelar")],
+        ),
         _ => {
             let (lines, _) = meditation_lines(app, &pal, body.width as usize);
             (
@@ -59,6 +67,14 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
         Screen::Sounds => {
             let (_, sel) = sound_lines(app, &pal, body.width as usize);
+            (sel + 3).saturating_sub(body.height as usize) as u16
+        }
+        Screen::Presets => {
+            let (_, sel) = preset_lines(app, &pal, body.width as usize);
+            (sel + 3).saturating_sub(body.height as usize) as u16
+        }
+        Screen::PresetBuilder => {
+            let (_, sel) = builder_lines(app, &pal, body.width as usize);
             (sel + 3).saturating_sub(body.height as usize) as u16
         }
         Screen::Routines | Screen::RoutineEditor | Screen::RoutineRun => {
@@ -209,6 +225,73 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
             _ => format!("↓ {}  {}…", trunc(&d.name, 30), d.stage),
         };
         v.push(Line::styled(text, dim));
+    }
+    (v, selected_line)
+}
+
+/// Saved presets with the sounds and volumes each one has, plus the index of the selected line.
+fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
+    let dim = Style::new().fg(pal.dim.c());
+    let mut v = vec![title("Presets", pal), Line::raw("")];
+    let mut selected_line = v.len();
+    for (i, p) in app.state.presets.iter().enumerate() {
+        let sel = i == app.preset_list_cursor;
+        if sel {
+            selected_line = v.len();
+        }
+        v.push(row(sel, String::new(), &trunc(&p.name, width.saturating_sub(4)), pal));
+        let sounds: Vec<String> = p
+            .layers
+            .iter()
+            .map(|(id, vol)| {
+                let name = app.state.sounds.iter().find(|s| s.id == *id).map_or(id.as_str(), |s| s.name.as_str());
+                format!("{name} {:.0}%", vol * 100.0)
+            })
+            .collect();
+        v.push(Line::styled(format!("    {}", trunc(&sounds.join(" · "), width.saturating_sub(6))), dim));
+    }
+    if app.state.presets.is_empty() {
+        v.push(Line::styled("Todavía no hay presets. Corré `focus sync` o apretá n para armar uno.", dim));
+    }
+    (v, selected_line)
+}
+
+/// The Focus-like list for building a preset (silent: nothing plays), plus the selected line.
+fn builder_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
+    let dim = Style::new().fg(pal.dim.c());
+    let mut v = vec![
+        title("Nuevo preset", pal),
+        Line::styled("Elegí los sonidos y su volumen; g los guarda con un nombre.", dim),
+        Line::raw(""),
+    ];
+    let Some(b) = &app.builder else { return (v, 0) };
+    let bar_w = 14usize.min(width.saturating_sub(40));
+    let name_w = width.saturating_sub(bar_w + 14).clamp(10, 32);
+    let mut selected_line = v.len();
+    let mut theme = None;
+    for (i, s) in app.state.sounds.iter().enumerate() {
+        if theme != Some(s.theme) {
+            theme = Some(s.theme);
+            v.push(Line::styled(s.theme.label(), Style::new().fg(pal.fg.c())));
+        }
+        let sel = i == b.cursor;
+        if sel {
+            selected_line = v.len();
+        }
+        let picked = b.picked.contains(&s.id);
+        let dot = if !s.available {
+            "☁"
+        } else if picked {
+            "●"
+        } else {
+            "○"
+        };
+        let vol = app.draft_volume(&s.id);
+        let mut line = row(sel, format!("{dot} "), &format!("{:<name_w$}", trunc(&s.name, name_w)), pal).spans;
+        line.push(Span::raw("  "));
+        line.extend(super::ui::volume_bar(vol, bar_w, theme::palette(s.theme), pal, picked, Style::new()));
+        line.push(Span::styled(format!(" {:>3.0}%", vol * 100.0), dim));
+        v.push(Line::from(line));
     }
     (v, selected_line)
 }

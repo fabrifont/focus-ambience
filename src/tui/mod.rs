@@ -523,6 +523,164 @@ mod tests {
         assert!(!app.animating());
     }
 
+    // ------------------------------------------- Configuración > Presets
+
+    fn open_presets(app: &mut App) {
+        press(app, "4jjj");
+        app.key(key(Enter));
+        assert_eq!(app.screen, app::Screen::Presets);
+    }
+
+    fn app_with_sounds_and_presets() -> App {
+        let mut app = app_with_sounds();
+        let mut st = app.state.clone();
+        st.presets = app_with_presets().state.presets;
+        st.volumes.insert("lluvia".into(), 0.7);
+        app.set_state(st);
+        app
+    }
+
+    #[test]
+    fn presets_screen_lists_them_with_their_sounds_and_volumes() {
+        let mut app = app_with_sounds_and_presets();
+        open_presets(&mut app);
+        let t = screen_text(&app, 90, 24);
+        for s in ["Presets", "Templo Jedi", "Ruido marrón 30%", "Lluvia y fuego", "n nuevo", "d borrar"] {
+            assert!(t.contains(s), "falta «{s}» en:\n{t}");
+        }
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Config);
+    }
+
+    #[test]
+    fn empty_presets_list_says_what_to_do() {
+        let mut app = App::new();
+        open_presets(&mut app);
+        assert!(screen_text(&app, 100, 24).contains("Todavía no hay presets"));
+        press(&mut app, "d");
+        assert!(app.popup.is_none());
+    }
+
+    #[test]
+    fn d_asks_before_deleting_a_preset() {
+        let mut app = app_with_sounds_and_presets();
+        open_presets(&mut app);
+        press(&mut app, "j");
+        press(&mut app, "d");
+        assert!(sent(&mut app).is_empty());
+        assert!(screen_text(&app, 80, 24).contains("¿Borrar «Lluvia y fuego»?"));
+        app.key(key(Esc));
+        assert!(app.popup.is_none() && sent(&mut app).is_empty());
+        press(&mut app, "dn");
+        assert!(sent(&mut app).is_empty());
+        press(&mut app, "ds");
+        assert!(matches!(sent(&mut app).pop(), Some(Command::DeletePreset { name }) if name == "Lluvia y fuego"));
+    }
+
+    fn open_builder(app: &mut App) {
+        open_presets(app);
+        press(app, "n");
+        assert_eq!(app.screen, app::Screen::PresetBuilder);
+    }
+
+    #[test]
+    fn the_builder_lists_every_sound_with_volume_and_plays_nothing() {
+        let mut app = app_with_sounds_and_presets();
+        sent(&mut app);
+        open_builder(&mut app);
+        let t = screen_text(&app, 90, 30);
+        for s in ["Nuevo preset", "Templo Jedi", "Lluvia", "Ruido blanco", "Binaural", " 70%", "g guardar"] {
+            assert!(t.contains(s), "falta «{s}» en:\n{t}");
+        }
+        assert!(sent(&mut app).iter().all(|c| matches!(c, Command::Watch { .. })), "no manda comandos de audio");
+        assert!(!app.animating());
+    }
+
+    #[test]
+    fn building_a_preset_picks_sounds_sets_volumes_and_saves_it_with_a_name() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        press(&mut app, " "); // primero: Templo Jedi (volumen por defecto 50 %)
+        press(&mut app, "lll"); // +15 %
+        press(&mut app, "j");
+        press(&mut app, " ");
+        press(&mut app, "hh"); // Lluvia parte de 70 %
+        press(&mut app, "g");
+        assert!(matches!(app.popup, Some(app::Popup::SavePreset { .. })));
+        type_text(&mut app, "Estudio");
+        app.key(key(Enter));
+        assert!(app.popup.is_none());
+        assert_eq!(app.screen, app::Screen::Presets);
+        assert!(app.builder.is_none());
+        match sent(&mut app).pop() {
+            Some(Command::StorePreset { name, layers }) => {
+                assert_eq!(name, "Estudio");
+                assert_eq!(layers.len(), 2);
+                assert!((layers["templo"] - 0.65).abs() < 1e-4, "{layers:?}");
+                assert!((layers["lluvia"] - 0.6).abs() < 1e-4, "{layers:?}");
+            }
+            other => panic!("salió {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_sound_that_is_toggled_twice_is_left_out() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        press(&mut app, "  g");
+        assert!(app.popup.is_none(), "sin sonidos no se puede guardar");
+        assert!(app.notice.is_some());
+    }
+
+    #[test]
+    fn sounds_missing_on_this_machine_cannot_go_in_a_preset() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        press(&mut app, "jj "); // Fuego: ☁
+        assert!(app.builder.as_ref().unwrap().picked.is_empty());
+        assert!(app.notice.is_some());
+    }
+
+    #[test]
+    fn esc_in_the_builder_discards_it_and_the_name_popup_keeps_it() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        press(&mut app, " g");
+        app.key(key(Esc)); // cancela el nombre, no el borrador
+        assert!(app.popup.is_none() && app.builder.as_ref().is_some_and(|b| b.picked.len() == 1));
+        assert_eq!(app.screen, app::Screen::PresetBuilder);
+        sent(&mut app);
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Presets);
+        assert!(app.builder.is_none() && sent(&mut app).is_empty());
+    }
+
+    #[test]
+    fn the_preset_needs_a_name_and_it_cannot_repeat_one() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        press(&mut app, " g");
+        app.key(key(Enter)); // sin nombre no avanza
+        assert!(app.popup.is_some() && sent(&mut app).is_empty());
+        type_text(&mut app, "templo JEDI");
+        app.key(key(Enter));
+        assert!(matches!(app.popup, Some(app::Popup::SavePreset { .. })), "sigue pidiendo nombre");
+        assert!(app.builder.is_some() && sent(&mut app).is_empty());
+        assert!(app.notice.is_some());
+    }
+
+    #[test]
+    fn pasting_a_name_in_the_save_popup_works_on_any_screen() {
+        let mut app = app_with_sounds_and_presets();
+        open_builder(&mut app);
+        press(&mut app, " g");
+        app.paste("Mi mezcla\n");
+        match &app.popup {
+            Some(app::Popup::SavePreset { name }) => assert_eq!(name, "Mi mezcla"),
+            _ => panic!("no hay popup"),
+        }
+    }
+
     #[test]
     fn esc_walks_back_one_step_at_a_time() {
         use ratatui::crossterm::event::KeyCode::{Enter, Esc};
@@ -547,9 +705,8 @@ mod tests {
             assert!(t.contains(s), "falta «{s}»");
         }
         press(&mut app, "jjj");
-        app.key(key(ratatui::crossterm::event::KeyCode::Enter)); // Presets: etapa 3, parte 3
-        assert_eq!(app.screen, app::Screen::Config);
-        assert!(app.notice.is_some());
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter));
+        assert_eq!(app.screen, app::Screen::Presets);
     }
 
     #[test]
@@ -1168,6 +1325,8 @@ mod tests {
             ("4jk", Config),
             ("4j\n", Meditations),
             ("4jj\n", Sounds),
+            ("4jjj\n", Presets),
+            ("4jjj\nn", PresetBuilder),
             ("2", Routines),
             ("2je", RoutineEditor),
             ("2jej\n", RoutineStep),

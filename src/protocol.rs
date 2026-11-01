@@ -39,6 +39,11 @@ pub enum Command {
     DeletePreset {
         name: String,
     },
+    /// Save a preset built by hand (Configuración > Presets): replaces one with the same name.
+    StorePreset {
+        name: String,
+        layers: BTreeMap<String, f32>,
+    },
     Add(AddRequest),
     /// Remove a downloaded sound (manifest entry and .opus). Built-in generators can't be removed.
     DeleteSound {

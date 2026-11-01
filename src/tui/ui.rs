@@ -259,7 +259,14 @@ fn draw_sounds(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), area);
 }
 
-fn volume_bar(v: f32, width: usize, tp: Palette, pal: &Palette, active: bool, base: Style) -> Vec<Span<'static>> {
+pub(super) fn volume_bar(
+    v: f32,
+    width: usize,
+    tp: Palette,
+    pal: &Palette,
+    active: bool,
+    base: Style,
+) -> Vec<Span<'static>> {
     let exact = v.clamp(0.0, 1.0) * width as f32;
     let full = exact.floor() as usize;
     let mut out = Vec::with_capacity(width);
