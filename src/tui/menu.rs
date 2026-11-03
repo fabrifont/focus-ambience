@@ -108,14 +108,16 @@ pub fn draw(f: &mut Frame, app: &App) {
     let (lines, hints): (Vec<Line>, &[(&str, &str)]) = match app.screen {
         Screen::Home => (
             home_lines(app, &pal),
-            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("1-4", " directo  "), ("q", " salir")],
+            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("1-4", " directo  "), ("?", " ayuda  "), ("q", " salir")],
         ),
-        Screen::Config => {
-            (config_lines(app, &pal), &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("Esc", " volver")])
-        }
-        Screen::Sync => {
-            (syncmenu::lines(app, &pal), &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("Esc", " volver")])
-        }
+        Screen::Config => (
+            config_lines(app, &pal),
+            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("?", " ayuda  "), ("Esc", " volver")],
+        ),
+        Screen::Sync => (
+            syncmenu::lines(app, &pal),
+            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("?", " ayuda  "), ("Esc", " volver")],
+        ),
         Screen::Routines | Screen::RoutineEditor | Screen::RoutineStep | Screen::RoutineRun => {
             let v = routine_ui::view(app, &pal, body.width as usize);
             routine_sel = v.selected;
@@ -123,15 +125,15 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
         Screen::Sounds => (
             sound_lines(app, &pal, body.width as usize).0,
-            &[("a", " agregar desde YouTube  "), ("d", " borrar  "), ("Esc", " volver")],
+            &[("a", " agregar desde YouTube  "), ("d", " borrar  "), ("?", " ayuda  "), ("Esc", " volver")],
         ),
         Screen::Presets => (
             preset_lines(app, &pal, body.width as usize).0,
-            &[("n", " nuevo  "), ("d", " borrar  "), ("Esc", " volver")],
+            &[("n", " nuevo  "), ("d", " borrar  "), ("?", " ayuda  "), ("Esc", " volver")],
         ),
         Screen::PresetBuilder => (
             builder_lines(app, &pal, body.width as usize).0,
-            &[("␣", " elegir  "), ("←→", " volumen  "), ("g", " guardar  "), ("Esc", " cancelar")],
+            &[("␣", " elegir  "), ("←→", " volumen  "), ("g", " guardar  "), ("?", " ayuda  "), ("Esc", " cancelar")],
         ),
         _ => {
             let (lines, _) = meditation_lines(app, &pal, body.width as usize);
@@ -175,6 +177,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     routine_ui::draw_popup(f, app, &pal);
     syncmenu::draw_popup(f, app, &pal);
+    super::help::draw(f, app, &pal);
 }
 
 /// The title in block letters (plain uppercase when they do not fit) centered in `area`, with the

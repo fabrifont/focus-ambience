@@ -50,7 +50,7 @@ Al abrir arranca sin sonar; recuerda volúmenes y la posición de cada pista.
 
 ## Teclas
 
-En todas las pantallas: `↑↓` (o `j` `k`) mueven, `Enter` o `␣` eligen (hacen lo mismo en todas las pantallas; en los campos de texto `␣` escribe un espacio), `Esc` vuelve un paso, `q` sale. Las letras no distinguen mayúsculas (salvo al escribir texto).
+En todas las pantallas: `↑↓` (o `j` `k`) mueven, `Enter` o `␣` eligen (hacen lo mismo en todas las pantallas; en los campos de texto `␣` escribe un espacio), `Esc` vuelve un paso, `q` sale. Las letras no distinguen mayúsculas (salvo al escribir texto). `?` abre la ayuda con las teclas de la pantalla en que estés (menos al escribir texto, donde escribe un `?`).
 
 ### Salir
 
@@ -93,7 +93,7 @@ Si elegís un preset, arranca el modo deep work.
 | `t` | Temporizador: `1` 25 min, `2` 50, `3` 90, personalizado o cancelar |
 | `r` | Pausa o reanuda el temporizador (el sonido sigue) |
 | `d` | Modo deep work |
-| `?` | Ayuda |
+| `?` | Ayuda (en todas las pantallas) |
 | `Esc` | Vuelve al menú, sin cortar el sonido |
 
 ### Deep work

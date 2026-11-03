@@ -1,5 +1,6 @@
 mod app;
 mod font;
+mod help;
 mod menu;
 mod routine_ui;
 mod routines;
@@ -233,7 +234,7 @@ mod tests {
                     Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs: 1873, paused: false });
             })
         );
-        println!("{}", render(70, 24, |a| a.popup = Some(app::Popup::Help)));
+        println!("{}", render(70, 24, |a| a.help = Some(help::Topic::Focus { deep: false })));
     }
 
     fn key(code: ratatui::crossterm::event::KeyCode) -> ratatui::crossterm::event::KeyEvent {
@@ -983,13 +984,13 @@ mod tests {
         for gone in ["guardar", "agregar", "borrar"] {
             assert!(!t.contains(gone), "no tendría que decir «{gone}»:\n{t}");
         }
-        app.popup = Some(app::Popup::Help);
+        press(&mut app, "?");
         let t = screen_text(&app, 80, 30);
         for gone in ["guardar la mezcla", "agregar sonido", "pegar un link"] {
             assert!(!t.contains(gone), "la ayuda no tendría que decir «{gone}»:\n{t}");
         }
         assert!(t.contains("temporizador") && t.contains("volver al menú"));
-        app.popup = None;
+        app.help = None;
         app.key(key(ratatui::crossterm::event::KeyCode::Tab));
         let t = screen_text(&app, 120, 34);
         assert!(t.contains("cargar") && !t.contains("borrar"), "{t}");
@@ -2075,7 +2076,7 @@ mod tests {
         press(&mut app, "P");
         assert!(sent(&mut app).iter().any(|c| matches!(c, Command::PauseAll)));
         press(&mut app, "?");
-        assert!(matches!(app.popup, Some(app::Popup::Help)));
+        assert!(app.help.is_some());
         // Shift+letra llega igual: mayúscula con el modificador SHIFT.
         let mut app = app_with_routines();
         let shift = ratatui::crossterm::event::KeyModifiers::SHIFT;
@@ -2845,5 +2846,153 @@ mod tests {
         let t = screen_text(&app, 80, 24);
         assert!(t.contains("http://127.0.0.1:53682/auth?state="));
         assert!(t.contains("xxxxxxxx"), "el final del link se ve en la línea siguiente");
+    }
+
+    #[test]
+    fn question_mark_opens_a_help_with_only_that_screens_keys() {
+        use app::Screen;
+        let mut app = app_with_routines();
+        press(&mut app, "?");
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("atajos") && t.contains("ir directo") && !t.contains("agregar"), "{t}");
+        press(&mut app, "x");
+        assert!(app.help.is_none());
+        for (screen, expected, absent) in [
+            (Screen::Config, "ejecutar", "agregar"),
+            (Screen::Sync, "ejecutar", "agregar"),
+            (Screen::Sounds, "agregar", "play / pausa"),
+            (Screen::Presets, "nuevo", "agregar"),
+            (Screen::Meditations, "play / pausa", "nuevo"),
+            (Screen::PresetBuilder, "elegir / quitar", "play / pausa"),
+        ] {
+            let mut app = app_with_routines();
+            app.go(screen);
+            press(&mut app, "?");
+            let t = screen_text(&app, 80, 24);
+            let want = if screen == Screen::Config { "elegir" } else { expected };
+            assert!(t.contains("atajos") && t.contains(want), "{screen:?}\n{t}");
+            if screen != Screen::Config {
+                assert!(!t.contains(absent), "{screen:?}\n{t}");
+            }
+        }
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("empezar"));
+        press(&mut app, "?");
+        press(&mut app, "e");
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("Ctrl+J/K"));
+        press(&mut app, "?");
+        press(&mut app, "m");
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("cambiar"));
+        press(&mut app, "?");
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter));
+        assert_eq!(app.screen, Screen::RoutineRun);
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("marcar / desmarcar"));
+    }
+
+    #[test]
+    fn question_mark_works_in_the_before_you_start_window_and_deep_work() {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        assert!(matches!(app.popup, Some(app::Popup::Intro(_))));
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("escribir minutos"));
+        press(&mut app, "?");
+        assert!(matches!(app.popup, Some(app::Popup::Intro(app::Intro::Time { .. }))));
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter));
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("empezar"));
+        press(&mut app, "?");
+        let mut app = focus_app();
+        press(&mut app, "d?");
+        assert!(screen_text(&app, 80, 24).contains("salir del modo deep work"));
+        press(&mut app, "?");
+        assert!(app.help.is_none() && app.deep == app::Deep::On);
+    }
+
+    #[test]
+    fn question_mark_types_in_text_fields_and_leaves_other_popups_alone() {
+        let mut app = app_with_routines();
+        press(&mut app, "2n");
+        type_text(&mut app, "a?");
+        assert!(app.help.is_none());
+        assert_eq!(
+            match &app.editor.as_ref().unwrap().popup {
+                Some(routines::EdPopup::Name { text, .. }) => text.clone(),
+                _ => String::new(),
+            },
+            "a?"
+        );
+        let mut app = app_with_meditations();
+        app.go(app::Screen::Meditations);
+        press(&mut app, "a?");
+        assert!(app.help.is_none());
+        assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, .. }) if url == "?"));
+        let mut app = focus_app();
+        press(&mut app, "t?");
+        assert!(app.help.is_none() && matches!(app.popup, Some(app::Popup::Timer { .. })));
+        let mut app = app_with_presets();
+        app.go(app::Screen::Sounds);
+        press(&mut app, "a?");
+        assert!(app.help.is_none());
+    }
+
+    #[test]
+    fn help_closes_with_any_key_and_swallows_it() {
+        let mut app = app_with_routines();
+        for code in [
+            ratatui::crossterm::event::KeyCode::Esc,
+            ratatui::crossterm::event::KeyCode::Enter,
+            ratatui::crossterm::event::KeyCode::Char('?'),
+        ] {
+            press(&mut app, "?");
+            assert!(app.help.is_some());
+            app.key(key(code));
+            assert!(app.help.is_none());
+            assert_eq!(app.screen, app::Screen::Home);
+        }
+        press(&mut app, "?");
+        press(&mut app, "q");
+        assert!(app.help.is_none() && app.popup.is_none());
+    }
+
+    #[test]
+    fn every_help_fits_in_80_by_24() {
+        use help::Topic::*;
+        for topic in [
+            Home,
+            Config,
+            Meditations,
+            Sounds,
+            Presets,
+            Sync,
+            Builder,
+            Routines { start: true },
+            Editor,
+            Step,
+            Run,
+            IntroTime,
+            IntroSounds,
+            Focus { deep: true },
+            Focus { deep: false },
+        ] {
+            let mut app = app_with_routines();
+            app.help = Some(topic);
+            for screen in [app::Screen::Home, app::Screen::Focus] {
+                app.screen = screen;
+                let t = screen_text(&app, 80, 24);
+                let rows: Vec<&str> = t.lines().collect();
+                let top = rows.iter().position(|r| r.contains("atajos")).expect("title");
+                let bottom = (top..rows.len()).find(|&y| rows[y].contains('╰')).expect("bottom border");
+                assert!(top >= 1 && bottom <= 22, "{topic:?}\n{t}");
+                assert!(rows[top].contains('╭') && rows[top].contains('╮'), "{topic:?}\n{t}");
+            }
+        }
     }
 }

@@ -51,9 +51,16 @@ fn list_view(app: &App, pal: &Palette, width: usize) -> View {
         lines.push(note("Todavía no hay rutinas. Apretá n para crear una (o corré `focus sync` para traerlas).", dim));
     }
     let hints: Hints = if app.list_from == Screen::Home {
-        &[("Enter/␣", " empezar  "), ("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("Esc", " volver")]
+        &[
+            ("Enter/␣", " empezar  "),
+            ("n", " nueva  "),
+            ("e", " editar  "),
+            ("d", " borrar  "),
+            ("?", " ayuda  "),
+            ("Esc", " volver"),
+        ]
     } else {
-        &[("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("Esc", " volver")]
+        &[("n", " nueva  "), ("e", " editar  "), ("d", " borrar  "), ("?", " ayuda  "), ("Esc", " volver")]
     };
     View { lines, hints, selected }
 }
@@ -138,7 +145,13 @@ fn step_view(app: &App, pal: &Palette) -> View {
     }
     View {
         lines,
-        hints: &[("←→", " cambiar  "), ("↑↓", " mover  "), ("Enter/␣", " listo  "), ("Esc", " volver")],
+        hints: &[
+            ("←→", " cambiar  "),
+            ("↑↓", " mover  "),
+            ("Enter/␣", " listo  "),
+            ("?", " ayuda  "),
+            ("Esc", " volver"),
+        ],
         selected: 0,
     }
 }
@@ -190,7 +203,12 @@ fn run_view(app: &App, pal: &Palette, width: usize) -> View {
     }
     View {
         lines,
-        hints: &[("Enter/␣", " marca (meditación: play/pausa)  "), ("↑↓", " mover  "), ("Esc", " menú")],
+        hints: &[
+            ("Enter/␣", " marca (meditación: play/pausa)  "),
+            ("↑↓", " mover  "),
+            ("?", " ayuda  "),
+            ("Esc", " menú"),
+        ],
         selected,
     }
 }
