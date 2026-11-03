@@ -6,6 +6,7 @@ use crate::download::hash_file;
 use crate::library;
 use crate::meditation;
 use crate::paths;
+use crate::progress::Out;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -68,10 +69,16 @@ fn sets() -> Result<[Set; 2]> {
 
 /// `only`: copy just these files instead of every .opus.
 /// `update`: skip files that are newer at the destination.
-fn rclone(from: &str, to: &str, only: Option<&[String]>, update: bool) -> Result<()> {
-    println!("  {from}  →  {to}");
+fn rclone(from: &str, to: &str, only: Option<&[String]>, update: bool, out: &mut Out) -> Result<()> {
+    out.line(format!("  {from}  →  {to}"));
     let mut cmd = Command::new(paths::tool("rclone"));
-    cmd.args(["copy", from, to, "--progress", "--stats-one-line"]);
+    cmd.args(["copy", from, to, "--stats-one-line"]);
+    if out.is_console() {
+        cmd.arg("--progress");
+    } else {
+        // Nothing draws a live counter in the TUI: a stats line every few seconds is enough.
+        cmd.args(["--stats", "5s", "--stats-log-level", "NOTICE"]);
+    }
     if update {
         cmd.arg("--update");
     }
@@ -79,7 +86,7 @@ fn rclone(from: &str, to: &str, only: Option<&[String]>, update: bool) -> Result
         Some(files) => files.iter().fold(&mut cmd, |c, f| c.arg("--include").arg(f)),
         None => cmd.args(["--include", "*.opus"]),
     };
-    let status = cmd.status().context("no se pudo ejecutar rclone (¿está instalado?)")?;
+    let status = out.run(&mut cmd).context("no se pudo ejecutar rclone (¿está instalado?)")?;
     if !status.success() {
         bail!(
             "rclone falló. Si cambiaste de cuenta o el login venció, probá `focus setup`; \
@@ -92,24 +99,26 @@ fn rclone(from: &str, to: &str, only: Option<&[String]>, update: bool) -> Result
 
 /// Copy the lists; the newer copy wins (`--update`), and a file missing on the source side is
 /// simply not copied, so an empty remote never overwrites a local list and vice versa.
-fn sync_data(from: &str, to: &str) -> Result<()> {
+fn sync_data(from: &str, to: &str, out: &mut Out) -> Result<()> {
     let files = DATA_FILES.map(String::from);
-    rclone(from, to, Some(&files), true)
+    rclone(from, to, Some(&files), true, out)
 }
 
-pub fn run(dir: Direction) -> Result<()> {
-    crate::setup::prepare()?;
+pub fn run(dir: Direction, out: &mut Out) -> Result<()> {
+    crate::setup::prepare(out)?;
     let library = paths::library_dir();
     std::fs::create_dir_all(&library)?;
     let data_local = library.to_string_lossy().into_owned();
     // Before reading the manifests: a pulled sounds.toml says which .opus to fetch.
     if dir != Direction::Push {
-        println!("⇣ bajando las listas (sonidos, presets, meditaciones, rutinas)");
-        let pulled = sync_data(&data_remote(), &data_local);
+        out.line("⇣ bajando las listas (sonidos, presets, meditaciones, rutinas)");
+        let pulled = sync_data(&data_remote(), &data_local, out);
         // First sync: the remote folder doesn't exist yet. Keep going so the push below creates
         // it with the local lists.
         match pulled {
-            Err(e) if dir == Direction::Both => println!("  (no pude bajar las listas: {e}; sigo con lo local)"),
+            Err(e) if dir == Direction::Both => {
+                out.line(format!("  (no pude bajar las listas: {e}; sigo con lo local)"))
+            }
             other => other?,
         }
     }
@@ -123,22 +132,22 @@ pub fn run(dir: Direction) -> Result<()> {
             // never overwrites a newer local one.
             let wanted = outdated(set);
             if wanted.is_empty() {
-                println!("⇣ no falta bajar nada de {}", set.label);
+                out.line(format!("⇣ no falta bajar nada de {}", set.label));
             } else {
-                println!("⇣ bajando {} que falten", set.label);
-                rclone(&set.remote, &set.local.to_string_lossy(), Some(&wanted), false)?;
+                out.line(format!("⇣ bajando {} que falten", set.label));
+                rclone(&set.remote, &set.local.to_string_lossy(), Some(&wanted), false, out)?;
             }
         }
     }
     if dir != Direction::Pull {
         for set in &sets {
-            println!("⇡ subiendo {} nuevos", set.label);
-            rclone(&set.local.to_string_lossy(), &set.remote, None, false)?;
+            out.line(format!("⇡ subiendo {} nuevos", set.label));
+            rclone(&set.local.to_string_lossy(), &set.remote, None, false, out)?;
         }
-        println!("⇡ subiendo las listas (gana la más nueva)");
-        sync_data(&data_local, &data_remote())?;
+        out.line("⇡ subiendo las listas (gana la más nueva)");
+        sync_data(&data_local, &data_remote(), out)?;
     }
-    verify()
+    verify(out)
 }
 
 /// Files in the manifest that are missing locally or whose hash differs.
@@ -151,7 +160,7 @@ fn outdated(set: &Set) -> Vec<String> {
 }
 
 /// Compare what's on disk with the manifests.
-pub fn verify() -> Result<()> {
+pub fn verify(out: &mut Out) -> Result<()> {
     for set in sets()? {
         let (mut ok, mut missing, mut bad) = (0, Vec::new(), Vec::new());
         for (name, file, sha) in &set.entries {
@@ -165,12 +174,12 @@ pub fn verify() -> Result<()> {
                 _ => bad.push(name),
             }
         }
-        println!("✓ {ok} {} verificad{}", set.label, if set.label == "sonidos" { "os" } else { "as" });
+        out.line(format!("✓ {ok} {} verificad{}", set.label, if set.label == "sonidos" { "os" } else { "as" }));
         for n in &missing {
-            println!("  ☁ falta: {n}  (no está ni local ni en el remoto; volvé a bajarlo con focus add)");
+            out.line(format!("  ☁ falta: {n}  (no está ni local ni en el remoto; volvé a bajarlo con focus add)"));
         }
         for n in &bad {
-            println!("  ✗ corrupto: {n}");
+            out.line(format!("  ✗ corrupto: {n}"));
         }
     }
     Ok(())

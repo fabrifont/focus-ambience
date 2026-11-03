@@ -145,6 +145,10 @@ impl App {
                 self.notify(format!("no pude recordar la última rutina ni el tiempo: {e:#}"));
             }
         }
+        // After a sync the lists on disk may be newer (the dirty ones were just written above).
+        if std::mem::take(&mut self.routines_stale) {
+            self.load_routines();
+        }
     }
 
     // ------------------------------------------------------------ menú
