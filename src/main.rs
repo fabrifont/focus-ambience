@@ -5,6 +5,7 @@ mod download;
 mod library;
 mod meditation;
 mod paths;
+mod progress;
 mod protocol;
 mod routine;
 mod setup;
@@ -89,14 +90,17 @@ fn run() -> Result<()> {
         Some("status") => status(),
         Some("list") => list(),
         Some("add") => add(rest),
-        Some("setup") => setup::run(),
+        Some("setup") => setup::run(&mut progress::Out::console()),
         Some("meditacion" | "meditación") => meditation_cmd(rest),
-        Some("sync") => sync::run(match rest.first().map(String::as_str) {
-            Some("pull") => sync::Direction::Pull,
-            Some("push") => sync::Direction::Push,
-            _ => sync::Direction::Both,
-        }),
-        Some("verify") => sync::verify(),
+        Some("sync") => sync::run(
+            match rest.first().map(String::as_str) {
+                Some("pull") => sync::Direction::Pull,
+                Some("push") => sync::Direction::Push,
+                _ => sync::Direction::Both,
+            },
+            &mut progress::Out::console(),
+        ),
+        Some("verify") => sync::verify(&mut progress::Out::console()),
         Some(other) => bail!("comando desconocido: {other}\n\n{HELP}"),
     }
 }

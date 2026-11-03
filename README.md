@@ -41,7 +41,7 @@ El `.deb` las deja como recomendadas (`rclone`, `yt-dlp`, `ffmpeg`). Tienen que 
 
 ## Primeros pasos
 
-1. `focus sync`: conecta Google Drive y baja tus sonidos, presets y rutinas.
+1. `focus sync` (o Configuración > Sincronización): conecta Google Drive y baja tus sonidos, presets y rutinas.
 2. `focus`: abre la interfaz en el menú de inicio.
 3. Sin Drive: `focus add <url>` baja un sonido de YouTube.
 4. Elegí **Ir a Focus**, poné el tiempo y un preset.
@@ -50,7 +50,7 @@ Al abrir arranca sin sonar; recuerda volúmenes y la posición de cada pista.
 
 ## Teclas
 
-En todas las pantallas: `↑↓` (o `j` `k`) mueven, `Enter` o `␣` eligen (hacen lo mismo en todas las pantallas; en los campos de texto `␣` escribe un espacio), `Esc` vuelve un paso, `q` sale. Las letras no distinguen mayúsculas (salvo al escribir texto).
+En todas las pantallas: `↑↓` (o `j` `k`) mueven, `Enter` o `␣` eligen (hacen lo mismo en todas las pantallas; en los campos de texto `␣` escribe un espacio), `Esc` vuelve un paso, `q` sale. Las letras no distinguen mayúsculas (salvo al escribir texto). `?` abre la ayuda con las teclas de la pantalla en que estés (menos al escribir texto, donde escribe un `?`).
 
 ### Salir
 
@@ -93,7 +93,7 @@ Si elegís un preset, arranca el modo deep work.
 | `t` | Temporizador: `1` 25 min, `2` 50, `3` 90, personalizado o cancelar |
 | `r` | Pausa o reanuda el temporizador (el sonido sigue) |
 | `d` | Modo deep work |
-| `?` | Ayuda |
+| `?` | Ayuda (en todas las pantallas) |
 | `Esc` | Vuelve al menú, sin cortar el sonido |
 
 ### Deep work
@@ -125,6 +125,9 @@ Solo el reloj grande y `? ayuda` abajo.
 | Sonidos ambientales | `a` agrega · `d` borra |
 | Presets | `n` nuevo · `d` borra |
 | Armar preset | `␣` elige o saca un sonido (suena en vivo) · `←→` volumen · `g` guarda · `Esc` descarta |
+| Sincronización | `Enter` / `␣` elige: **Conectar Google Drive** (`focus setup`), **Sincronizar** (`focus sync`) o **Verificar archivos** (`focus verify`) |
+
+En Sincronización se abre una ventana con el avance. Mientras trabaja no responde ninguna tecla; al terminar, `Enter`, `␣` o `Esc` la cierran. Al conectar Drive se abre el navegador y el link también se ve en la ventana.
 
 En Meditaciones y Sonidos ambientales, pegar un link de YouTube abre el diálogo de agregar.
 

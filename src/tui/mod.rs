@@ -1,9 +1,11 @@
 mod app;
 mod font;
+mod help;
 mod menu;
 mod routine_ui;
 mod routines;
 mod scene;
+mod syncmenu;
 mod theme;
 mod ui;
 
@@ -85,9 +87,10 @@ pub fn run() -> Result<()> {
                 menu::band_area(full)
             };
             app.animate(dt, scene.width, scene.height);
+            app.persist();
             terminal.draw(|f| ui::draw(f, &app))?;
 
-            let deadline = now + frame_for(app.animating() || app.popup.is_some());
+            let deadline = now + frame_for(app.animating() || app.popup.is_some() || app.sync.is_some());
             // Sleep until the next frame is due; input or daemon news cut it short.
             while let Some(wait) = wait_until(deadline, Instant::now()) {
                 let Ok(first) = rx.recv_timeout(wait) else { break };
@@ -231,7 +234,7 @@ mod tests {
                     Some(crate::protocol::TimerState { total_secs: 3000, remaining_secs: 1873, paused: false });
             })
         );
-        println!("{}", render(70, 24, |a| a.popup = Some(app::Popup::Help)));
+        println!("{}", render(70, 24, |a| a.help = Some(help::Topic::Focus { deep: false })));
     }
 
     fn key(code: ratatui::crossterm::event::KeyCode) -> ratatui::crossterm::event::KeyEvent {
@@ -981,13 +984,13 @@ mod tests {
         for gone in ["guardar", "agregar", "borrar"] {
             assert!(!t.contains(gone), "no tendría que decir «{gone}»:\n{t}");
         }
-        app.popup = Some(app::Popup::Help);
+        press(&mut app, "?");
         let t = screen_text(&app, 80, 30);
         for gone in ["guardar la mezcla", "agregar sonido", "pegar un link"] {
             assert!(!t.contains(gone), "la ayuda no tendría que decir «{gone}»:\n{t}");
         }
         assert!(t.contains("temporizador") && t.contains("volver al menú"));
-        app.popup = None;
+        app.help = None;
         app.key(key(ratatui::crossterm::event::KeyCode::Tab));
         let t = screen_text(&app, 120, 34);
         assert!(t.contains("cargar") && !t.contains("borrar"), "{t}");
@@ -1013,7 +1016,7 @@ mod tests {
         let mut app = App::new();
         press(&mut app, "4");
         let t = screen_text(&app, 80, 20);
-        for s in ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"] {
+        for s in ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "Sincronización"] {
             assert!(t.contains(s), "falta «{s}»");
         }
         press(&mut app, "jjj");
@@ -1728,6 +1731,7 @@ mod tests {
             ("4jj\n", Sounds),
             ("4jjj\n", Presets),
             ("4jjj\nn", PresetBuilder),
+            ("4jjjj\n", Sync),
             ("2", Routines),
             ("2je", RoutineEditor),
             ("2jej\n", RoutineStep),
@@ -2072,7 +2076,7 @@ mod tests {
         press(&mut app, "P");
         assert!(sent(&mut app).iter().any(|c| matches!(c, Command::PauseAll)));
         press(&mut app, "?");
-        assert!(matches!(app.popup, Some(app::Popup::Help)));
+        assert!(app.help.is_some());
         // Shift+letra llega igual: mayúscula con el modificador SHIFT.
         let mut app = app_with_routines();
         let shift = ratatui::crossterm::event::KeyModifiers::SHIFT;
@@ -2619,5 +2623,376 @@ mod tests {
         press(&mut app, "5 5");
         assert!(matches!(&app.popup, Some(Popup::Timer { custom: Some(s), .. }) if s == "55"));
         assert!(sent(&mut app).is_empty(), "espacio no confirma");
+    }
+
+    // ------------------------------------------------------- sincronización
+
+    use crate::progress::Out;
+    use std::sync::{Arc, Mutex, mpsc};
+    use syncmenu::SyncKind;
+
+    /// Un runner falso: avisa qué le pidieron, cuenta dos cosas y espera la señal para terminar.
+    /// Devuelve la señal (manda `Ok`/`Err` con el texto del error) y los pedidos que recibió.
+    type Finish = mpsc::Sender<Result<(), String>>;
+
+    fn gated_runner(app: &mut App) -> (Finish, Arc<Mutex<Vec<SyncKind>>>) {
+        let (tx, rx) = mpsc::channel::<Result<(), String>>();
+        let rx = Mutex::new(rx);
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&asked);
+        app.sync_runner = Arc::new(move |kind, out: &mut Out| {
+            seen.lock().unwrap().push(kind);
+            out.line("primera línea");
+            out.line("segunda línea");
+            let r = rx.lock().unwrap().recv().unwrap();
+            r.map_err(|e| anyhow::anyhow!(e))
+        });
+        (tx, asked)
+    }
+
+    fn open_sync(app: &mut App) {
+        press(app, "4jjjj");
+        app.key(key(Enter));
+        assert_eq!(app.screen, app::Screen::Sync);
+    }
+
+    /// Espera (hasta 5 s) a que la ventana cumpla `cond`, trayendo lo que llegue.
+    fn wait_for(app: &mut App, cond: impl Fn(&App) -> bool) {
+        for _ in 0..500 {
+            app.poll_sync();
+            if cond(app) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("la ventana de sincronización no llegó al estado esperado");
+    }
+
+    #[test]
+    fn sync_menu_shows_its_three_options_and_the_big_title_fits() {
+        let mut app = App::new();
+        open_sync(&mut app);
+        let t = screen_text(&app, 80, 24);
+        for s in ["Conectar Google Drive", "Sincronizar", "Verificar archivos", "↑↓", "Esc"] {
+            assert!(t.contains(s), "falta «{s}»");
+        }
+        assert!(font::render("SINCRONIZACIÓN", 1).0 + 2 <= 80, "las letras de bloque entran en 80 columnas");
+        assert!(t.contains('█'), "el título va en letras de bloque");
+    }
+
+    #[test]
+    fn sync_menu_moves_stays_inside_the_list_and_esc_goes_back_to_config() {
+        let mut app = App::new();
+        open_sync(&mut app);
+        press(&mut app, "kk");
+        assert_eq!(app.sync_cursor, 0);
+        press(&mut app, "jjjjj");
+        assert_eq!(app.sync_cursor, 2);
+        app.key(key(Up));
+        assert_eq!(app.sync_cursor, 1);
+        app.key(key(Esc));
+        assert_eq!(app.screen, app::Screen::Config);
+    }
+
+    #[test]
+    fn each_option_runs_its_own_task() {
+        for (moves, kind) in [("", SyncKind::Setup), ("j", SyncKind::Sync), ("jj", SyncKind::Verify)] {
+            let mut app = App::new();
+            let (done, asked) = gated_runner(&mut app);
+            open_sync(&mut app);
+            press(&mut app, moves);
+            press(&mut app, " "); // ␣ = Enter
+            wait_for(&mut app, |a| a.sync.as_ref().is_some_and(|j| j.lines.len() == 2));
+            assert_eq!(*asked.lock().unwrap(), [kind]);
+            done.send(Ok(())).unwrap();
+            wait_for(&mut app, |a| !a.sync_running());
+        }
+    }
+
+    #[test]
+    fn while_it_runs_the_window_blocks_every_key_and_shows_the_progress() {
+        let mut app = App::new();
+        let (done, _) = gated_runner(&mut app);
+        open_sync(&mut app);
+        sent(&mut app);
+        press(&mut app, "j");
+        app.key(key(Enter));
+        wait_for(&mut app, |a| a.sync.as_ref().is_some_and(|j| j.lines.len() == 2));
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("primera línea") && t.contains("segunda línea"), "{t}");
+        assert!(t.contains("Trabajando"), "dice que está en curso");
+
+        for c in ['q', 'j', 'k', 'n', 's', 'a', 'd', ' ', '?', '\n'] {
+            press(&mut app, &c.to_string());
+        }
+        for code in [Esc, Enter, Up, Down, Left, Right] {
+            app.key(key(code));
+        }
+        ctrl(&mut app, "q");
+        assert!(app.sync_running(), "nada la cierra");
+        assert!(app.popup.is_none() && app.exit.is_none(), "ni q ni Ctrl+Q salen");
+        assert_eq!(app.screen, app::Screen::Sync);
+        assert_eq!(app.sync_cursor, 1, "el cursor de atrás no se movió");
+
+        // Ctrl+C sigue siendo la salida de emergencia.
+        ctrl(&mut app, "c");
+        assert!(app.exit == Some(app::Exit::Detach));
+        done.send(Ok(())).unwrap();
+        wait_for(&mut app, |a| !a.sync_running());
+    }
+
+    #[test]
+    fn enter_space_and_esc_close_it_once_finished() {
+        for close in ["enter", "space", "esc"] {
+            let mut app = App::new();
+            let (done, _) = gated_runner(&mut app);
+            open_sync(&mut app);
+            app.key(key(Enter));
+            done.send(Ok(())).unwrap();
+            wait_for(&mut app, |a| !a.sync_running());
+            assert!(screen_text(&app, 80, 24).contains("Listo"));
+            match close {
+                "enter" => app.key(key(Enter)),
+                "space" => press(&mut app, " "),
+                _ => app.key(key(Esc)),
+            }
+            assert!(app.sync.is_none(), "{close} cierra");
+            assert_eq!(app.screen, app::Screen::Sync, "y se queda en el submenú");
+        }
+    }
+
+    #[test]
+    fn a_finished_window_ignores_other_keys() {
+        let mut app = App::new();
+        let (done, _) = gated_runner(&mut app);
+        open_sync(&mut app);
+        app.key(key(Enter));
+        done.send(Ok(())).unwrap();
+        wait_for(&mut app, |a| !a.sync_running());
+        press(&mut app, "qjk");
+        assert!(app.sync.is_some() && app.popup.is_none() && app.exit.is_none());
+        assert_eq!(app.sync_cursor, 0);
+    }
+
+    #[test]
+    fn an_error_is_shown_with_its_message() {
+        let mut app = App::new();
+        let (done, _) = gated_runner(&mut app);
+        open_sync(&mut app);
+        app.key(key(Enter));
+        sent(&mut app);
+        done.send(Err("rclone falló: sin permiso".into())).unwrap();
+        wait_for(&mut app, |a| !a.sync_running());
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("✗") && t.contains("rclone falló: sin permiso"), "{t}");
+        assert!(sent(&mut app).is_empty(), "si falló no hace falta releer nada");
+        assert!(!app.routines_stale);
+    }
+
+    #[test]
+    fn success_asks_the_daemon_to_reload_and_the_routines_to_be_reread() {
+        let mut app = App::new();
+        let (done, _) = gated_runner(&mut app);
+        open_sync(&mut app);
+        app.key(key(Enter));
+        sent(&mut app);
+        done.send(Ok(())).unwrap();
+        wait_for(&mut app, |a| !a.sync_running());
+        assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Reload)));
+        assert!(app.routines_stale);
+        app.poll_sync();
+        assert!(sent(&mut app).is_empty(), "una sola vez");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_live_status_replaces_itself_and_a_line_clears_it() {
+        let mut app = App::new();
+        app.sync_runner = Arc::new(|_, out: &mut Out| {
+            out.run(std::process::Command::new("sh").args(["-c", "printf 'a\\rb\\r'; sleep 0.3; echo fin"]))?;
+            Ok(())
+        });
+        open_sync(&mut app);
+        app.key(key(Enter));
+        wait_for(&mut app, |a| a.sync.as_ref().is_some_and(|j| j.live.as_deref() == Some("a")));
+        wait_for(&mut app, |a| !a.sync_running());
+        let job = app.sync.as_ref().unwrap();
+        assert_eq!(job.lines, ["fin"]);
+        assert_eq!(job.live, None, "la línea final borra el estado");
+    }
+
+    #[test]
+    fn a_panicking_task_does_not_leave_the_window_stuck() {
+        let mut app = App::new();
+        app.sync_runner = Arc::new(|_, _: &mut Out| panic!("boom"));
+        open_sync(&mut app);
+        app.key(key(Enter));
+        wait_for(&mut app, |a| !a.sync_running());
+        assert!(matches!(app.sync.as_ref().unwrap().result, Some(Err(_))));
+        app.key(key(Esc));
+        assert!(app.sync.is_none());
+    }
+
+    #[test]
+    fn a_long_link_wraps_inside_the_window() {
+        let mut app = App::new();
+        app.sync_runner = Arc::new(|_, out: &mut Out| {
+            out.line(format!("http://127.0.0.1:53682/auth?state={}", "x".repeat(60)));
+            Ok(())
+        });
+        open_sync(&mut app);
+        app.key(key(Enter));
+        wait_for(&mut app, |a| !a.sync_running());
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("http://127.0.0.1:53682/auth?state="));
+        assert!(t.contains("xxxxxxxx"), "el final del link se ve en la línea siguiente");
+    }
+
+    #[test]
+    fn question_mark_opens_a_help_with_only_that_screens_keys() {
+        use app::Screen;
+        let mut app = app_with_routines();
+        press(&mut app, "?");
+        let t = screen_text(&app, 80, 24);
+        assert!(t.contains("atajos") && t.contains("ir directo") && !t.contains("agregar"), "{t}");
+        press(&mut app, "x");
+        assert!(app.help.is_none());
+        for (screen, expected, absent) in [
+            (Screen::Config, "ejecutar", "agregar"),
+            (Screen::Sync, "ejecutar", "agregar"),
+            (Screen::Sounds, "agregar", "play / pausa"),
+            (Screen::Presets, "nuevo", "agregar"),
+            (Screen::Meditations, "play / pausa", "nuevo"),
+            (Screen::PresetBuilder, "elegir / quitar", "play / pausa"),
+        ] {
+            let mut app = app_with_routines();
+            app.go(screen);
+            press(&mut app, "?");
+            let t = screen_text(&app, 80, 24);
+            let want = if screen == Screen::Config { "elegir" } else { expected };
+            assert!(t.contains("atajos") && t.contains(want), "{screen:?}\n{t}");
+            if screen != Screen::Config {
+                assert!(!t.contains(absent), "{screen:?}\n{t}");
+            }
+        }
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("empezar"));
+        press(&mut app, "?");
+        press(&mut app, "e");
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("Ctrl+J/K"));
+        press(&mut app, "?");
+        press(&mut app, "m");
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("cambiar"));
+        press(&mut app, "?");
+        let mut app = app_with_routines();
+        press(&mut app, "2");
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter));
+        assert_eq!(app.screen, Screen::RoutineRun);
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("marcar / desmarcar"));
+    }
+
+    #[test]
+    fn question_mark_works_in_the_before_you_start_window_and_deep_work() {
+        let mut app = app_with_presets();
+        press(&mut app, "3");
+        assert!(matches!(app.popup, Some(app::Popup::Intro(_))));
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("escribir minutos"));
+        press(&mut app, "?");
+        assert!(matches!(app.popup, Some(app::Popup::Intro(app::Intro::Time { .. }))));
+        app.key(key(ratatui::crossterm::event::KeyCode::Enter));
+        press(&mut app, "?");
+        assert!(screen_text(&app, 80, 24).contains("empezar"));
+        press(&mut app, "?");
+        let mut app = focus_app();
+        press(&mut app, "d?");
+        assert!(screen_text(&app, 80, 24).contains("salir del modo deep work"));
+        press(&mut app, "?");
+        assert!(app.help.is_none() && app.deep == app::Deep::On);
+    }
+
+    #[test]
+    fn question_mark_types_in_text_fields_and_leaves_other_popups_alone() {
+        let mut app = app_with_routines();
+        press(&mut app, "2n");
+        type_text(&mut app, "a?");
+        assert!(app.help.is_none());
+        assert_eq!(
+            match &app.editor.as_ref().unwrap().popup {
+                Some(routines::EdPopup::Name { text, .. }) => text.clone(),
+                _ => String::new(),
+            },
+            "a?"
+        );
+        let mut app = app_with_meditations();
+        app.go(app::Screen::Meditations);
+        press(&mut app, "a?");
+        assert!(app.help.is_none());
+        assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, .. }) if url == "?"));
+        let mut app = focus_app();
+        press(&mut app, "t?");
+        assert!(app.help.is_none() && matches!(app.popup, Some(app::Popup::Timer { .. })));
+        let mut app = app_with_presets();
+        app.go(app::Screen::Sounds);
+        press(&mut app, "a?");
+        assert!(app.help.is_none());
+    }
+
+    #[test]
+    fn help_closes_with_any_key_and_swallows_it() {
+        let mut app = app_with_routines();
+        for code in [
+            ratatui::crossterm::event::KeyCode::Esc,
+            ratatui::crossterm::event::KeyCode::Enter,
+            ratatui::crossterm::event::KeyCode::Char('?'),
+        ] {
+            press(&mut app, "?");
+            assert!(app.help.is_some());
+            app.key(key(code));
+            assert!(app.help.is_none());
+            assert_eq!(app.screen, app::Screen::Home);
+        }
+        press(&mut app, "?");
+        press(&mut app, "q");
+        assert!(app.help.is_none() && app.popup.is_none());
+    }
+
+    #[test]
+    fn every_help_fits_in_80_by_24() {
+        use help::Topic::*;
+        for topic in [
+            Home,
+            Config,
+            Meditations,
+            Sounds,
+            Presets,
+            Sync,
+            Builder,
+            Routines { start: true },
+            Editor,
+            Step,
+            Run,
+            IntroTime,
+            IntroSounds,
+            Focus { deep: true },
+            Focus { deep: false },
+        ] {
+            let mut app = app_with_routines();
+            app.help = Some(topic);
+            for screen in [app::Screen::Home, app::Screen::Focus] {
+                app.screen = screen;
+                let t = screen_text(&app, 80, 24);
+                let rows: Vec<&str> = t.lines().collect();
+                let top = rows.iter().position(|r| r.contains("atajos")).expect("title");
+                let bottom = (top..rows.len()).find(|&y| rows[y].contains('╰')).expect("bottom border");
+                assert!(top >= 1 && bottom <= 22, "{topic:?}\n{t}");
+                assert!(rows[top].contains('╭') && rows[top].contains('╮'), "{topic:?}\n{t}");
+            }
+        }
     }
 }

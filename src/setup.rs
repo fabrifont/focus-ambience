@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::download::hash_file;
 use crate::paths;
+use crate::progress::Out;
 
 const BASE_URL: &str = "https://downloads.rclone.org";
 
@@ -67,12 +68,14 @@ pub fn expected_hash(sums: &str, file: &str) -> Option<String> {
     })
 }
 
-fn curl(url: &str, out: &Path) -> Result<()> {
-    let status = Command::new("curl")
-        .args(["--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--output"])
-        .arg(out)
-        .arg(url)
-        .status()
+fn curl(url: &str, dest: &Path, out: &mut Out) -> Result<()> {
+    let status = out
+        .run(
+            Command::new("curl")
+                .args(["--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--output"])
+                .arg(dest)
+                .arg(url),
+        )
         .context("no se pudo ejecutar curl (necesito curl para bajar rclone)")?;
     if !status.success() {
         bail!("no pude bajar {url}");
@@ -91,7 +94,7 @@ fn rclone_works() -> bool {
 }
 
 /// Unzip into `dir` (empty). Linux: unzip; Windows: bsdtar (tar.exe) reads zips.
-fn extract(zip: &Path, dir: &Path) -> Result<()> {
+fn extract(zip: &Path, dir: &Path, out: &mut Out) -> Result<()> {
     let mut cmd;
     if cfg!(windows) {
         cmd = Command::new("tar");
@@ -101,8 +104,9 @@ fn extract(zip: &Path, dir: &Path) -> Result<()> {
         cmd.arg("-q").arg(zip).arg("-d").arg(dir);
     }
     let tool = if cfg!(windows) { "tar" } else { "unzip" };
-    let status =
-        cmd.status().with_context(|| format!("no se pudo ejecutar {tool} (necesito {tool} para instalar rclone)"))?;
+    let status = out
+        .run(&mut cmd)
+        .with_context(|| format!("no se pudo ejecutar {tool} (necesito {tool} para instalar rclone)"))?;
     if !status.success() {
         bail!("no pude descomprimir {}", zip.display());
     }
@@ -111,29 +115,29 @@ fn extract(zip: &Path, dir: &Path) -> Result<()> {
 
 /// Downloads rclone, checks its SHA256 against the official sums for that exact version, and
 /// installs the binary in `paths::bin_dir()`.
-fn install_rclone() -> Result<()> {
+fn install_rclone(out: &mut Out) -> Result<()> {
     let (os, arch) = platform(std::env::consts::OS, std::env::consts::ARCH).with_context(|| {
         format!("no sé bajar rclone para {}/{}; instalalo a mano", std::env::consts::OS, std::env::consts::ARCH)
     })?;
     let work = std::env::temp_dir().join(format!("focus-rclone-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
-    let result = install_in(&work, os, arch);
+    let result = install_in(&work, os, arch, out);
     let _ = std::fs::remove_dir_all(&work);
     result
 }
 
-fn install_in(work: &Path, os: &str, arch: &str) -> Result<()> {
-    println!("rclone no está instalado: bajándolo de downloads.rclone.org...");
+fn install_in(work: &Path, os: &str, arch: &str, out: &mut Out) -> Result<()> {
+    out.line("rclone no está instalado: bajándolo de downloads.rclone.org...");
     let version_file = work.join("version.txt");
-    curl(&format!("{BASE_URL}/version.txt"), &version_file)?;
+    curl(&format!("{BASE_URL}/version.txt"), &version_file, out)?;
     let text = std::fs::read_to_string(&version_file)?;
     let version = parse_version(&text).context("version.txt de rclone con formato inesperado")?;
 
     let zip = work.join("rclone.zip");
     let sums = work.join("SHA256SUMS");
-    curl(&zip_url(version, os, arch), &zip)?;
-    curl(&format!("{BASE_URL}/{version}/SHA256SUMS"), &sums)?;
+    curl(&zip_url(version, os, arch), &zip, out)?;
+    curl(&format!("{BASE_URL}/{version}/SHA256SUMS"), &sums, out)?;
 
     let name = zip_name(version, os, arch);
     let want = expected_hash(&std::fs::read_to_string(&sums)?, &name)
@@ -142,13 +146,13 @@ fn install_in(work: &Path, os: &str, arch: &str) -> Result<()> {
     if got != want {
         bail!("el SHA256 de {name} no coincide con el oficial; no lo instalo");
     }
-    println!("✓ SHA256 verificado ({version})");
+    out.line(format!("✓ SHA256 verificado ({version})"));
 
-    let out = work.join("out");
-    std::fs::create_dir(&out)?;
-    extract(&zip, &out)?;
+    let unzipped = work.join("out");
+    std::fs::create_dir(&unzipped)?;
+    extract(&zip, &unzipped, out)?;
     let exe = format!("rclone{}", std::env::consts::EXE_SUFFIX);
-    let built = out.join(name.trim_end_matches(".zip")).join(&exe);
+    let built = unzipped.join(name.trim_end_matches(".zip")).join(&exe);
     if !built.is_file() {
         bail!("el zip de rclone no trae {exe}");
     }
@@ -159,16 +163,16 @@ fn install_in(work: &Path, os: &str, arch: &str) -> Result<()> {
     let partial = bin.join(format!("{exe}.part"));
     std::fs::copy(&built, &partial)?;
     std::fs::rename(&partial, &dest)?;
-    println!("✓ rclone instalado en {}", dest.display());
+    out.line(format!("✓ rclone instalado en {}", dest.display()));
     Ok(())
 }
 
 /// Install rclone if missing and create the Drive remote if it doesn't exist. Idempotent.
-pub fn ensure_rclone() -> Result<()> {
+pub fn ensure_rclone(out: &mut Out) -> Result<()> {
     if rclone_works() {
         return Ok(());
     }
-    install_rclone()?;
+    install_rclone(out)?;
     if !rclone_works() {
         bail!("instalé rclone pero no se puede ejecutar");
     }
@@ -176,7 +180,7 @@ pub fn ensure_rclone() -> Result<()> {
 }
 
 /// Every rclone remote `focus sync` talks to (sounds, meditations and library), once each.
-pub fn ensure_remote() -> Result<()> {
+pub fn ensure_remote(out: &mut Out) -> Result<()> {
     let mut names: Vec<String> = Vec::new();
     for remote in [crate::sync::remote(), crate::sync::meditations_remote(), crate::sync::data_remote()] {
         if let Some(name) = remote_name(&remote)
@@ -185,39 +189,39 @@ pub fn ensure_remote() -> Result<()> {
             names.push(name.to_string());
         }
     }
-    names.iter().try_for_each(|name| ensure_one_remote(name))
+    names.iter().try_for_each(|name| ensure_one_remote(name, out))
 }
 
-fn ensure_one_remote(name: &str) -> Result<()> {
-    let out = Command::new(paths::tool("rclone")).arg("listremotes").output().context("no se pudo ejecutar rclone")?;
-    if !out.status.success() {
-        bail!("rclone listremotes falló: {}", String::from_utf8_lossy(&out.stderr).trim());
+fn ensure_one_remote(name: &str, out: &mut Out) -> Result<()> {
+    let listed =
+        Command::new(paths::tool("rclone")).arg("listremotes").output().context("no se pudo ejecutar rclone")?;
+    if !listed.status.success() {
+        bail!("rclone listremotes falló: {}", String::from_utf8_lossy(&listed.stderr).trim());
     }
-    if parse_listremotes(&String::from_utf8_lossy(&out.stdout)).contains(&name) {
+    if parse_listremotes(&String::from_utf8_lossy(&listed.stdout)).contains(&name) {
         return Ok(());
     }
-    println!("Abriendo el navegador para que inicies sesión en Google (remote «{name}»)...");
-    println!("  (solo va a poder ver lo que suba focus: permiso drive.file)");
-    let status = Command::new(paths::tool("rclone"))
-        .args(["config", "create", name, "drive", "scope=drive.file"])
-        .status()
+    out.line(format!("Abriendo el navegador para que inicies sesión en Google (remote «{name}»)..."));
+    out.line("  (solo va a poder ver lo que suba focus: permiso drive.file)");
+    let status = out
+        .run(Command::new(paths::tool("rclone")).args(["config", "create", name, "drive", "scope=drive.file"]))
         .context("no se pudo ejecutar rclone")?;
     if !status.success() {
         bail!("no se pudo configurar Google Drive; probá de nuevo con `focus setup`");
     }
-    println!("✓ Google Drive configurado");
+    out.line("✓ Google Drive configurado");
     Ok(())
 }
 
 /// Everything `focus sync` needs; quiet when there's nothing to do.
-pub fn prepare() -> Result<()> {
-    ensure_rclone()?;
-    ensure_remote()
+pub fn prepare(out: &mut Out) -> Result<()> {
+    ensure_rclone(out)?;
+    ensure_remote(out)
 }
 
-pub fn run() -> Result<()> {
-    prepare()?;
-    println!("✓ todo listo para `focus sync`");
+pub fn run(out: &mut Out) -> Result<()> {
+    prepare(out)?;
+    out.line("✓ todo listo para `focus sync`");
     Ok(())
 }
 

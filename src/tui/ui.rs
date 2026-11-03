@@ -41,6 +41,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_deep(f.buffer_mut(), scene, app);
         draw_deep_footer(f, footer, app);
         draw_popup(f, app, &pal);
+        super::help::draw(f, app, &pal);
         return;
     }
     draw_overlay(f.buffer_mut(), scene, app);
@@ -58,6 +59,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     draw_footer(f, footer, app);
     draw_popup(f, app, &pal);
+    super::help::draw(f, app, &pal);
 }
 
 fn elapsed(app: &App) -> f32 {
@@ -706,41 +708,20 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                 ],
             )
         }
-        Popup::Help => {
-            let row = |k: &str, d: &str| {
-                Line::from(vec![Span::styled(format!("  {k:>9}  "), acc), Span::styled(d.to_string(), fg)])
-            };
-            (
-                " atajos ",
-                54,
-                vec![
-                    Line::raw(""),
-                    row("␣ / enter", "encender / apagar sonido"),
-                    row("← →  h l", "volumen del sonido"),
-                    row("↑ ↓  j k", "moverse"),
-                    row("+ -", "volumen general"),
-                    row("p", "pausar / seguir todo"),
-                    row("x", "apagar todo"),
-                    row("0", "reinicia los sonidos"),
-                    row("r", "pausar / seguir el timer (el sonido sigue)"),
-                    row("t", "temporizador"),
-                    row("d", if app.deep == Deep::Off { "modo deep work" } else { "salir del modo deep work" }),
-                    row("tab", "sonidos ⇄ presets"),
-                    row("␣ / enter", "en presets: cargar el preset"),
-                    row("esc", "volver al menú de inicio"),
-                    row("q", "salir (pregunta si dejar sonando)"),
-                    row("Ctrl+Q", "apagar todo y salir"),
-                ],
-            )
-        }
     };
+    draw_dialog(f, &pal, title, w, lines);
+}
+
+/// The bordered rounded box every popup uses (help included), centered over the screen.
+pub(super) fn draw_dialog(f: &mut Frame, pal: &Palette, title: &str, w: u16, lines: Vec<Line>) {
+    let acc = Style::new().fg(pal.accent.c());
     let h = lines.len() as u16 + 3;
     let area = popup_area(f.area(), w, h);
     f.render_widget(Clear, area);
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(pal.accent.lerp(pal.dim, 0.3).c()))
-        .title(Span::styled(title, acc.add_modifier(Modifier::BOLD)))
+        .title(Span::styled(title.to_string(), acc.add_modifier(Modifier::BOLD)))
         .style(Style::new().bg(pal.surface.c()));
     f.render_widget(Paragraph::new(lines).block(block), area);
 }

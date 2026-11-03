@@ -3,8 +3,10 @@ use std::time::Instant;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::help::Topic;
 use super::routines::{Editor, ListPopup, Run};
 use super::scene::{Emitter, Scene};
+use super::syncmenu::{self, Runner, SyncJob};
 use super::theme::{self, Palette};
 use crate::library::{Sound, SoundKind, Theme};
 use crate::meditation::{self, Category, Meditation};
@@ -24,6 +26,8 @@ pub enum Screen {
     Sounds,
     /// Configuración > Presets.
     Presets,
+    /// Configuración > Sincronización.
+    Sync,
     /// Armar un preset a mano (vista parecida a Focus, sin audio).
     PresetBuilder,
     Routines,
@@ -33,7 +37,7 @@ pub enum Screen {
     RoutineRun,
 }
 
-pub const CONFIG_ITEMS: [&str; 4] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"];
+pub const CONFIG_ITEMS: [&str; 5] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "Sincronización"];
 
 /// Lo que sonaba en Focus al entrar al armado de un preset, para dejarlo igual al salir.
 #[derive(Default)]
@@ -103,7 +107,6 @@ pub enum Popup {
     Quit,
     /// «¿Salir?» fuera de Focus cuando no suena nada.
     ConfirmQuit,
-    Help,
     Timer {
         sel: usize,
         custom: Option<String>,
@@ -152,6 +155,13 @@ pub struct App {
     /// Cursor de Configuración > Presets.
     pub preset_list_cursor: usize,
     pub builder: Option<PresetDraft>,
+    /// Cursor de Configuración > Sincronización.
+    pub sync_cursor: usize,
+    /// La tarea de Drive con su ventana, si hay una abierta.
+    pub sync: Option<SyncJob>,
+    pub sync_runner: Runner,
+    /// Terminó una sincronización: hay que releer routines.toml (lo hace `persist`).
+    pub routines_stale: bool,
     pub routines: Vec<Routine>,
     /// Por qué no se puede escribir routines.toml (archivo roto): no se pisa.
     pub routines_locked: Option<String>,
@@ -176,6 +186,8 @@ pub struct App {
     pub cursor: usize,
     pub preset_cursor: usize,
     pub popup: Option<Popup>,
+    /// Ayuda de teclas de la pantalla (`?`): cualquier tecla la cierra.
+    pub help: Option<super::help::Topic>,
     pub notice: Option<(String, Instant)>,
     /// Smoothed levels per sound, for meters and particles.
     pub levels: HashMap<String, f32>,
@@ -209,6 +221,10 @@ impl App {
             sound_cursor: 0,
             preset_list_cursor: 0,
             builder: None,
+            sync_cursor: 0,
+            sync: None,
+            sync_runner: syncmenu::real_runner(),
+            routines_stale: false,
             routines: Vec::new(),
             routines_locked: None,
             last_routine: None,
@@ -228,6 +244,7 @@ impl App {
             cursor: 0,
             preset_cursor: 0,
             popup: None,
+            help: None,
             notice: None,
             levels: HashMap::new(),
             shown_volume: HashMap::new(),
@@ -337,6 +354,7 @@ impl App {
 
     /// Advance animations by `dt` seconds.
     pub fn animate(&mut self, dt: f32, scene_w: u16, scene_h: u16) {
+        self.poll_sync();
         if self.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs() >= 4) {
             self.notice = None;
         }
@@ -517,6 +535,7 @@ impl App {
                 1 => self.go(Screen::Meditations),
                 2 => self.go(Screen::Sounds),
                 3 => self.go(Screen::Presets),
+                4 => self.go(Screen::Sync),
                 _ => {}
             },
             KeyCode::Esc => self.go(Screen::Home),
@@ -846,6 +865,8 @@ impl App {
             return None;
         }
         match c {
+            // A running sync cannot be cut short from the keyboard (Ctrl+C is the way out).
+            'q' if self.sync_running() => None,
             'q' => {
                 self.exit = Some(Exit::Quit);
                 None
@@ -867,7 +888,50 @@ impl App {
         }
     }
 
+    /// `?` abre la ayuda salvo con otro diálogo abierto; «Antes de arrancar» es la excepción.
+    fn help_allowed(&self) -> bool {
+        let popup_free = matches!(self.popup, None | Some(Popup::Intro(_)));
+        let screen_free = match self.screen {
+            Screen::Focus => true,
+            Screen::Routines => self.list_popup.is_none(),
+            Screen::RoutineEditor => self.editor.as_ref().is_none_or(|e| e.popup.is_none()),
+            Screen::RoutineRun => self.run.as_ref().is_none_or(|r| r.chooser.is_none()),
+            _ => self.med_popup.is_none(),
+        };
+        popup_free && screen_free && !self.typing()
+    }
+
+    fn help_topic(&self) -> Topic {
+        match (&self.popup, self.screen) {
+            (Some(Popup::Intro(Intro::Time { .. })), _) => Topic::IntroTime,
+            (Some(Popup::Intro(Intro::Sounds { .. })), _) => Topic::IntroSounds,
+            (_, Screen::Home) => Topic::Home,
+            (_, Screen::Config) => Topic::Config,
+            (_, Screen::Meditations) => Topic::Meditations,
+            (_, Screen::Sounds) => Topic::Sounds,
+            (_, Screen::Presets) => Topic::Presets,
+            (_, Screen::Sync) => Topic::Sync,
+            (_, Screen::PresetBuilder) => Topic::Builder,
+            (_, Screen::Routines) => Topic::Routines { start: self.list_from == Screen::Home },
+            (_, Screen::RoutineEditor) => Topic::Editor,
+            (_, Screen::RoutineStep) => Topic::Step,
+            (_, Screen::RoutineRun) => Topic::Run,
+            (_, Screen::Focus) => Topic::Focus { deep: self.deep != Deep::Off },
+        }
+    }
+
     fn handle_key(&mut self, k: KeyEvent) {
+        if self.sync.is_some() {
+            self.sync_job_key(k);
+            return;
+        }
+        if self.help.take().is_some() {
+            return;
+        }
+        if k.code == KeyCode::Char('?') && self.help_allowed() {
+            self.help = Some(self.help_topic());
+            return;
+        }
         if self.popup.is_some() {
             self.popup_key(k);
             return;
@@ -882,6 +946,7 @@ impl App {
             Screen::Meditations => return self.meditations_key(k),
             Screen::Sounds => return self.sounds_key(k),
             Screen::Presets => return self.presets_key(k),
+            Screen::Sync => return self.sync_key(k),
             Screen::PresetBuilder => return self.builder_key(k),
             Screen::Routines => return self.routines_key(k),
             Screen::RoutineEditor => return self.editor_key(k),
@@ -894,7 +959,6 @@ impl App {
             KeyCode::Char('q') => self.request_quit(),
             // Leaving Focus goes back to the home menu; the sound keeps playing.
             KeyCode::Esc => self.go(Screen::Home),
-            KeyCode::Char('?') => self.popup = Some(Popup::Help),
             KeyCode::Char('d') => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
             KeyCode::Tab | KeyCode::BackTab => {
                 self.pane = if self.pane == Pane::Sounds { Pane::Presets } else { Pane::Sounds };
@@ -961,7 +1025,6 @@ impl App {
             return;
         }
         self.popup = match popup {
-            Popup::Help => None,
             Popup::Intro(intro) => self.intro_key(intro, k),
             Popup::Quit => match k.code {
                 KeyCode::Char('s' | 'y') | KeyCode::Enter => {

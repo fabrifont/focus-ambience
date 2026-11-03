@@ -34,6 +34,7 @@ pub fn glyph(c: char) -> [&'static str; HEIGHT] {
         'R' => ["█▀█", "█▀▄", "▀ ▀"],
         'T' => ["▀█▀", " █ ", " ▀ "],
         'V' => ["█ █", "█ █", " ▀ "],
+        'Z' => ["▀▀█", " ▄▀", "▀▀▀"],
         'W' => ["█   █", "█ ▄ █", "▀▀ ▀▀"],
         // The accent takes the O's top pixel row, so this O is one pixel shorter than the others.
         'Ó' => ["▄▄█", "█ █", "▀▀▀"],

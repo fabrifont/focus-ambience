@@ -13,6 +13,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 
 use super::app::{App, CONFIG_ITEMS, MedPopup, Screen};
 use super::routine_ui;
+use super::syncmenu;
 use super::theme::{self, Palette};
 use super::{font, ui};
 use crate::meditation::{self, Category};
@@ -47,6 +48,7 @@ fn header(app: &App) -> Header {
         Screen::Meditations => plain("MEDITACIONES"),
         Screen::Sounds => plain("SONIDOS"),
         Screen::Presets => plain("PRESETS"),
+        Screen::Sync => plain("SINCRONIZACIÓN"),
         Screen::PresetBuilder => plain("NUEVO PRESET"),
         Screen::Routines => plain("RUTINAS"),
         Screen::RoutineEditor => Header {
@@ -106,11 +108,16 @@ pub fn draw(f: &mut Frame, app: &App) {
     let (lines, hints): (Vec<Line>, &[(&str, &str)]) = match app.screen {
         Screen::Home => (
             home_lines(app, &pal),
-            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("1-4", " directo  "), ("q", " salir")],
+            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("1-4", " directo  "), ("?", " ayuda  "), ("q", " salir")],
         ),
-        Screen::Config => {
-            (config_lines(app, &pal), &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("Esc", " volver")])
-        }
+        Screen::Config => (
+            config_lines(app, &pal),
+            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("?", " ayuda  "), ("Esc", " volver")],
+        ),
+        Screen::Sync => (
+            syncmenu::lines(app, &pal),
+            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("?", " ayuda  "), ("Esc", " volver")],
+        ),
         Screen::Routines | Screen::RoutineEditor | Screen::RoutineStep | Screen::RoutineRun => {
             let v = routine_ui::view(app, &pal, body.width as usize);
             routine_sel = v.selected;
@@ -118,15 +125,15 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
         Screen::Sounds => (
             sound_lines(app, &pal, body.width as usize).0,
-            &[("a", " agregar desde YouTube  "), ("d", " borrar  "), ("Esc", " volver")],
+            &[("a", " agregar desde YouTube  "), ("d", " borrar  "), ("?", " ayuda  "), ("Esc", " volver")],
         ),
         Screen::Presets => (
             preset_lines(app, &pal, body.width as usize).0,
-            &[("n", " nuevo  "), ("d", " borrar  "), ("Esc", " volver")],
+            &[("n", " nuevo  "), ("d", " borrar  "), ("?", " ayuda  "), ("Esc", " volver")],
         ),
         Screen::PresetBuilder => (
             builder_lines(app, &pal, body.width as usize).0,
-            &[("␣", " elegir  "), ("←→", " volumen  "), ("g", " guardar  "), ("Esc", " cancelar")],
+            &[("␣", " elegir  "), ("←→", " volumen  "), ("g", " guardar  "), ("?", " ayuda  "), ("Esc", " cancelar")],
         ),
         _ => {
             let (lines, _) = meditation_lines(app, &pal, body.width as usize);
@@ -169,6 +176,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_med_popup(f, p, &pal);
     }
     routine_ui::draw_popup(f, app, &pal);
+    syncmenu::draw_popup(f, app, &pal);
+    super::help::draw(f, app, &pal);
 }
 
 /// The title in block letters (plain uppercase when they do not fit) centered in `area`, with the
@@ -489,8 +498,12 @@ fn draw_med_popup(f: &mut Frame, popup: &MedPopup, pal: &Palette) {
 
 /// Cuadro redondeado centrado con título, para los diálogos.
 pub(super) fn draw_box(f: &mut Frame, pal: &Palette, title: &str, lines: Vec<Line>) {
+    draw_box_w(f, pal, title, 54, lines);
+}
+
+pub(super) fn draw_box_w(f: &mut Frame, pal: &Palette, title: &str, width: u16, lines: Vec<Line>) {
     let acc = Style::new().fg(pal.accent.c());
-    let area = ui::popup_area(f.area(), 54, lines.len() as u16 + 3);
+    let area = ui::popup_area(f.area(), width, lines.len() as u16 + 3);
     f.render_widget(Clear, area);
     let block = Block::bordered()
         .border_type(ratatui::widgets::BorderType::Rounded)
