@@ -1,32 +1,25 @@
-//! TODO(core): implementación PROVISORIA del API acordado con `core/`. Cuando exista `core/`,
-//! este crate pasa a ser solo el envoltorio uniffi sobre él y se borran el catálogo, los
-//! generadores, el mezclador y el timer de acá (copiados de `src/library.rs`,
-//! `src/audio/sources.rs`, `src/audio/engine.rs` y `src/daemon.rs`).
+//! Envoltorio uniffi fino sobre `focus_core::Player`: el motor, la biblioteca y el audio (cpal /
+//! AAudio) son de `core/`; acá solo se traducen tipos y se agregan `PauseBoth` / `ResumeBoth`.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use focus_core::audio::engine::AudioOut;
+use focus_core::library::{self, SoundKind};
+use focus_core::protocol::{self as core_proto, Event};
+use focus_core::PlayerOptions;
 
 uniffi::setup_scaffolding!();
 
-const SAMPLE_RATE: u32 = 48_000;
-const TIMER_FADE: f32 = 30.0;
-const DEFAULT_VOLUME: f32 = 0.5;
-const STATE_FILE: &str = "android-state.json";
-/// Subida 1,5 s y bajada 0,8 s, como engine.rs.
-const UP: f32 = 1.0 / (1.5 * SAMPLE_RATE as f32);
-const DOWN: f32 = 1.0 / (0.8 * SAMPLE_RATE as f32);
-const MAX_RENDER_FRAMES: u32 = 48_000 * 10;
-
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {
-    #[error("sonido desconocido: {id}")]
-    UnknownSound { id: String },
     #[error("error interno: {msg}")]
     Internal { msg: String },
+}
+
+fn internal(e: impl std::fmt::Display) -> CoreError {
+    CoreError::Internal { msg: e.to_string() }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -42,7 +35,9 @@ pub struct Sound {
     pub id: String,
     pub name: String,
     pub theme: String,
-    pub generator: Generator,
+    /// `Some` para los generados en tiempo real; `None` para los archivos.
+    pub generator: Option<Generator>,
+    pub available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -62,627 +57,265 @@ pub struct State {
     pub timer: Option<TimerState>,
 }
 
-#[derive(Debug, Clone, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum Command {
     SetActive { id: String, active: bool },
     Toggle { id: String },
     SetVolume { id: String, volume: f32 },
     SetMaster { volume: f32 },
-    /// Alterna pausa/sigue de los sonidos y del timer juntos.
     PauseAll,
-    /// Apaga los sonidos y cancela el timer.
+    ResumeAll,
     StopAll,
     /// `None` cancela.
     Timer { minutes: Option<u32> },
     ToggleTimerPause,
+    /// Puente: pausa los sonidos y el timer juntos.
+    PauseBoth,
+    /// Puente: sigue los sonidos y el timer juntos.
+    ResumeBoth,
 }
 
 #[uniffi::export(callback_interface)]
 pub trait Listener: Send + Sync {
     fn on_state(&self, state: State);
     fn on_timer_finished(&self);
+    fn on_notice(&self, text: String);
 }
 
-fn catalog() -> Vec<Sound> {
-    let g = |id: &str, name: &str, generator| Sound {
-        id: id.into(),
-        name: name.into(),
-        theme: "Generados".into(),
-        generator,
-    };
-    vec![
-        g("noise-white", "Ruido blanco", Generator::White),
-        g("noise-pink", "Ruido rosa", Generator::Pink),
-        g("noise-brown", "Ruido marrón", Generator::Brown),
-        g("binaural-40", "Binaural 40 Hz · gamma", Generator::Binaural40),
-    ]
-}
-
-// ---------- generadores (de src/audio/sources.rs) ----------
-
-#[derive(Clone, Copy)]
-enum NoiseColor {
-    White,
-    Pink,
-    Brown,
-}
-
-/// Ruido independiente por canal para que no quede en el medio de la cabeza.
-struct Noise {
-    color: NoiseColor,
-    rng: fastrand::Rng,
-    pink: [[f32; 3]; 2],
-    brown: [f32; 2],
-}
-
-impl Noise {
-    fn new(color: NoiseColor) -> Self {
-        Self { color, rng: fastrand::Rng::new(), pink: [[0.0; 3]; 2], brown: [0.0; 2] }
-    }
-
-    fn fill(&mut self, out: &mut [f32]) {
-        for (i, s) in out.iter_mut().enumerate() {
-            let ch = i & 1;
-            let w = self.rng.f32() * 2.0 - 1.0;
-            *s = match self.color {
-                NoiseColor::White => w * 0.25,
-                NoiseColor::Pink => {
-                    // Filtro rosa económico de Paul Kellet.
-                    let b = &mut self.pink[ch];
-                    b[0] = 0.99765 * b[0] + w * 0.099_046;
-                    b[1] = 0.963 * b[1] + w * 0.296_516_4;
-                    b[2] = 0.57 * b[2] + w * 1.052_691_3;
-                    (b[0] + b[1] + b[2] + w * 0.1848) * 0.11
-                }
-                NoiseColor::Brown => {
-                    let b = &mut self.brown[ch];
-                    *b = (*b + 0.02 * w) / 1.02;
-                    *b * 3.0
-                }
-            };
-        }
+fn map_generator(g: library::Generator) -> Generator {
+    match g {
+        library::Generator::White => Generator::White,
+        library::Generator::Pink => Generator::Pink,
+        library::Generator::Brown => Generator::Brown,
+        library::Generator::Binaural40 => Generator::Binaural40,
     }
 }
 
-/// Portadora en el oído izquierdo, portadora + pulso en el derecho.
-struct Binaural {
-    phase: [f64; 2],
-    step: [f64; 2],
-}
-
-impl Binaural {
-    fn new(carrier: f64, beat: f64) -> Self {
-        let sr = SAMPLE_RATE as f64;
-        Self { phase: [0.0; 2], step: [carrier / sr, (carrier + beat) / sr] }
-    }
-
-    fn fill(&mut self, out: &mut [f32]) {
-        for frame in out.chunks_exact_mut(2) {
-            for ((s, phase), step) in frame.iter_mut().zip(&mut self.phase).zip(self.step) {
-                *s = (*phase * std::f64::consts::TAU).sin() as f32 * 0.2;
-                *phase = (*phase + step).fract();
-            }
-        }
+fn map_sound(s: library::Sound) -> Sound {
+    Sound {
+        id: s.id,
+        name: s.name,
+        theme: s.theme.label().to_string(),
+        generator: match s.kind {
+            SoundKind::Generated { generator } => Some(map_generator(generator)),
+            SoundKind::File { .. } => None,
+        },
+        available: s.available,
     }
 }
 
-enum Source {
-    Noise(Noise),
-    Binaural(Binaural),
-}
-
-impl Source {
-    fn new(g: Generator) -> Self {
-        match g {
-            Generator::White => Source::Noise(Noise::new(NoiseColor::White)),
-            Generator::Pink => Source::Noise(Noise::new(NoiseColor::Pink)),
-            Generator::Brown => Source::Noise(Noise::new(NoiseColor::Brown)),
-            Generator::Binaural40 => Source::Binaural(Binaural::new(200.0, 40.0)),
-        }
-    }
-
-    fn fill(&mut self, out: &mut [f32]) {
-        match self {
-            Source::Noise(n) => n.fill(out),
-            Source::Binaural(b) => b.fill(out),
-        }
+fn map_state(s: core_proto::State) -> State {
+    State {
+        sounds: s.sounds.into_iter().map(map_sound).collect(),
+        volumes: s.volumes.into_iter().collect(),
+        active: s.active,
+        paused: s.paused,
+        master: s.master,
+        timer: s.timer.map(|t| TimerState {
+            total_secs: t.total_secs,
+            remaining_secs: t.remaining_secs,
+            paused: t.paused,
+        }),
     }
 }
 
-// ---------- mezcla (de src/audio/engine.rs) ----------
-
-fn curve(v: f32) -> f32 {
-    let v = v.clamp(0.0, 1.0);
-    v * v
-}
-
-fn slew(cur: f32, target: f32) -> f32 {
-    if cur < target {
-        (cur + UP).min(target)
-    } else if cur > target {
-        (cur - DOWN).max(target)
-    } else {
-        cur
+/// Los comandos de core que corresponden a uno del puente. `PauseBoth` / `ResumeBoth` dependen
+/// del timer y los arma [`both`].
+fn map_command(cmd: Command, timer: Option<&core_proto::TimerState>) -> Vec<core_proto::Command> {
+    use core_proto::Command as C;
+    match cmd {
+        Command::SetActive { id, active } => vec![C::SetActive { id, active }],
+        Command::Toggle { id } => vec![C::Toggle { id }],
+        Command::SetVolume { id, volume } => vec![C::SetVolume { id, volume }],
+        Command::SetMaster { volume } => vec![C::SetMaster { volume }],
+        Command::PauseAll => vec![C::PauseAll],
+        Command::ResumeAll => vec![C::ResumeAll],
+        Command::StopAll => vec![C::StopAll],
+        Command::Timer { minutes } => vec![C::Timer { minutes }],
+        Command::ToggleTimerPause => vec![C::ToggleTimerPause],
+        Command::PauseBoth => both(true, timer),
+        Command::ResumeBoth => both(false, timer),
     }
 }
 
-/// Transparente hasta 0,7 y después se curva hacia ±1 en vez de recortar.
-fn soft_clip(x: f32) -> f32 {
-    const K: f32 = 0.7;
-    let a = x.abs();
-    if a <= K {
-        x
-    } else {
-        let over = (a - K) / (1.0 - K);
-        (K + (1.0 - K) * over.tanh()).copysign(x)
+/// Pausa (`pause`) o sigue (`!pause`) sonidos y timer juntos; el timer solo se toca si hace falta.
+fn both(pause: bool, timer: Option<&core_proto::TimerState>) -> Vec<core_proto::Command> {
+    use core_proto::Command as C;
+    let mut v = vec![if pause { C::PauseAll } else { C::ResumeAll }];
+    if timer.is_some_and(|t| t.paused != pause) {
+        v.push(C::ToggleTimerPause);
     }
-}
-
-struct Layer {
-    id: String,
-    source: Source,
-    gain: f32,
-}
-
-// ---------- timer (de src/daemon.rs) ----------
-
-struct Timer {
-    end: Instant,
-    total: Duration,
-    /// Lo que quedaba al pausar; mientras es `Some` el reloj no avanza.
-    frozen: Option<Duration>,
-}
-
-impl Timer {
-    fn new(total: Duration) -> Self {
-        Timer { end: Instant::now() + total, total, frozen: None }
-    }
-
-    fn left(&self) -> Duration {
-        self.frozen.unwrap_or_else(|| self.end.saturating_duration_since(Instant::now()))
-    }
-
-    fn paused(&self) -> bool {
-        self.frozen.is_some()
-    }
-
-    fn set_paused(&mut self, pause: bool) {
-        if pause != self.paused() {
-            self.toggle_pause();
-        }
-    }
-
-    fn toggle_pause(&mut self) {
-        match self.frozen.take() {
-            Some(left) => self.end = Instant::now() + left,
-            None => self.frozen = Some(self.left()),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-#[serde(default)]
-struct Saved {
-    volumes: HashMap<String, f32>,
-    master: Option<f32>,
-}
-
-struct Inner {
-    path: PathBuf,
-    layers: Vec<Layer>,
-    volumes: HashMap<String, f32>,
-    active: Vec<String>,
-    paused: bool,
-    master: f32,
-    master_gain: f32,
-    fade: f32,
-    timer: Option<Timer>,
-}
-
-#[derive(Default)]
-struct Events {
-    timer_finished: bool,
-}
-
-impl Inner {
-    fn new(data_dir: &str) -> Self {
-        let path = PathBuf::from(data_dir).join(STATE_FILE);
-        let saved: Saved =
-            std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        let sounds = catalog();
-        let volumes = sounds
-            .iter()
-            .map(|s| (s.id.clone(), saved.volumes.get(&s.id).copied().unwrap_or(DEFAULT_VOLUME).clamp(0.0, 1.0)))
-            .collect();
-        let layers = sounds
-            .iter()
-            .map(|s| Layer { id: s.id.clone(), source: Source::new(s.generator), gain: 0.0 })
-            .collect();
-        let master = saved.master.unwrap_or(1.0).clamp(0.0, 1.0);
-        Inner {
-            path,
-            layers,
-            volumes,
-            active: Vec::new(),
-            paused: false,
-            master,
-            master_gain: master,
-            fade: 1.0,
-            timer: None,
-        }
-    }
-
-    fn save(&self) {
-        let saved = Saved { volumes: self.volumes.clone(), master: Some(self.master) };
-        if let Ok(bytes) = serde_json::to_vec_pretty(&saved) {
-            if let Some(dir) = self.path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(&self.path, bytes);
-        }
-    }
-
-    fn state(&self) -> State {
-        State {
-            sounds: catalog(),
-            volumes: self.volumes.clone(),
-            active: self.active.clone(),
-            paused: self.paused,
-            master: self.master,
-            timer: self.timer.as_ref().map(|t| TimerState {
-                total_secs: t.total.as_secs(),
-                remaining_secs: t.left().as_secs(),
-                paused: t.paused(),
-            }),
-        }
-    }
-
-    fn set_active(&mut self, id: &str, on: bool) {
-        if on {
-            if !self.active.iter().any(|a| a == id) {
-                self.active.push(id.to_string());
-            }
-            // Prender algo mientras está en pausa general lo hace sonar.
-            if self.paused {
-                self.paused = false;
-                if let Some(t) = &mut self.timer {
-                    t.set_paused(false);
-                }
-            }
-        } else {
-            self.active.retain(|a| a != id);
-            if self.active.is_empty() {
-                self.paused = false;
-            }
-        }
-    }
-
-    /// Devuelve si hay que guardar.
-    fn command(&mut self, cmd: Command) -> Result<bool, CoreError> {
-        let known = |id: &str| self.volumes.contains_key(id);
-        match cmd {
-            Command::SetActive { id, active } => {
-                if !known(&id) {
-                    return Err(CoreError::UnknownSound { id });
-                }
-                self.set_active(&id, active);
-            }
-            Command::Toggle { id } => {
-                if !known(&id) {
-                    return Err(CoreError::UnknownSound { id });
-                }
-                let on = !self.active.contains(&id) || self.paused;
-                self.set_active(&id, on);
-            }
-            Command::SetVolume { id, volume } => {
-                let Some(v) = self.volumes.get_mut(&id) else {
-                    return Err(CoreError::UnknownSound { id });
-                };
-                *v = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { DEFAULT_VOLUME };
-                return Ok(true);
-            }
-            Command::SetMaster { volume } => {
-                self.master = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 1.0 };
-                return Ok(true);
-            }
-            Command::PauseAll => {
-                if !self.active.is_empty() {
-                    self.paused = !self.paused;
-                    self.fade = 1.0;
-                    let p = self.paused;
-                    if let Some(t) = &mut self.timer {
-                        t.set_paused(p);
-                    }
-                } else if let Some(t) = &mut self.timer {
-                    t.toggle_pause();
-                }
-            }
-            Command::StopAll => {
-                self.active.clear();
-                self.paused = false;
-                self.timer = None;
-                self.fade = 1.0;
-            }
-            Command::Timer { minutes } => {
-                self.timer = minutes
-                    .filter(|&m| m > 0)
-                    .map(|m| Timer::new(Duration::from_secs(u64::from(m) * 60)));
-                self.fade = 1.0;
-            }
-            Command::ToggleTimerPause => {
-                if let Some(t) = &mut self.timer {
-                    t.toggle_pause();
-                    if t.paused() {
-                        self.fade = 1.0;
-                    }
-                }
-            }
-        }
-        Ok(false)
-    }
-
-    fn tick(&mut self, ev: &mut Events) {
-        let Some(t) = self.timer.as_ref().filter(|t| !t.paused()) else { return };
-        let left = t.left().as_secs_f32();
-        if left <= 0.0 {
-            self.timer = None;
-            if !self.active.is_empty() {
-                self.paused = true;
-            }
-            self.fade = 1.0;
-            ev.timer_finished = true;
-        } else if left < TIMER_FADE {
-            self.fade = left / TIMER_FADE;
-        }
-    }
-
-    fn render(&mut self, frames: usize) -> Vec<f32> {
-        let mut out = vec![0.0f32; frames * 2];
-        let mut tmp = vec![0.0f32; frames * 2];
-        let master_target = self.master * self.fade;
-        for l in &mut self.layers {
-            let on = !self.paused && self.active.iter().any(|a| *a == l.id);
-            let target = if on { curve(self.volumes.get(&l.id).copied().unwrap_or(DEFAULT_VOLUME)) } else { 0.0 };
-            if target == 0.0 && l.gain == 0.0 {
-                continue;
-            }
-            l.source.fill(&mut tmp);
-            for (f, m) in tmp.chunks_exact(2).zip(out.chunks_exact_mut(2)) {
-                l.gain = slew(l.gain, target);
-                m[0] += f[0] * l.gain;
-                m[1] += f[1] * l.gain;
-            }
-        }
-        for s in out.chunks_exact_mut(2) {
-            self.master_gain = slew(self.master_gain, master_target);
-            s[0] = soft_clip(s[0] * self.master_gain);
-            s[1] = soft_clip(s[1] * self.master_gain);
-        }
-        out
-    }
+    v
 }
 
 #[derive(uniffi::Object)]
 pub struct Player {
-    inner: Mutex<Inner>,
-    listener: Mutex<Option<Arc<dyn Listener>>>,
-}
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
+    inner: focus_core::Player,
 }
 
 impl Player {
-    fn listener(&self) -> Option<Arc<dyn Listener>> {
-        lock(&self.listener).clone()
-    }
-
-    /// Avisa sin tener tomado el lock interno (el listener puede volver a llamar al Player).
-    fn notify(&self, state: State, finished: bool) {
-        if let Some(l) = self.listener() {
-            if finished {
-                l.on_timer_finished();
-            }
-            l.on_state(state);
-        }
-    }
-
-    fn tick_inner(&self) {
-        let mut ev = Events::default();
-        let state = {
-            let mut g = lock(&self.inner);
-            g.tick(&mut ev);
-            ev.timer_finished.then(|| g.state())
-        };
-        if let Some(s) = state {
-            self.notify(s, true);
-        }
+    fn build(data_dir: &Path, output: Option<Box<dyn AudioOut>>) -> Result<Arc<Player>, CoreError> {
+        std::fs::create_dir_all(data_dir).map_err(internal)?;
+        let state_file: PathBuf = data_dir.parent().unwrap_or(data_dir).join("player-state.toml");
+        let inner = focus_core::Player::with_options(
+            data_dir.to_path_buf(),
+            PlayerOptions { state_file: Some(state_file), output },
+        )
+        .map_err(|e| internal(format!("{e:#}")))?;
+        inner.set_state_events(true);
+        Ok(Arc::new(Player { inner }))
     }
 }
 
 #[uniffi::export]
 impl Player {
     #[uniffi::constructor]
-    pub fn new(data_dir: String) -> Arc<Player> {
-        Arc::new(Player { inner: Mutex::new(Inner::new(&data_dir)), listener: Mutex::new(None) })
+    pub fn new(data_dir: String) -> Result<Arc<Player>, CoreError> {
+        Player::build(Path::new(&data_dir), None)
     }
 
     pub fn send(&self, cmd: Command) -> Result<(), CoreError> {
-        let (res, state) = {
-            let mut g = lock(&self.inner);
-            let res = g.command(cmd);
-            if matches!(res, Ok(true)) {
-                g.save();
-            }
-            (res, g.state())
-        };
-        res?;
-        self.notify(state, false);
-        Ok(())
+        let timer = self.inner.state().timer;
+        map_command(cmd, timer.as_ref())
+            .into_iter()
+            .try_for_each(|c| self.inner.send(c))
+            .map_err(|e| internal(format!("{e:#}")))
     }
 
     pub fn state(&self) -> State {
-        lock(&self.inner).state()
+        map_state(self.inner.state())
     }
 
     pub fn set_listener(&self, listener: Box<dyn Listener>) {
-        *lock(&self.listener) = Some(Arc::from(listener));
-    }
-
-    /// Avanza el timer; llamarlo periódicamente cuando no hay `render` corriendo (en pausa).
-    pub fn tick(&self) {
-        self.tick_inner();
-    }
-
-    /// `frames * 2` muestras estéreo intercaladas a 48000 Hz.
-    pub fn render(&self, frames: u32) -> Vec<f32> {
-        self.tick_inner();
-        let frames = frames.min(MAX_RENDER_FRAMES) as usize;
-        lock(&self.inner).render(frames)
+        let listener: Arc<dyn Listener> = Arc::from(listener);
+        self.inner.set_event_listener(Box::new(move |e| match e {
+            Event::State(s) => listener.on_state(map_state(*s)),
+            Event::TimerFinished { .. } => listener.on_timer_finished(),
+            Event::Notice { text } => listener.on_notice(text),
+            Event::Levels { .. } => {}
+        }));
+        self.inner.set_state_events(true);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use core_proto::Command as C;
+    use focus_core::audio::sources::Source;
 
-    fn tmp_dir() -> String {
-        std::env::temp_dir().join(format!("focus_ffi_test_{}", fastrand::u64(..))).to_str().unwrap().into()
+    fn timer(paused: bool) -> core_proto::TimerState {
+        core_proto::TimerState { total_secs: 60, remaining_secs: 30, paused }
     }
 
-    fn inner() -> Inner {
-        Inner::new(&tmp_dir())
+    #[test]
+    fn maps_commands() {
+        let m = |c| map_command(c, None);
+        assert!(matches!(&m(Command::SetActive { id: "a".into(), active: true })[..],
+            [C::SetActive { id, active: true }] if id == "a"));
+        assert!(matches!(&m(Command::Toggle { id: "a".into() })[..], [C::Toggle { id }] if id == "a"));
+        assert!(matches!(&m(Command::SetVolume { id: "a".into(), volume: 0.3 })[..],
+            [C::SetVolume { volume, .. }] if *volume == 0.3));
+        assert!(matches!(&m(Command::SetMaster { volume: 0.7 })[..], [C::SetMaster { volume }] if *volume == 0.7));
+        assert!(matches!(&m(Command::PauseAll)[..], [C::PauseAll]));
+        assert!(matches!(&m(Command::ResumeAll)[..], [C::ResumeAll]));
+        assert!(matches!(&m(Command::StopAll)[..], [C::StopAll]));
+        assert!(matches!(&m(Command::Timer { minutes: Some(5) })[..], [C::Timer { minutes: Some(5) }]));
+        assert!(matches!(&m(Command::Timer { minutes: None })[..], [C::Timer { minutes: None }]));
+        assert!(matches!(&m(Command::ToggleTimerPause)[..], [C::ToggleTimerPause]));
     }
 
-    fn set_left(i: &mut Inner, secs: f32) {
-        let t = i.timer.as_mut().unwrap();
-        if t.paused() {
-            t.frozen = Some(Duration::from_secs_f32(secs));
-        } else {
-            t.end = Instant::now() + Duration::from_secs_f32(secs);
+    #[test]
+    fn both_touches_timer_only_when_needed() {
+        assert!(matches!(&both(true, None)[..], [C::PauseAll]));
+        assert!(matches!(&both(true, Some(&timer(false)))[..], [C::PauseAll, C::ToggleTimerPause]));
+        assert!(matches!(&both(true, Some(&timer(true)))[..], [C::PauseAll]));
+        assert!(matches!(&both(false, None)[..], [C::ResumeAll]));
+        assert!(matches!(&both(false, Some(&timer(true)))[..], [C::ResumeAll, C::ToggleTimerPause]));
+        assert!(matches!(&both(false, Some(&timer(false)))[..], [C::ResumeAll]));
+    }
+
+    #[test]
+    fn maps_state() {
+        let mut s = core_proto::State::default();
+        s.sounds = vec![
+            library::Sound {
+                id: "noise-pink".into(),
+                name: "Ruido rosa".into(),
+                theme: library::Theme::Generated,
+                visual: library::Visual::Static,
+                kind: SoundKind::Generated { generator: library::Generator::Pink },
+                duration: 0,
+                available: true,
+            },
+            library::Sound {
+                id: "rain".into(),
+                name: "Lluvia".into(),
+                theme: library::Theme::Nature,
+                visual: library::Visual::Rain,
+                kind: SoundKind::File { file: "rain.opus".into() },
+                duration: 60,
+                available: false,
+            },
+        ];
+        s.volumes.insert("rain".into(), 0.4);
+        s.active = vec!["rain".into()];
+        s.paused = true;
+        s.master = 0.6;
+        s.timer = Some(timer(true));
+        let m = map_state(s);
+        assert_eq!(m.sounds[0].generator, Some(Generator::Pink));
+        assert_eq!(m.sounds[0].theme, "Generados");
+        assert_eq!(m.sounds[1].generator, None);
+        assert_eq!(m.sounds[1].theme, "Naturaleza");
+        assert!(!m.sounds[1].available);
+        assert_eq!(m.volumes["rain"], 0.4);
+        assert_eq!(m.active, ["rain"]);
+        assert!(m.paused);
+        assert_eq!(m.master, 0.6);
+        assert_eq!(m.timer, Some(TimerState { total_secs: 60, remaining_secs: 30, paused: true }));
+    }
+
+    /// Salida que no abre nada, para correr el Player sin placa de sonido.
+    struct Silent;
+    impl AudioOut for Silent {
+        fn play(&mut self, _: &str, _: f32, _: Box<dyn FnOnce() -> anyhow::Result<Box<dyn Source>>>) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn set_volume(&self, _: &str, _: f32) {}
+        fn stop(&mut self, _: &str) {}
+        fn has_ended(&self, _: &str) -> bool {
+            false
+        }
+        fn set_master(&self, _: f32) {}
+        fn set_fade(&self, _: f32) {}
+        fn levels(&self) -> (f32, Vec<(String, f32)>) {
+            (0.0, Vec::new())
+        }
+        fn positions(&self) -> HashMap<String, u64> {
+            HashMap::new()
+        }
+        fn tick(&mut self) {}
+        fn is_running(&self) -> bool {
+            false
         }
     }
 
     #[test]
-    fn timer_pause_resume() {
-        let mut i = inner();
-        i.command(Command::Timer { minutes: Some(10) }).unwrap();
-        i.command(Command::ToggleTimerPause).unwrap();
-        let a = i.state().timer.unwrap();
-        assert!(a.paused);
-        std::thread::sleep(Duration::from_millis(1100));
-        assert_eq!(i.state().timer.unwrap().remaining_secs, a.remaining_secs);
-        i.command(Command::ToggleTimerPause).unwrap();
-        let b = i.state().timer.unwrap();
-        assert!(!b.paused);
-        assert!(b.remaining_secs <= a.remaining_secs);
-        assert_eq!(b.total_secs, 600);
-    }
-
-    #[test]
-    fn timer_fade_last_30s() {
-        let mut i = inner();
-        i.command(Command::Timer { minutes: Some(1) }).unwrap();
-        set_left(&mut i, 15.0);
-        i.tick(&mut Events::default());
-        assert!((i.fade - 0.5).abs() < 0.05, "fade {}", i.fade);
-        set_left(&mut i, 120.0);
-        i.fade = 1.0;
-        i.tick(&mut Events::default());
-        assert_eq!(i.fade, 1.0);
-    }
-
-    #[test]
-    fn timer_end_pauses() {
-        let mut i = inner();
-        i.command(Command::SetActive { id: "noise-pink".into(), active: true }).unwrap();
-        i.command(Command::Timer { minutes: Some(1) }).unwrap();
-        set_left(&mut i, 0.0);
-        let mut ev = Events::default();
-        i.tick(&mut ev);
-        assert!(ev.timer_finished);
-        assert!(i.timer.is_none());
-        assert!(i.paused);
-        assert_eq!(i.fade, 1.0);
-    }
-
-    #[test]
-    fn timer_end_without_active_does_not_pause() {
-        let mut i = inner();
-        i.command(Command::Timer { minutes: Some(1) }).unwrap();
-        set_left(&mut i, 0.0);
-        i.tick(&mut Events::default());
-        assert!(!i.paused);
-    }
-
-    #[test]
-    fn render_length_and_silence() {
-        let mut i = inner();
-        let out = i.render(1000);
-        assert_eq!(out.len(), 2000);
-        assert!(out.iter().all(|s| *s == 0.0));
-        i.command(Command::SetActive { id: "noise-white".into(), active: true }).unwrap();
-        let out = i.render(48_000);
-        assert_eq!(out.len(), 96_000);
-        assert!(out.iter().any(|s| s.abs() > 1e-4));
-    }
-
-    #[test]
-    fn pause_all_pauses_timer_and_sounds() {
-        let mut i = inner();
-        i.command(Command::SetActive { id: "binaural-40".into(), active: true }).unwrap();
-        i.command(Command::Timer { minutes: Some(5) }).unwrap();
-        i.command(Command::PauseAll).unwrap();
-        assert!(i.paused);
-        assert!(i.timer.as_ref().unwrap().paused());
-        i.command(Command::PauseAll).unwrap();
-        assert!(!i.paused);
-        assert!(!i.timer.as_ref().unwrap().paused());
-    }
-
-    #[test]
-    fn stop_all_and_unknown() {
-        let mut i = inner();
-        i.command(Command::SetActive { id: "noise-brown".into(), active: true }).unwrap();
-        i.command(Command::Timer { minutes: Some(5) }).unwrap();
-        i.command(Command::StopAll).unwrap();
-        assert!(i.active.is_empty() && i.timer.is_none());
-        assert!(i.command(Command::Toggle { id: "nope".into() }).is_err());
-    }
-
-    #[test]
-    fn persists_volumes() {
-        let d = tmp_dir();
-        let p = Player::new(d.clone());
-        p.send(Command::SetVolume { id: "noise-pink".into(), volume: 0.8 }).unwrap();
-        p.send(Command::SetMaster { volume: 0.3 }).unwrap();
-        let s = Player::new(d).state();
-        assert_eq!(s.volumes["noise-pink"], 0.8);
-        assert_eq!(s.master, 0.3);
-        assert_eq!(s.volumes["noise-white"], 0.5);
-    }
-
-    struct L(Arc<AtomicUsize>, Arc<AtomicUsize>);
-    impl Listener for L {
-        fn on_state(&self, _: State) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
-        fn on_timer_finished(&self) {
-            self.1.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    #[test]
-    fn listener_called() {
-        let p = Player::new(tmp_dir());
-        let (s, f) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        p.set_listener(Box::new(L(s.clone(), f.clone())));
-        p.send(Command::Timer { minutes: Some(1) }).unwrap();
-        assert_eq!(s.load(Ordering::SeqCst), 1);
-        set_left(&mut lock(&p.inner), 0.0);
-        p.render(10);
-        assert_eq!(f.load(Ordering::SeqCst), 1);
-        assert_eq!(s.load(Ordering::SeqCst), 2);
+    fn player_pause_both_and_resume_both() {
+        let dir = std::env::temp_dir().join(format!("focus_ffi_test_{}", std::process::id())).join("library");
+        let p = Player::build(&dir, Some(Box::new(Silent))).unwrap();
+        let st = p.state();
+        assert!(st.sounds.iter().any(|s| s.generator == Some(Generator::Binaural40)));
+        p.send(Command::SetActive { id: "noise-pink".into(), active: true }).unwrap();
+        p.send(Command::Timer { minutes: Some(5) }).unwrap();
+        p.send(Command::PauseBoth).unwrap();
+        let st = p.state();
+        assert!(st.paused && st.timer.as_ref().unwrap().paused);
+        p.send(Command::ResumeBoth).unwrap();
+        let st = p.state();
+        assert!(!st.paused && !st.timer.as_ref().unwrap().paused);
+        p.send(Command::StopAll).unwrap();
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
 }
