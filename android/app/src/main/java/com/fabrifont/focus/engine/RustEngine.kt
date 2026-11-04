@@ -15,7 +15,10 @@ import uniffi.focus_ffi.State
 
 /** Envuelve el Player de core (vía focus_ffi): el audio lo produce core con AAudio. */
 class RustEngine(context: Context) : FocusEngine {
-    private val player = Player(File(context.filesDir, "library").path)
+    private val player = run {
+        NativeInit.init(context.applicationContext)
+        Player(File(context.filesDir, "library").path)
+    }
     private val _state = MutableStateFlow(player.state().toUi())
     override val state: StateFlow<EngineState> = _state.asStateFlow()
 

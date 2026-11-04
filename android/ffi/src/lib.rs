@@ -319,3 +319,27 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
 }
+
+/// cpal (AAudio) usa `ndk_context` para hablar con el AudioManager de Java al abrir la salida. En
+/// una app normal (no NativeActivity) nadie lo inicializa, así que Kotlin llama a esto una vez con
+/// el `applicationContext` antes de crear el `Player`.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_fabrifont_focus_engine_NativeInit_init(
+    env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    context: jni::objects::JObject,
+) {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let (Ok(vm), Ok(global)) = (env.get_java_vm(), env.new_global_ref(context)) else {
+            return;
+        };
+        // SAFETY: el JavaVM vive todo el proceso y la referencia global no se libera nunca.
+        unsafe {
+            ndk_context::initialize_android_context(vm.get_java_vm_pointer().cast(), global.as_obj().as_raw().cast());
+        }
+        std::mem::forget(global);
+    });
+}
