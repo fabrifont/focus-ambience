@@ -64,8 +64,10 @@ jobs:
           script: |
             adb install -r apk/*.apk
             adb install -r apk-test/*.apk
-            adb shell am instrument -w -e class com.fabrifont.focus.FocusFlowTest com.fabrifont.focus.test/androidx.test.runner.AndroidJUnitRunner | tee inst.txt
+            adb shell am instrument -w -e class com.fabrifont.focus.FocusFlowTest,com.fabrifont.focus.PresetsFlowTest,com.fabrifont.focus.RoutinesFlowTest com.fabrifont.focus.test/androidx.test.runner.AndroidJUnitRunner | tee inst.txt
             grep -q "OK (" inst.txt
+            adb pull /sdcard/Android/data/com.fabrifont.focus/files/capturas . || true
+            mv capturas/*.png . || true
             adb shell am start -n com.fabrifont.focus/.MainActivity; sleep 5; adb exec-out screencap -p > inicio.png
       - uses: actions/upload-artifact@v4
         if: always()
