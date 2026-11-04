@@ -8,7 +8,7 @@ use ratatui::{Terminal, backend::TestBackend};
 fn render(w: u16, h: u16, setup: impl FnOnce(&mut App)) -> String {
     let mut app = App::new();
     let mut state = crate::protocol::State::default();
-    state.sounds = library::all_sounds().unwrap();
+    state.sounds = library::all_sounds(&crate::paths::library_dir()).unwrap();
     state.volumes = state.sounds.iter().map(|s| (s.id.clone(), 0.6)).collect();
     state.master = 0.8;
     state.presets = vec![Preset {
@@ -521,7 +521,12 @@ fn app_with_sounds() -> App {
         file_sound("lluvia", "Lluvia", library::Theme::Nature, true),
         file_sound("fuego", "Fuego", library::Theme::Nature, false),
     ];
-    sounds.extend(library::all_sounds().unwrap().into_iter().filter(|s| s.theme == library::Theme::Generated));
+    sounds.extend(
+        library::all_sounds(&crate::paths::library_dir())
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.theme == library::Theme::Generated),
+    );
     app.set_state(crate::protocol::State { sounds, ..Default::default() });
     app
 }
@@ -919,7 +924,7 @@ fn leaving_the_builder_with_esc_restores_what_played_before() {
         cmds.iter()
             .any(|c| matches!(c, Command::SetVolume { id, volume } if id == "lluvia" && (*volume - 0.7).abs() < 1e-4))
     );
-    assert!(!cmds.iter().any(|c| matches!(c, Command::PauseAll)));
+    assert!(!cmds.iter().any(|c| matches!(c, Command::TogglePause)));
 }
 
 #[test]
@@ -945,7 +950,7 @@ fn saving_restores_too_and_keeps_a_pause_and_silence_when_nothing_played() {
     app.key(key(Enter));
     let cmds = sent(&mut app);
     assert!(matches!(cmds.first(), Some(Command::SetActive { id, active: false }) if id == "templo"));
-    assert!(cmds.iter().any(|c| matches!(c, Command::PauseAll)), "estaba en pausa: {cmds:?}");
+    assert!(cmds.iter().any(|c| matches!(c, Command::TogglePause)), "estaba en pausa: {cmds:?}");
     assert!(cmds.iter().any(|c| matches!(c, Command::StorePreset { .. })));
 
     let mut app = app_with_sounds_and_presets();
@@ -1267,7 +1272,7 @@ fn left_right_on_other_options_rows_do_nothing() {
 fn options_pause_stop_home_and_quit_rows_work() {
     let mut app = focus_app();
     ks(&mut app, "tab down*4 enter");
-    assert!(matches!(sent(&mut app).as_slice(), [Command::PauseAll]));
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
     assert!(app.popup.is_none());
     ks(&mut app, "tab down*5 enter");
     assert!(matches!(sent(&mut app).as_slice(), [Command::StopAll]));
@@ -1376,7 +1381,7 @@ fn t_toggles_the_timer_pause_and_leaves_the_sound_alone() {
     deep_on(&mut app);
     press(&mut app, "t");
     assert_eq!(pause_cmds(&mut app), 1, "también en deep work");
-    assert!(app.outbox.iter().all(|c| !matches!(c, Command::PauseAll | Command::StopAll)));
+    assert!(app.outbox.iter().all(|c| !matches!(c, Command::TogglePause | Command::StopAll)));
     assert!(app.popup.is_none(), "t ya no abre el timer");
 }
 
@@ -1465,7 +1470,7 @@ fn deep_work_keeps_the_sound_keys_and_options() {
     ks(&mut app, "down enter right");
     assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Toggle { .. })));
     ks(&mut app, "tab down*4 enter");
-    assert!(matches!(sent(&mut app).as_slice(), [Command::PauseAll]));
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
     ks(&mut app, "tab down*7 enter");
     assert!(matches!(app.popup, Some(app::Popup::ConfirmQuit { .. })));
     ks(&mut app, "esc esc");
@@ -2254,12 +2259,12 @@ fn running_a_routine_silences_ambient_sounds_and_gives_them_back() {
     let mut app = app_with_routines();
     app.state.active = vec!["noise-brown".into()];
     home(&mut app, 0);
-    assert!(matches!(sent(&mut app).as_slice(), [Command::PauseAll]));
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
     app.state.paused = true; // lo que contestaría el daemon
     app.key(key(Esc));
     assert_eq!(app.screen, app::Screen::Home);
     assert!(app.run.is_none());
-    assert!(matches!(sent(&mut app).as_slice(), [Command::PauseAll]));
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
 }
 
 #[test]
@@ -2334,7 +2339,7 @@ fn finishing_every_step_enters_focus_and_gives_back_the_ambient() {
     assert_eq!(app.screen, app::Screen::Focus);
     assert!(app.run.is_none());
     let out = sent(&mut app);
-    assert!(out.iter().any(|c| matches!(c, Command::PauseAll)));
+    assert!(out.iter().any(|c| matches!(c, Command::TogglePause)));
     assert!(out.iter().any(|c| matches!(c, Command::Watch { levels: true })));
 }
 
@@ -3002,7 +3007,7 @@ fn same_as_enter(name: &str, setup: impl Fn(&mut App)) {
         app.routines[0].meditation = setting(Some(5)); // una sola, sin azar
         let mut st = app.state.clone();
         st.presets = vec![Preset { name: "Rivendell".into(), layers: [("noise-brown".to_string(), 0.3)].into() }];
-        st.sounds = library::all_sounds().unwrap();
+        st.sounds = library::all_sounds(&crate::paths::library_dir()).unwrap();
         app.set_state(st);
         setup(&mut app);
         sent(&mut app);

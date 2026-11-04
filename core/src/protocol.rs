@@ -1,4 +1,5 @@
-//! JSON lines over the daemon's Unix socket.
+//! Plain data exchanged with the player: the desktop daemon sends it as JSON lines over its Unix
+//! socket, other hosts (Android) can use it directly.
 
 use std::collections::BTreeMap;
 
@@ -24,8 +25,16 @@ pub enum Command {
     SetMaster {
         volume: f32,
     },
-    /// Pause/resume everything without forgetting which layers were on.
+    /// Toggle pause on the ambient without forgetting which layers were on. On the wire it keeps
+    /// its original name (`pause_all`), so clients and daemons of different versions still agree.
+    #[serde(rename = "pause_all")]
+    TogglePause,
+    /// Pause everything that sounds (ambient and meditation). Idempotent.
+    #[serde(rename = "pause")]
     PauseAll,
+    /// Undo [`Command::PauseAll`]: bring back the ambient and the meditation it paused. Idempotent.
+    #[serde(rename = "resume")]
+    ResumeAll,
     StopAll,
     /// Restart from the beginning every sound that is playing right now (volumes untouched).
     RestartSounds,
@@ -91,8 +100,17 @@ pub struct AddMeditationRequest {
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     State(Box<State>),
-    Levels { master: f32, layers: Vec<(String, f32)> },
-    Notice { text: String },
+    Levels {
+        master: f32,
+        layers: Vec<(String, f32)>,
+    },
+    Notice {
+        text: String,
+    },
+    /// The countdown reached zero (the player already faded the sound out and paused it).
+    TimerFinished {
+        minutes: u64,
+    },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

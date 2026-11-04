@@ -645,7 +645,7 @@ impl App {
             self.send(Command::SetActive { id: id.clone(), active: true });
         }
         if b.before.paused && !b.before.active.is_empty() {
-            self.send(Command::PauseAll);
+            self.send(Command::TogglePause);
         }
         Some(b)
     }
@@ -1014,7 +1014,7 @@ impl App {
             1 => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
             2 => return Some(Popup::LoadPreset { sel: 0 }),
             OPT_VOLUME => return Some(Popup::Options { sel: row }),
-            4 => self.send(Command::PauseAll),
+            4 => self.send(Command::TogglePause),
             5 => self.send(Command::StopAll),
             6 => self.go(Screen::Home),
             _ => {

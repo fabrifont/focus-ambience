@@ -1,0 +1,19 @@
+[package]
+name = "focus-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Motor de audio, biblioteca y Player de focus-ambience (Rust puro, sin procesos ni rutas del sistema)"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+cpal = "0.18.2"
+fastrand = "2.5.0"
+ogg = "0.9.2"
+opus = "0.4.0"
+rtrb = "0.4.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"

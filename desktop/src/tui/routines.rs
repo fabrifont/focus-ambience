@@ -6,6 +6,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use super::app::{App, MAX_MINUTES, RowKey, SAFE_ROW, Screen, row_key};
 use crate::meditation::{self, Category};
+use crate::paths;
 use crate::protocol::Command;
 use crate::routine::{self, MeditationSetting, Routine, Step};
 
@@ -166,14 +167,14 @@ impl App {
 
     /// Carga rutinas y última rutina desde el disco (lo llama `tui::run`).
     pub fn load_routines(&mut self) {
-        match routine::load() {
+        match routine::load(&paths::library_dir()) {
             Ok(r) => self.routines = r.routines,
             Err(e) => {
                 self.routines_locked = Some(format!("{e:#}"));
                 self.notify("no pude leer routines.toml: no se van a guardar cambios hasta arreglarlo");
             }
         }
-        let ui = routine::load_ui();
+        let ui = routine::load_ui(&paths::state_dir());
         self.last_routine = ui.last_routine;
         if let Some(m) = ui.focus_minutes.filter(|m| (1..=MAX_MINUTES).contains(m)) {
             self.focus_minutes = m;
@@ -184,14 +185,14 @@ impl App {
     pub fn persist(&mut self) {
         if std::mem::take(&mut self.routines_dirty) {
             let r = routine::Routines { routines: self.routines.clone() };
-            if let Err(e) = routine::save(&r) {
+            if let Err(e) = routine::save(&paths::library_dir(), &r) {
                 self.notify(format!("no pude guardar las rutinas: {e:#}"));
             }
         }
         if std::mem::take(&mut self.last_dirty) {
             let ui =
                 routine::UiState { last_routine: self.last_routine.clone(), focus_minutes: Some(self.focus_minutes) };
-            if let Err(e) = routine::save_ui(&ui) {
+            if let Err(e) = routine::save_ui(&paths::state_dir(), &ui) {
                 self.notify(format!("no pude recordar la última rutina ni el tiempo: {e:#}"));
             }
         }
@@ -562,7 +563,7 @@ impl App {
         // Durante la rutina solo suena la meditación.
         let muted_ambient = !self.state.paused && !self.state.active.is_empty();
         if muted_ambient {
-            self.send(Command::PauseAll);
+            self.send(Command::TogglePause);
         }
         if self.state.meditation.is_some() {
             self.send(Command::StopMeditation);
@@ -591,7 +592,7 @@ impl App {
         }
         // `state` es lo último que dijo el daemon: solo se destapa si sigue en pausa.
         if run.muted_ambient && self.state.paused {
-            self.send(Command::PauseAll);
+            self.send(Command::TogglePause);
         }
     }
 
