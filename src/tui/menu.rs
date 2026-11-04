@@ -106,17 +106,14 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     let mut routine_sel = 0;
     let (lines, hints): (Vec<Line>, &[(&str, &str)]) = match app.screen {
-        Screen::Home => (
-            home_lines(app, &pal),
-            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("1-4", " directo  "), ("?", " ayuda  "), ("q", " salir")],
-        ),
+        Screen::Home => (home_lines(app, &pal), &[("↑↓", " mover   "), ("Enter", " elegir   "), ("?", " ayuda")]),
         Screen::Config => (
             config_lines(app, &pal),
-            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("?", " ayuda  "), ("Esc", " volver")],
+            &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")],
         ),
         Screen::Sync => (
             syncmenu::lines(app, &pal),
-            &[("↑↓", " mover  "), ("Enter/␣", " elegir  "), ("?", " ayuda  "), ("Esc", " volver")],
+            &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")],
         ),
         Screen::Routines | Screen::RoutineEditor | Screen::RoutineStep | Screen::RoutineRun => {
             let v = routine_ui::view(app, &pal, body.width as usize);
@@ -125,27 +122,25 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
         Screen::Sounds => (
             sound_lines(app, &pal, body.width as usize).0,
-            &[("a", " agregar desde YouTube  "), ("d", " borrar  "), ("?", " ayuda  "), ("Esc", " volver")],
+            &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")],
         ),
         Screen::Presets => (
             preset_lines(app, &pal, body.width as usize).0,
-            &[("n", " nuevo  "), ("d", " borrar  "), ("?", " ayuda  "), ("Esc", " volver")],
+            &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")],
         ),
         Screen::PresetBuilder => (
             builder_lines(app, &pal, body.width as usize).0,
-            &[("␣", " elegir  "), ("←→", " volumen  "), ("g", " guardar  "), ("?", " ayuda  "), ("Esc", " cancelar")],
+            &[
+                ("↑↓", " mover   "),
+                ("Enter", " elegir   "),
+                ("←→", " volumen   "),
+                ("Esc", " cancelar   "),
+                ("?", " ayuda"),
+            ],
         ),
         _ => {
             let (lines, _) = meditation_lines(app, &pal, body.width as usize);
-            (
-                lines,
-                &[
-                    ("Enter/␣", " play/pausa  "),
-                    ("a", " agregar desde YouTube  "),
-                    ("d", " borrar  "),
-                    ("Esc", " volver"),
-                ],
-            )
+            (lines, &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")])
         }
     };
     // Keep the selected line on screen when the list is longer than the window.
@@ -173,7 +168,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     ui::draw_popup(f, app, &pal);
     if let Some(p) = &app.med_popup {
-        draw_med_popup(f, p, &pal);
+        draw_med_popup(f, app, p, &pal);
     }
     routine_ui::draw_popup(f, app, &pal);
     syncmenu::draw_popup(f, app, &pal);
@@ -253,10 +248,15 @@ pub(super) fn row(selected: bool, prefix: String, label: &str, pal: &Palette) ->
     ])
 }
 
+/// La fila «+ …» de arriba de una lista, seguida de una línea en blanco.
+fn add_rows(selected: bool, label: &str, pal: &Palette) -> Vec<Line<'static>> {
+    vec![row(selected, String::new(), label, pal), Line::raw("")]
+}
+
 fn home_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
     let mut v = Vec::new();
     for (i, label) in app.home_items().iter().enumerate() {
-        v.push(row(i == app.home_cursor, format!("{}  ", i + 1), label, pal));
+        v.push(row(i == app.home_cursor, String::new(), label, pal));
     }
     v
 }
@@ -272,16 +272,16 @@ fn config_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
 /// The meditations list grouped by duration, plus the index of the selected line.
 pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = Vec::new();
+    let mut v = add_rows(app.med_cursor == 0, "+ Agregar desde YouTube", pal);
     let mut selected_line = 0;
     let mut index = 0;
     for (cat, items) in meditation::group(&app.state.meditations) {
-        if !v.is_empty() {
+        if v.len() > 2 {
             v.push(Line::raw(""));
         }
         v.push(section(&cat.label(), pal));
         for m in items {
-            let sel = index == app.med_cursor;
+            let sel = index + 1 == app.med_cursor;
             if sel {
                 selected_line = v.len();
             }
@@ -309,7 +309,7 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
         }
     }
     if app.state.meditations.is_empty() {
-        v.push(note("Todavía no hay meditaciones. Corré `focus sync` o apretá a para agregar una.", dim));
+        v.push(note("Todavía no hay meditaciones. Corré `focus sync` o agregá una arriba.", dim));
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| d.meditation).collect();
     if !downloads.is_empty() {
@@ -329,7 +329,7 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
 /// Downloaded sounds grouped by theme, plus the index of the selected line.
 fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = Vec::new();
+    let mut v = add_rows(app.sound_cursor == 0, "+ Agregar desde YouTube", pal);
     let mut selected_line = 0;
     let mut theme = None;
     for (index, s) in app.file_sounds().into_iter().enumerate() {
@@ -340,7 +340,7 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
             theme = Some(s.theme);
             v.push(section(s.theme.label(), pal));
         }
-        let sel = index == app.sound_cursor;
+        let sel = index + 1 == app.sound_cursor;
         if sel {
             selected_line = v.len();
         }
@@ -348,7 +348,7 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
         v.push(row(sel, format!("  {cloud}"), &trunc(&s.name, width.saturating_sub(8)), pal));
     }
     if app.file_sounds().is_empty() {
-        v.push(note("Todavía no hay sonidos descargados. Corré `focus sync` o apretá a para agregar uno.", dim));
+        v.push(note("Todavía no hay sonidos descargados. Corré `focus sync` o agregá uno arriba.", dim));
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| !d.meditation).collect();
     if !downloads.is_empty() {
@@ -368,10 +368,10 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
 /// Saved presets with the sounds and volumes each one has, plus the index of the selected line.
 fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = Vec::new();
+    let mut v = add_rows(app.preset_list_cursor == 0, "+ Nuevo preset", pal);
     let mut selected_line = 0;
     for (i, p) in app.state.presets.iter().enumerate() {
-        let sel = i == app.preset_list_cursor;
+        let sel = i + 1 == app.preset_list_cursor;
         if sel {
             selected_line = v.len();
         }
@@ -387,7 +387,7 @@ fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, 
         v.push(Line::styled(format!("    {}", trunc(&sounds.join(" · "), width.saturating_sub(6))), dim));
     }
     if app.state.presets.is_empty() {
-        v.push(note("Todavía no hay presets. Corré `focus sync` o apretá n para armar uno.", dim));
+        v.push(note("Todavía no hay presets. Corré `focus sync` o armá uno arriba.", dim));
     }
     (v, selected_line)
 }
@@ -395,7 +395,7 @@ fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, 
 /// The Focus-like list for building a preset (silent: nothing plays), plus the selected line.
 fn builder_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = vec![note("Elegí los sonidos y su volumen; g los guarda con un nombre.", dim), Line::raw("")];
+    let mut v = vec![note("Elegí los sonidos y su volumen; al final, ✓ Guardar preset.", dim), Line::raw("")];
     let Some(b) = &app.builder else { return (v, 0) };
     let bar_w = 14usize.min(width.saturating_sub(40));
     let name_w = width.saturating_sub(bar_w + 14).clamp(10, 32);
@@ -428,10 +428,16 @@ fn builder_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>,
         line.push(Span::styled(format!(" {:>3.0}%", vol * 100.0), dim));
         v.push(Line::from(line));
     }
+    let save = b.cursor >= app.state.sounds.len();
+    if save {
+        selected_line = v.len() + 1;
+    }
+    v.push(Line::raw(""));
+    v.push(row(save, String::new(), "✓ Guardar preset", pal));
     (v, selected_line)
 }
 
-fn draw_med_popup(f: &mut Frame, popup: &MedPopup, pal: &Palette) {
+fn draw_med_popup(f: &mut Frame, app: &App, popup: &MedPopup, pal: &Palette) {
     let dim = Style::new().fg(pal.dim.c());
     let fg = Style::new().fg(pal.fg.c());
     let acc = Style::new().fg(pal.accent.c());
@@ -470,28 +476,29 @@ fn draw_med_popup(f: &mut Frame, popup: &MedPopup, pal: &Palette) {
             lines.push(Line::from(vec![
                 Span::styled("  ↑↓ ", acc),
                 Span::styled("mover   ", dim),
-                Span::styled("Enter/␣ ", acc),
+                Span::styled("Enter ", acc),
                 Span::styled("descargar   ", dim),
                 Span::styled("Esc ", acc),
                 Span::styled("volver", dim),
             ]));
             (" agregar meditación ", lines)
         }
-        MedPopup::Delete { name, .. } => (
-            " borrar meditación ",
-            vec![
+        MedPopup::Menu { id, sel } => {
+            let name = app.state.meditations.iter().find(|m| m.id == *id).map_or("", |m| m.name.as_str());
+            let mut lines = vec![Line::raw(""), Line::styled(format!("  {}", trunc(name, 44)), fg), Line::raw("")];
+            lines.extend(ui::choice_lines(pal, &app.meditation_menu_rows(id), *sel, "volver"));
+            (" meditación ", lines)
+        }
+        MedPopup::Delete { name, sel, .. } => {
+            let mut lines = vec![
                 Line::raw(""),
                 Line::styled(format!("  ¿Borrar «{}»?", trunc(name, 34)), fg),
                 Line::styled("  Se borra también el archivo de esta compu.", dim),
                 Line::raw(""),
-                Line::from(vec![
-                    Span::styled("  s ", acc),
-                    Span::styled("sí, borrar    ", fg),
-                    Span::styled("Esc ", acc),
-                    Span::styled("no", dim),
-                ]),
-            ],
-        ),
+            ];
+            lines.extend(ui::choice_lines(pal, &["Sí, borrar", "No"], *sel, "cancelar"));
+            (" borrar meditación ", lines)
+        }
     };
     draw_box(f, pal, title, lines);
 }

@@ -65,25 +65,25 @@ pub enum MedPopup {
         url: String,
         category: Option<usize>,
     },
+    /// Enter sobre una meditación: «Escuchar / Pausar» y «Borrar».
+    Menu {
+        id: String,
+        sel: usize,
+    },
     Delete {
         id: String,
         name: String,
+        sel: usize,
     },
 }
 
-/// Modo deep work de Focus (`d`): solo el reloj grande, sin atajos a la vista.
+/// Modo deep work de Focus (Tab › Modo deep work): solo el reloj grande, sin atajos a la vista.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Deep {
     Off,
     On,
     /// El temporizador llegó a cero estando en el modo: «¡Buen trabajo!».
     Done,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Pane {
-    Sounds,
-    Presets,
 }
 
 /// Ventanita «Antes de arrancar» que aparece al entrar a Focus si no hay una sesión en curso.
@@ -102,11 +102,19 @@ pub const MAX_MINUTES: u32 = 999;
 /// Cuánto mueven `↑↓` el tiempo.
 const MINUTES_STEP: u32 = 5;
 
+/// Fila marcada de entrada en las confirmaciones de dos filas («Sí, …» / «No»): la segura.
+pub const SAFE_ROW: usize = 1;
+
 pub enum Popup {
     Intro(Intro),
-    Quit,
-    /// «¿Salir?» fuera de Focus cuando no suena nada.
-    ConfirmQuit,
+    /// Salir con algo sonando: seguir de fondo / apagar todo / volver (marcada).
+    Quit {
+        sel: usize,
+    },
+    /// «¿Salir?» cuando no suena nada.
+    ConfirmQuit {
+        sel: usize,
+    },
     Timer {
         sel: usize,
         custom: Option<String>,
@@ -116,14 +124,50 @@ pub enum Popup {
     },
     DeletePreset {
         name: String,
+        sel: usize,
     },
     /// «¿Descartar el preset?» al apretar Esc en el armado con sonidos elegidos.
-    DiscardPreset,
+    DiscardPreset {
+        sel: usize,
+    },
     DeleteSound {
         id: String,
         name: String,
+        sel: usize,
     },
     Add(AddForm),
+    /// Menú «Opciones» de Focus (Tab).
+    Options {
+        sel: usize,
+    },
+    /// Opciones › Cargar preset: la lista de presets para elegir uno.
+    LoadPreset {
+        sel: usize,
+    },
+}
+
+/// Fila de «Volumen general» en el menú Opciones (← → lo cambian sin cerrarlo).
+pub const OPT_VOLUME: usize = 3;
+/// Cantidad de filas del menú Opciones.
+pub const OPT_ROWS: usize = 8;
+
+/// Qué pasó con una tecla en una ventanita de filas.
+pub(super) enum RowKey {
+    Stay,
+    Chosen(usize),
+    Cancel,
+}
+
+/// ↑↓ mueven la marca, Enter elige la fila marcada y Esc cancela.
+pub(super) fn row_key(k: KeyEvent, sel: &mut usize, n: usize) -> RowKey {
+    match k.code {
+        KeyCode::Up => *sel = sel.saturating_sub(1),
+        KeyCode::Down => *sel = (*sel + 1).min(n.saturating_sub(1)),
+        KeyCode::Enter => return RowKey::Chosen(*sel),
+        KeyCode::Esc => return RowKey::Cancel,
+        _ => {}
+    }
+    RowKey::Stay
 }
 
 pub struct AddForm {
@@ -148,11 +192,12 @@ pub struct App {
     pub screen: Screen,
     pub home_cursor: usize,
     pub config_cursor: usize,
+    /// Cursor de Meditaciones: 0 es «+ Agregar desde YouTube», después la lista agrupada.
     pub med_cursor: usize,
     pub med_popup: Option<MedPopup>,
-    /// Cursor de Configuración > Sonidos ambientales (sobre `file_sounds`).
+    /// Cursor de Configuración > Sonidos ambientales: 0 es «+ Agregar desde YouTube», después `file_sounds`.
     pub sound_cursor: usize,
-    /// Cursor de Configuración > Presets.
+    /// Cursor de Configuración > Presets: 0 es «+ Nuevo preset», después los presets.
     pub preset_list_cursor: usize,
     pub builder: Option<PresetDraft>,
     /// Cursor de Configuración > Sincronización.
@@ -181,10 +226,8 @@ pub struct App {
     pub rng: fastrand::Rng,
     pub state: State,
     pub connected: bool,
-    pub pane: Pane,
     pub deep: Deep,
     pub cursor: usize,
-    pub preset_cursor: usize,
     pub popup: Option<Popup>,
     /// Ayuda de teclas de la pantalla (`?`): cualquier tecla la cierra.
     pub help: Option<super::help::Topic>,
@@ -202,7 +245,7 @@ pub struct App {
     pub exit: Option<Exit>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Exit {
     /// Close the TUI, keep the audio.
     Detach,
@@ -239,10 +282,8 @@ impl App {
             rng: fastrand::Rng::new(),
             state: State::default(),
             connected: false,
-            pane: Pane::Sounds,
             deep: Deep::Off,
             cursor: 0,
-            preset_cursor: 0,
             popup: None,
             help: None,
             notice: None,
@@ -269,7 +310,7 @@ impl App {
     }
 
     pub fn selected_file_sound(&self) -> Option<&Sound> {
-        self.file_sounds().get(self.sound_cursor).copied()
+        self.file_sounds().get(self.sound_cursor.checked_sub(1)?).copied()
     }
 
     pub fn selected_sound(&self) -> Option<&Sound> {
@@ -285,7 +326,7 @@ impl App {
     }
 
     pub fn selected_meditation(&self) -> Option<&Meditation> {
-        self.meditations().get(self.med_cursor).copied()
+        self.meditations().get(self.med_cursor.checked_sub(1)?).copied()
     }
 
     pub fn is_active(&self, id: &str) -> bool {
@@ -310,10 +351,10 @@ impl App {
         self.meditation_ended();
         let n = self.items().len();
         self.cursor = self.cursor.min(n.saturating_sub(1));
-        self.preset_cursor = self.preset_cursor.min(self.state.presets.len().saturating_sub(1));
-        self.med_cursor = self.med_cursor.min(self.state.meditations.len().saturating_sub(1));
-        self.preset_list_cursor = self.preset_list_cursor.min(self.state.presets.len().saturating_sub(1));
-        self.sound_cursor = self.sound_cursor.min(self.file_sounds().len().saturating_sub(1));
+        // Cada lista tiene arriba la fila «+ …», por eso un lugar más que ítems.
+        self.med_cursor = self.med_cursor.min(self.state.meditations.len());
+        self.preset_list_cursor = self.preset_list_cursor.min(self.state.presets.len());
+        self.sound_cursor = self.sound_cursor.min(self.file_sounds().len());
     }
 
     pub fn set_levels(&mut self, layers: Vec<(String, f32)>) {
@@ -436,11 +477,11 @@ impl App {
         match intro {
             Intro::Time { mut minutes, mut typed } => {
                 match k.code {
-                    KeyCode::Up | KeyCode::Char('k') => {
+                    KeyCode::Up => {
                         minutes = (minutes + MINUTES_STEP).min(MAX_MINUTES);
                         typed = false;
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
+                    KeyCode::Down => {
                         minutes = minutes.saturating_sub(MINUTES_STEP).max(1);
                         typed = false;
                     }
@@ -470,8 +511,8 @@ impl App {
             Intro::Sounds { minutes, mut sel } => {
                 let last = self.state.presets.len();
                 match k.code {
-                    KeyCode::Up | KeyCode::Char('k') => sel = sel.saturating_sub(1),
-                    KeyCode::Down | KeyCode::Char('j') => sel = (sel + 1).min(last),
+                    KeyCode::Up => sel = sel.saturating_sub(1),
+                    KeyCode::Down => sel = (sel + 1).min(last),
                     KeyCode::Enter => {
                         self.send(Command::Timer { minutes: Some(minutes) });
                         // La última fila, «Sonidos personalizados», no carga nada.
@@ -491,25 +532,23 @@ impl App {
     }
 
     pub(super) fn request_quit(&mut self) {
-        self.popup = Some(if self.playing() { Popup::Quit } else { Popup::ConfirmQuit });
+        self.popup = Some(if self.playing() { Popup::Quit { sel: 2 } } else { Popup::ConfirmQuit { sel: SAFE_ROW } });
     }
 
-    /// Las cuatro opciones del menú; la primera depende de si ya hay rutinas.
-    pub fn home_items(&self) -> [String; 4] {
+    /// Las cinco opciones del menú; la primera depende de si ya hay rutinas.
+    pub fn home_items(&self) -> [String; 5] {
         let first = match self.continue_routine() {
             Some(i) => format!("Continuar \"{}\"", self.routines[i].name),
             None => "Crear mi primera rutina".to_string(),
         };
-        [first, "Elegir otra rutina".into(), "Ir a Focus".into(), "Configuración".into()]
+        [first, "Elegir otra rutina".into(), "Ir a Focus".into(), "Configuración".into(), "Salir".into()]
     }
 
     fn home_key(&mut self, k: KeyEvent) {
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.home_cursor = self.home_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.home_cursor = (self.home_cursor + 1).min(3),
-            KeyCode::Char(c @ '1'..='4') => self.choose_home(c as usize - '1' as usize),
+            KeyCode::Up => self.home_cursor = self.home_cursor.saturating_sub(1),
+            KeyCode::Down => self.home_cursor = (self.home_cursor + 1).min(4),
             KeyCode::Enter => self.choose_home(self.home_cursor),
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
@@ -520,16 +559,15 @@ impl App {
             0 => self.choose_continue(),
             1 => self.open_routines(Screen::Home),
             2 => self.enter_focus(),
-            _ => self.go(Screen::Config),
+            3 => self.go(Screen::Config),
+            _ => self.request_quit(),
         }
     }
 
     fn config_key(&mut self, k: KeyEvent) {
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.config_cursor = self.config_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.config_cursor = (self.config_cursor + 1).min(CONFIG_ITEMS.len() - 1)
-            }
+            KeyCode::Up => self.config_cursor = self.config_cursor.saturating_sub(1),
+            KeyCode::Down => self.config_cursor = (self.config_cursor + 1).min(CONFIG_ITEMS.len() - 1),
             KeyCode::Enter => match self.config_cursor {
                 0 => self.open_routines(Screen::Config),
                 1 => self.go(Screen::Meditations),
@@ -539,7 +577,6 @@ impl App {
                 _ => {}
             },
             KeyCode::Esc => self.go(Screen::Home),
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
@@ -549,44 +586,34 @@ impl App {
         AddForm { field: if url.is_empty() { 0 } else { 1 }, url, name: String::new(), theme: 0, trim: String::new() }
     }
 
+    /// Enter sobre «+ Agregar desde YouTube» abre el formulario; sobre un sonido pregunta si borrarlo.
     fn sounds_key(&mut self, k: KeyEvent) {
         let n = self.file_sounds().len();
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.sound_cursor = self.sound_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.sound_cursor = (self.sound_cursor + 1).min(n.saturating_sub(1)),
-            KeyCode::Home | KeyCode::Char('g') => self.sound_cursor = 0,
-            KeyCode::End => self.sound_cursor = n.saturating_sub(1),
-            KeyCode::Char('a') => self.popup = Some(Popup::Add(Self::new_add_form(String::new()))),
-            KeyCode::Char('d') | KeyCode::Delete => {
-                if let Some(s) = self.selected_file_sound() {
-                    self.popup = Some(Popup::DeleteSound { id: s.id.clone(), name: s.name.clone() });
+            KeyCode::Up => self.sound_cursor = self.sound_cursor.saturating_sub(1),
+            KeyCode::Down => self.sound_cursor = (self.sound_cursor + 1).min(n),
+            KeyCode::Enter => match self.selected_file_sound() {
+                Some(s) => {
+                    self.popup = Some(Popup::DeleteSound { id: s.id.clone(), name: s.name.clone(), sel: SAFE_ROW });
                 }
-            }
+                None => self.popup = Some(Popup::Add(Self::new_add_form(String::new()))),
+            },
             KeyCode::Esc => self.go(Screen::Config),
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
 
+    /// Enter sobre «+ Nuevo preset» abre el armado; sobre un preset pregunta si borrarlo.
     fn presets_key(&mut self, k: KeyEvent) {
         let n = self.state.presets.len();
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.preset_list_cursor = self.preset_list_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.preset_list_cursor = (self.preset_list_cursor + 1).min(n.saturating_sub(1))
-            }
-            KeyCode::Home | KeyCode::Char('g') => self.preset_list_cursor = 0,
-            KeyCode::End => self.preset_list_cursor = n.saturating_sub(1),
-            KeyCode::Char('n') => {
-                self.enter_builder();
-            }
-            KeyCode::Char('d') | KeyCode::Delete => {
-                if let Some(p) = self.state.presets.get(self.preset_list_cursor) {
-                    self.popup = Some(Popup::DeletePreset { name: p.name.clone() });
-                }
-            }
+            KeyCode::Up => self.preset_list_cursor = self.preset_list_cursor.saturating_sub(1),
+            KeyCode::Down => self.preset_list_cursor = (self.preset_list_cursor + 1).min(n),
+            KeyCode::Enter => match self.preset_list_cursor.checked_sub(1).and_then(|i| self.state.presets.get(i)) {
+                Some(p) => self.popup = Some(Popup::DeletePreset { name: p.name.clone(), sel: SAFE_ROW }),
+                None => self.enter_builder(),
+            },
             KeyCode::Esc => self.go(Screen::Config),
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
@@ -628,17 +655,16 @@ impl App {
         self.builder.as_ref().and_then(|b| b.volumes.get(id).copied()).unwrap_or_else(|| self.volume(id))
     }
 
+    /// Los sonidos y, al final, la fila «✓ Guardar preset» (`cursor == sounds.len()`).
     fn builder_key(&mut self, k: KeyEvent) {
         let n = self.state.sounds.len();
         let Some(b) = self.builder.as_mut() else { return self.go(Screen::Presets) };
         let current = self.state.sounds.get(b.cursor).map(|s| (s.id.clone(), s.available));
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => b.cursor = b.cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => b.cursor = (b.cursor + 1).min(n.saturating_sub(1)),
-            KeyCode::Home => b.cursor = 0,
-            KeyCode::End => b.cursor = n.saturating_sub(1),
-            KeyCode::Enter => {
-                if let Some((id, available)) = current {
+            KeyCode::Up => b.cursor = b.cursor.saturating_sub(1),
+            KeyCode::Down => b.cursor = (b.cursor + 1).min(n),
+            KeyCode::Enter => match current {
+                Some((id, available)) => {
                     if b.picked.remove(&id) {
                         self.send(Command::SetActive { id, active: false });
                     } else if available {
@@ -650,9 +676,11 @@ impl App {
                         self.notify("ese sonido no está en esta compu: corré `focus sync`");
                     }
                 }
-            }
-            KeyCode::Left | KeyCode::Char('h') | KeyCode::Right | KeyCode::Char('l') => {
-                let delta = if matches!(k.code, KeyCode::Left | KeyCode::Char('h')) { -0.05 } else { 0.05 };
+                None if b.picked.is_empty() => self.notify("elegí al menos un sonido con Enter"),
+                None => self.popup = Some(Popup::SavePreset { name: String::new() }),
+            },
+            KeyCode::Left | KeyCode::Right => {
+                let delta = if k.code == KeyCode::Left { -0.05 } else { 0.05 };
                 if let Some((id, _)) = current {
                     let v = (self.draft_volume(&id) + delta).clamp(0.0, 1.0);
                     if let Some(b) = self.builder.as_mut() {
@@ -663,59 +691,59 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char('g') => {
-                if b.picked.is_empty() {
-                    self.notify("elegí al menos un sonido con espacio");
-                } else {
-                    self.popup = Some(Popup::SavePreset { name: String::new() });
-                }
-            }
-            KeyCode::Esc if !b.picked.is_empty() => self.popup = Some(Popup::DiscardPreset),
+            KeyCode::Esc if !b.picked.is_empty() => self.popup = Some(Popup::DiscardPreset { sel: SAFE_ROW }),
             KeyCode::Esc => {
                 self.leave_builder();
                 self.go(Screen::Presets);
             }
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
 
+    /// Enter sobre «+ Agregar desde YouTube» abre el link; sobre una meditación, su menú.
     fn meditations_key(&mut self, k: KeyEvent) {
         let n = self.state.meditations.len();
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.med_cursor = self.med_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.med_cursor = (self.med_cursor + 1).min(n.saturating_sub(1)),
-            KeyCode::Home | KeyCode::Char('g') => self.med_cursor = 0,
-            KeyCode::End => self.med_cursor = n.saturating_sub(1),
-            KeyCode::Enter => {
-                if let Some(m) = self.selected_meditation() {
-                    let id = m.id.clone();
-                    let loaded = self.state.meditation.as_ref().is_some_and(|p| p.id == id);
-                    self.send(if loaded { Command::ToggleMeditation } else { Command::PlayMeditation { id } });
-                }
-            }
-            KeyCode::Char('a') => self.med_popup = Some(MedPopup::Add { url: String::new(), category: None }),
-            KeyCode::Char('d') | KeyCode::Delete => {
-                if let Some(m) = self.selected_meditation() {
-                    self.med_popup = Some(MedPopup::Delete { id: m.id.clone(), name: m.name.clone() });
-                }
-            }
+            KeyCode::Up => self.med_cursor = self.med_cursor.saturating_sub(1),
+            KeyCode::Down => self.med_cursor = (self.med_cursor + 1).min(n),
+            KeyCode::Enter => match self.selected_meditation() {
+                Some(m) => self.med_popup = Some(MedPopup::Menu { id: m.id.clone(), sel: 0 }),
+                None => self.med_popup = Some(MedPopup::Add { url: String::new(), category: None }),
+            },
             KeyCode::Esc => self.go(Screen::Config),
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
+    }
+
+    /// Filas del menú de una meditación: la primera escucha o pausa, la segunda borra.
+    pub fn meditation_menu_rows(&self, id: &str) -> [&'static str; 2] {
+        let playing = self.state.meditation.as_ref().is_some_and(|p| p.id == id && !p.paused);
+        [if playing { "Pausar" } else { "Escuchar" }, "Borrar"]
     }
 
     fn med_popup_key(&mut self, k: KeyEvent) {
         let Some(popup) = self.med_popup.take() else { return };
         self.med_popup = match popup {
-            MedPopup::Delete { id, name } => match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+            MedPopup::Menu { id, mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Stay => Some(MedPopup::Menu { id, sel }),
+                RowKey::Cancel => None,
+                RowKey::Chosen(0) => {
+                    let loaded = self.state.meditation.as_ref().is_some_and(|p| p.id == id);
+                    self.send(if loaded { Command::ToggleMeditation } else { Command::PlayMeditation { id } });
+                    None
+                }
+                RowKey::Chosen(_) => {
+                    let name = self.state.meditations.iter().find(|m| m.id == id).map(|m| m.name.clone());
+                    name.map(|name| MedPopup::Delete { id, name, sel: SAFE_ROW })
+                }
+            },
+            MedPopup::Delete { id, name, mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Stay => Some(MedPopup::Delete { id, name, sel }),
+                RowKey::Chosen(0) => {
                     self.send(Command::DeleteMeditation { id });
                     None
                 }
-                KeyCode::Esc | KeyCode::Char('n') => None,
-                _ => Some(MedPopup::Delete { id, name }),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
             },
             MedPopup::Add { mut url, category: None } => match k.code {
                 KeyCode::Esc => None,
@@ -740,12 +768,8 @@ impl App {
                 let n = Category::ALL.len();
                 match k.code {
                     KeyCode::Esc => Some(MedPopup::Add { url, category: None }),
-                    KeyCode::Up | KeyCode::Left | KeyCode::Char('k' | 'h') => {
-                        Some(MedPopup::Add { url, category: Some(c.saturating_sub(1)) })
-                    }
-                    KeyCode::Down | KeyCode::Right | KeyCode::Char('j' | 'l') => {
-                        Some(MedPopup::Add { url, category: Some((c + 1).min(n - 1)) })
-                    }
+                    KeyCode::Up => Some(MedPopup::Add { url, category: Some(c.saturating_sub(1)) }),
+                    KeyCode::Down => Some(MedPopup::Add { url, category: Some((c + 1).min(n - 1)) }),
                     KeyCode::Enter => {
                         let minutes = Category::ALL[c].minutes();
                         self.send(Command::AddMeditation(AddMeditationRequest { url, name: None, minutes }));
@@ -848,9 +872,8 @@ impl App {
         k
     }
 
-    /// Ctrl+letra: Ctrl+C suelta la TUI, Ctrl+Q apaga todo, Ctrl+G va al final de la lista
-    /// (se vuelve `End`) y Ctrl+J/Ctrl+K quedan para el editor de rutinas. Cualquier otro
-    /// Ctrl+letra se ignora, para que no dispare el atajo de la letra sola. Devuelve el evento
+    /// Ctrl+letra: solo Ctrl+C, la salida de emergencia (suelta la TUI y el sonido sigue). Cualquier
+    /// otro Ctrl+letra se ignora, para que no dispare el atajo de la letra sola. Devuelve el evento
     /// a seguir procesando, si lo hay.
     fn ctrl_key(&mut self, k: KeyEvent) -> Option<KeyEvent> {
         let KeyCode::Char(c) = k.code else { return Some(k) };
@@ -859,22 +882,8 @@ impl App {
         }
         if c == 'c' {
             self.exit = Some(Exit::Detach);
-            return None;
         }
-        if self.typing() {
-            return None;
-        }
-        match c {
-            // A running sync cannot be cut short from the keyboard (Ctrl+C is the way out).
-            'q' if self.sync_running() => None,
-            'q' => {
-                self.exit = Some(Exit::Quit);
-                None
-            }
-            'g' => Some(KeyEvent::new(KeyCode::End, KeyModifiers::NONE)),
-            'j' | 'k' if self.screen == Screen::RoutineEditor => Some(k),
-            _ => None,
-        }
+        None
     }
 
     pub fn key(&mut self, k: KeyEvent) {
@@ -882,7 +891,7 @@ impl App {
         if let Some(k) = self.ctrl_key(k) {
             self.handle_key(k);
         }
-        // Salir de la app (q, Ctrl+Q, Ctrl+C) desde el armado también devuelve el audio a como estaba.
+        // Salir de la app (la ventanita de salir o Ctrl+C) desde el armado también devuelve el audio a como estaba.
         if self.exit.is_some() {
             self.leave_builder();
         }
@@ -912,11 +921,11 @@ impl App {
             (_, Screen::Presets) => Topic::Presets,
             (_, Screen::Sync) => Topic::Sync,
             (_, Screen::PresetBuilder) => Topic::Builder,
-            (_, Screen::Routines) => Topic::Routines { start: self.list_from == Screen::Home },
+            (_, Screen::Routines) => Topic::Routines,
             (_, Screen::RoutineEditor) => Topic::Editor,
             (_, Screen::RoutineStep) => Topic::Step,
             (_, Screen::RoutineRun) => Topic::Run,
-            (_, Screen::Focus) => Topic::Focus { deep: self.deep != Deep::Off },
+            (_, Screen::Focus) => Topic::Focus,
         }
     }
 
@@ -956,42 +965,24 @@ impl App {
         }
         let items = self.items().len();
         match k.code {
-            KeyCode::Char('q') => self.request_quit(),
             // Leaving Focus goes back to the home menu; the sound keeps playing.
             KeyCode::Esc => self.go(Screen::Home),
-            KeyCode::Char('d') => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
-            KeyCode::Tab | KeyCode::BackTab => {
-                self.pane = if self.pane == Pane::Sounds { Pane::Presets } else { Pane::Sounds };
-            }
-            KeyCode::Char('p') => self.send(Command::PauseAll),
-            KeyCode::Char('x') => self.send(Command::StopAll),
+            KeyCode::Tab => self.popup = Some(Popup::Options { sel: 0 }),
+            // Atajos ocultos: 0 reinicia los sonidos y t pausa o sigue el timer (el audio no se toca).
             KeyCode::Char('0') => self.send(Command::RestartSounds),
-            // La `p` ya pausa los sonidos: el reloj se pausa con `r` y el audio no se toca.
-            KeyCode::Char('r') => {
+            KeyCode::Char('t') => {
                 if self.state.timer.is_some() {
                     self.send(Command::ToggleTimerPause);
                 } else {
                     self.notify("no hay timer");
                 }
             }
-            KeyCode::Char('+') | KeyCode::Char('=') => {
-                self.state.master = (self.state.master + 0.05).min(1.0);
-                self.send(Command::SetMaster { volume: self.state.master });
-            }
-            KeyCode::Char('-') => {
-                self.state.master = (self.state.master - 0.05).max(0.0);
-                self.send(Command::SetMaster { volume: self.state.master });
-            }
-            KeyCode::Char('t') => {
-                self.popup = Some(Popup::Timer { sel: 0, custom: None });
-            }
-            _ if self.pane == Pane::Presets => self.preset_key(k),
-            KeyCode::Up | KeyCode::Char('k') => self.cursor = self.cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.cursor = (self.cursor + 1).min(items.saturating_sub(1)),
-            KeyCode::Home | KeyCode::Char('g') => self.cursor = 0,
-            KeyCode::End => self.cursor = items.saturating_sub(1),
-            KeyCode::Left | KeyCode::Char('h') => self.change_volume(-0.05),
-            KeyCode::Right | KeyCode::Char('l') => self.change_volume(0.05),
+            // Terminada la sesión de deep work, Enter vuelve a Focus.
+            KeyCode::Enter if self.deep == Deep::Done => self.deep = Deep::Off,
+            KeyCode::Up => self.cursor = self.cursor.saturating_sub(1),
+            KeyCode::Down => self.cursor = (self.cursor + 1).min(items.saturating_sub(1)),
+            KeyCode::Left => self.change_volume(-0.05),
+            KeyCode::Right => self.change_volume(0.05),
             KeyCode::Enter => {
                 if let Some(s) = self.selected_sound() {
                     let id = s.id.clone();
@@ -1002,73 +993,115 @@ impl App {
         }
     }
 
-    fn preset_key(&mut self, k: KeyEvent) {
-        let n = self.state.presets.len();
-        match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.preset_cursor = self.preset_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.preset_cursor = (self.preset_cursor + 1).min(n.saturating_sub(1))
+    /// Filas del menú Opciones, en el orden en que se dibujan (la del volumen lleva su barra aparte).
+    pub fn option_rows(&self) -> [&'static str; OPT_ROWS] {
+        [
+            "Timer ›",
+            if self.deep == Deep::Off { "Modo deep work" } else { "Salir de deep work" },
+            "Cargar preset ›",
+            "Volumen general",
+            if self.state.paused { "Seguir todo" } else { "Pausar todo" },
+            "Apagar todo",
+            "Volver al inicio",
+            "Salir",
+        ]
+    }
+
+    /// Enter sobre una fila de Opciones. Devuelve la ventanita que sigue (`None` la cierra).
+    fn option_chosen(&mut self, row: usize) -> Option<Popup> {
+        match row {
+            0 => return Some(Popup::Timer { sel: 0, custom: None }),
+            1 => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
+            2 => return Some(Popup::LoadPreset { sel: 0 }),
+            OPT_VOLUME => return Some(Popup::Options { sel: row }),
+            4 => self.send(Command::PauseAll),
+            5 => self.send(Command::StopAll),
+            6 => self.go(Screen::Home),
+            _ => {
+                self.request_quit();
+                return self.popup.take();
             }
-            KeyCode::Enter => {
-                if let Some(p) = self.state.presets.get(self.preset_cursor) {
-                    let name = p.name.clone();
-                    self.send(Command::LoadPreset { name });
-                }
-            }
-            _ => {}
         }
+        None
     }
 
     fn popup_key(&mut self, k: KeyEvent) {
         let Some(popup) = self.popup.take() else { return };
+        // Esc cierra cualquier ventanita (en las de confirmación es siempre «no»), salvo las que
+        // lo tratan distinto antes de llegar acá.
         if k.code == KeyCode::Esc {
             return;
         }
         self.popup = match popup {
             Popup::Intro(intro) => self.intro_key(intro, k),
-            Popup::Quit => match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+            Popup::Quit { mut sel } => match row_key(k, &mut sel, 3) {
+                RowKey::Chosen(0) => {
                     self.exit = Some(Exit::Detach);
                     None
                 }
-                KeyCode::Char('n' | 'q') => {
+                RowKey::Chosen(1) => {
                     self.exit = Some(Exit::Quit);
                     None
                 }
-                _ => Some(Popup::Quit),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
+                RowKey::Stay => Some(Popup::Quit { sel }),
             },
-            Popup::ConfirmQuit => match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+            Popup::ConfirmQuit { mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Chosen(0) => {
                     self.exit = Some(Exit::Quit);
                     None
                 }
-                KeyCode::Char('n' | 'N') => None,
-                _ => Some(Popup::ConfirmQuit),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
+                RowKey::Stay => Some(Popup::ConfirmQuit { sel }),
             },
-            Popup::DeleteSound { id, name } => match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+            Popup::DeleteSound { id, name, mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Chosen(0) => {
                     self.send(Command::DeleteSound { id });
                     None
                 }
-                KeyCode::Char('n') => None,
-                _ => Some(Popup::DeleteSound { id, name }),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
+                RowKey::Stay => Some(Popup::DeleteSound { id, name, sel }),
             },
-            Popup::DeletePreset { name } => match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+            Popup::DeletePreset { name, mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Chosen(0) => {
                     self.send(Command::DeletePreset { name });
                     None
                 }
-                KeyCode::Char('n') => None,
-                _ => Some(Popup::DeletePreset { name }),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
+                RowKey::Stay => Some(Popup::DeletePreset { name, sel }),
             },
-            Popup::DiscardPreset => match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+            Popup::DiscardPreset { mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Chosen(0) => {
                     self.leave_builder();
                     self.go(Screen::Presets);
                     None
                 }
-                KeyCode::Char('n') => None,
-                _ => Some(Popup::DiscardPreset),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
+                RowKey::Stay => Some(Popup::DiscardPreset { sel }),
+            },
+            Popup::Options { mut sel } => match k.code {
+                KeyCode::Left | KeyCode::Right if sel == OPT_VOLUME => {
+                    let delta = if k.code == KeyCode::Left { -0.05 } else { 0.05 };
+                    self.state.master = (self.state.master + delta).clamp(0.0, 1.0);
+                    self.send(Command::SetMaster { volume: self.state.master });
+                    Some(Popup::Options { sel })
+                }
+                _ => match row_key(k, &mut sel, OPT_ROWS) {
+                    RowKey::Chosen(row) => self.option_chosen(row),
+                    RowKey::Cancel => None,
+                    RowKey::Stay => Some(Popup::Options { sel }),
+                },
+            },
+            Popup::LoadPreset { mut sel } => match row_key(k, &mut sel, self.state.presets.len()) {
+                RowKey::Chosen(i) => {
+                    if let Some(p) = self.state.presets.get(i) {
+                        let name = p.name.clone();
+                        self.send(Command::LoadPreset { name });
+                    }
+                    None
+                }
+                RowKey::Cancel => None,
+                RowKey::Stay => Some(Popup::LoadPreset { sel }),
             },
             Popup::SavePreset { mut name } => match k.code {
                 KeyCode::Enter if !name.trim().is_empty() => {
@@ -1123,13 +1156,8 @@ impl App {
                 // Choices: the presets, "custom", and "cancel" when a timer is running.
                 let n = TIMER_CHOICES.len() + self.state.timer.is_some() as usize;
                 match k.code {
-                    KeyCode::Up | KeyCode::Char('k') => sel = sel.saturating_sub(1),
-                    KeyCode::Down | KeyCode::Char('j') => sel = (sel + 1).min(n - 1),
-                    KeyCode::Char(c @ '1'..='3') => {
-                        let m = TIMER_CHOICES[c as usize - '1' as usize];
-                        self.send(Command::Timer { minutes: Some(m) });
-                        return;
-                    }
+                    KeyCode::Up => sel = sel.saturating_sub(1),
+                    KeyCode::Down => sel = (sel + 1).min(n - 1),
                     KeyCode::Enter => {
                         return match TIMER_CHOICES.get(sel) {
                             Some(0) => self.popup = Some(Popup::Timer { sel, custom: Some(String::new()) }),
@@ -1143,8 +1171,8 @@ impl App {
             }
             Popup::Add(mut f) => {
                 match k.code {
-                    KeyCode::Tab | KeyCode::Down => f.field = (f.field + 1) % 4,
-                    KeyCode::BackTab | KeyCode::Up => f.field = (f.field + 3) % 4,
+                    KeyCode::Down => f.field = (f.field + 1) % 4,
+                    KeyCode::Up => f.field = (f.field + 3) % 4,
                     KeyCode::Left if f.field == 2 => f.theme = (f.theme + ADD_THEMES.len() - 1) % ADD_THEMES.len(),
                     KeyCode::Right if f.field == 2 => f.theme = (f.theme + 1) % ADD_THEMES.len(),
                     KeyCode::Enter => {

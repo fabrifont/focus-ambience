@@ -156,11 +156,10 @@ impl App {
 
     pub(super) fn sync_key(&mut self, k: KeyEvent) {
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.sync_cursor = self.sync_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.sync_cursor = (self.sync_cursor + 1).min(SYNC_ITEMS.len() - 1),
+            KeyCode::Up => self.sync_cursor = self.sync_cursor.saturating_sub(1),
+            KeyCode::Down => self.sync_cursor = (self.sync_cursor + 1).min(SYNC_ITEMS.len() - 1),
             KeyCode::Enter => self.start_sync(SYNC_ITEMS[self.sync_cursor]),
             KeyCode::Esc => self.go(Screen::Config),
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
