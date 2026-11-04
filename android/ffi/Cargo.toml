@@ -1,0 +1,31 @@
+[package]
+name = "focus_ffi"
+version = "0.1.0"
+edition = "2021"
+
+# Independiente de cualquier workspace raíz.
+[workspace]
+
+[lib]
+name = "focus_ffi"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+uniffi = { version = "0.28", features = ["cli"] }
+focus-core = { path = "../../core" }
+anyhow = "1"
+thiserror = "1"
+
+[profile.release]
+panic = "unwind"
+opt-level = 3
+lto = true
+
+# cpal (AAudio) pide el contexto de Android por JNI al abrir el audio: lo inicializamos desde Kotlin.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
