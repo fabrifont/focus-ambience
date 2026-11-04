@@ -27,7 +27,7 @@ jobs:
         run: cargo install cargo-ndk --locked
       - name: Tests del puente
         working-directory: android/ffi
-        run: cargo test
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev && cargo test
       - name: APK (debug, firmado con la clave debug)
         working-directory: android
         env:
