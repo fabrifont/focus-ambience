@@ -1,0 +1,75 @@
+name: Android
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: NDK
+        run: sdkmanager "ndk;27.2.12479018"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: android/ffi
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Tests del puente
+        working-directory: android/ffi
+        run: cargo test
+      - name: APK (debug, firmado con la clave debug)
+        working-directory: android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: ./gradlew assembleDebug assembleDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: focus-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-test-apk
+          path: android/app/build/outputs/apk/androidTest/debug/*.apk
+
+  smoke:
+    needs: apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: focus-debug-apk, path: apk }
+      - uses: actions/download-artifact@v4
+        with: { name: android-test-apk, path: apk-test }
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          script: |
+            adb install -r apk/*.apk
+            adb install -r apk-test/*.apk
+            adb shell am instrument -w -e class com.fabrifont.focus.FocusFlowTest com.fabrifont.focus.test/androidx.test.runner.AndroidJUnitRunner | tee inst.txt
+            grep -q "OK (" inst.txt
+            adb shell am start -n com.fabrifont.focus/.MainActivity; sleep 5; adb exec-out screencap -p > inicio.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capturas
+          path: "*.png"
