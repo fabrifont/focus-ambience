@@ -5,6 +5,17 @@ import kotlinx.coroutines.flow.StateFlow
 /** Sonido del catálogo. `theme` es el nombre del tema ("Generados" en la etapa 1). */
 data class SoundItem(val id: String, val name: String, val theme: String)
 
+/** Mezcla guardada: id de sonido -> volumen (0..1). */
+data class PresetItem(val name: String, val layers: Map<String, Float>)
+
+/** La meditación de una rutina. Android no la edita, pero la conserva al guardar. `minutes` null = libre. */
+data class MeditationSlot(val minutes: Int?)
+
+data class RoutineItem(val name: String, val tasks: List<String>, val meditation: MeditationSlot? = null)
+
+/** Volumen que se muestra mientras el motor no tiene uno guardado para el sonido. */
+const val DEFAULT_VOLUME = 0.5f
+
 data class TimerInfo(val totalSecs: Long, val remainingSecs: Long, val paused: Boolean)
 
 /** Estado que ve la UI; propio de la app para no filtrar los tipos del puente. */
@@ -15,7 +26,10 @@ data class EngineState(
     val paused: Boolean = false,
     val master: Float = 1f,
     val timer: TimerInfo? = null,
+    val presets: List<PresetItem> = emptyList(),
 ) {
+    fun volumeOf(id: String): Float = volumes[id] ?: DEFAULT_VOLUME
+
     /** Suena algo ahora mismo. */
     val audible: Boolean get() = active.isNotEmpty() && !paused
 
@@ -45,6 +59,14 @@ sealed interface EngineCommand {
     /** `null` cancela. */
     data class Timer(val minutes: Int?) : EngineCommand
     data object ToggleTimerPause : EngineCommand
+
+    /** Pausa solo el ambiente (y una meditación sonando); el timer sigue. */
+    data object PauseAmbient : EngineCommand
+    data object ResumeAmbient : EngineCommand
+
+    data class LoadPreset(val name: String) : EngineCommand
+    data class DeletePreset(val name: String) : EngineCommand
+    data class StorePreset(val name: String, val layers: Map<String, Float>) : EngineCommand
 }
 
 interface FocusEngine {
@@ -54,6 +76,15 @@ interface FocusEngine {
     var timerFinishedCallback: (() -> Unit)?
 
     fun send(cmd: EngineCommand)
+
+    // Rutinas: leen y escriben routines.toml directo (no es audio). Tiran excepción si el archivo está roto.
+    fun routines(): List<RoutineItem>
+    fun saveRoutines(routines: List<RoutineItem>)
+
+    /** ¿Ya hay otra rutina con ese nombre? `skip` = índice de la que se está editando. */
+    fun routineNameTaken(routines: List<RoutineItem>, name: String, skip: Int?): Boolean
+    fun lastRoutine(): String?
+    fun setLastRoutine(name: String?)
 }
 
 /** Pausa si algo avanza y sigue si no. */
