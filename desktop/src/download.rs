@@ -118,13 +118,13 @@ pub fn add(req: &AddRequest, progress: impl FnMut(&str, f32)) -> Result<Manifest
         trim: req.trim,
     };
 
-    let mut manifest = library::load_manifest()?;
+    let mut manifest = library::load_manifest(&paths::library_dir())?;
     // Re-adding a sound replaces it in place, so the list order stays put.
     match manifest.sounds.iter_mut().find(|e| e.id == entry.id) {
         Some(e) => *e = entry.clone(),
         None => manifest.sounds.push(entry.clone()),
     }
-    library::save_manifest(&manifest)?;
+    library::save_manifest(&paths::library_dir(), &manifest)?;
     Ok(entry)
 }
 
@@ -143,9 +143,9 @@ pub fn add_meditation(req: &AddMeditationRequest, progress: impl FnMut(&str, f32
         duration: e.duration,
         bytes: e.bytes,
     };
-    let mut manifest = meditation::load_manifest()?;
+    let mut manifest = meditation::load_manifest(&paths::library_dir())?;
     meditation::upsert(&mut manifest, entry.clone());
-    meditation::save_manifest(&manifest)?;
+    meditation::save_manifest(&paths::library_dir(), &manifest)?;
     Ok(entry)
 }
 

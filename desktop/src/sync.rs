@@ -56,13 +56,21 @@ fn sets() -> Result<[Set; 2]> {
             label: "sonidos",
             local: paths::sounds_dir(),
             remote: remote(),
-            entries: library::load_manifest()?.sounds.into_iter().map(|e| (e.name, e.file, e.sha256)).collect(),
+            entries: library::load_manifest(&paths::library_dir())?
+                .sounds
+                .into_iter()
+                .map(|e| (e.name, e.file, e.sha256))
+                .collect(),
         },
         Set {
             label: "meditaciones",
             local: paths::meditations_dir(),
             remote: meditations_remote(),
-            entries: meditation::load_manifest()?.meditations.into_iter().map(|e| (e.name, e.file, e.sha256)).collect(),
+            entries: meditation::load_manifest(&paths::library_dir())?
+                .meditations
+                .into_iter()
+                .map(|e| (e.name, e.file, e.sha256))
+                .collect(),
         },
     ])
 }

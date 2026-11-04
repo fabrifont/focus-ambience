@@ -1,21 +1,17 @@
-mod audio;
 mod client;
 mod daemon;
 mod download;
-mod library;
-mod meditation;
 mod paths;
 mod progress;
-mod protocol;
-mod routine;
 mod setup;
 mod sync;
 mod tui;
 
 use anyhow::{Result, bail};
-
-use crate::library::{Theme, Visual};
-use crate::protocol::{AddMeditationRequest, AddRequest, Command};
+// The engine lives in `focus-core`; these re-exports keep the old `crate::library::…` paths.
+use focus_core::library::{self, Theme, Visual};
+use focus_core::protocol::{AddMeditationRequest, AddRequest, Command};
+use focus_core::{meditation, protocol, routine};
 
 const HELP: &str = "\
 focus — ambientes para concentrarse
@@ -73,7 +69,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some("stop") => client::oneshot(Some(Command::StopAll), false).map(drop),
-        Some("pause") => client::oneshot(Some(Command::PauseAll), false).map(drop),
+        Some("pause") => client::oneshot(Some(Command::TogglePause), false).map(drop),
         Some("quit") => {
             if client::oneshot(Some(Command::Quit), false)?.is_none() {
                 println!("no había nada sonando");
@@ -135,7 +131,7 @@ fn status() -> Result<()> {
 }
 
 fn list() -> Result<()> {
-    let sounds = library::all_sounds()?;
+    let sounds = library::all_sounds(&paths::library_dir())?;
     let mut theme = None;
     for s in &sounds {
         if theme != Some(s.theme) {
@@ -151,7 +147,7 @@ fn list() -> Result<()> {
     if sounds.iter().all(|s| s.theme == Theme::Generated) {
         println!("\ntodavía no hay sonidos descargados: corré focus sync (o focus add <url>)");
     }
-    let presets = library::load_presets();
+    let presets = library::load_presets(&paths::library_dir());
     if !presets.presets.is_empty() {
         println!("\nPresets");
         for p in &presets.presets {
@@ -222,7 +218,7 @@ fn meditation_cmd(args: &[String]) -> Result<()> {
             Ok(())
         }
         Some("listar") => {
-            let all = meditation::all_meditations()?;
+            let all = meditation::all_meditations(&paths::library_dir())?;
             if all.is_empty() {
                 println!("no hay meditaciones todavía (corré focus sync, o focus meditacion agregar <url> <minutos>)");
             }
@@ -241,20 +237,20 @@ fn meditation_cmd(args: &[String]) -> Result<()> {
             Ok(())
         }
         Some("borrar") => {
-            let all = meditation::all_meditations()?;
+            let all = meditation::all_meditations(&paths::library_dir())?;
             let m = meditation::find(&all, &rest.join(" "))?;
             // The daemon (if it's up) also stops it when it's playing.
             if client::oneshot(Some(Command::DeleteMeditation { id: m.id.clone() }), false)?.is_none() {
-                let mut manifest = meditation::load_manifest()?;
+                let mut manifest = meditation::load_manifest(&paths::library_dir())?;
                 manifest.meditations.retain(|e| e.id != m.id);
-                meditation::save_manifest(&manifest)?;
+                meditation::save_manifest(&paths::library_dir(), &manifest)?;
                 let _ = std::fs::remove_file(paths::meditations_dir().join(&m.file));
             }
             println!("✓ «{}» borrada", m.name);
             Ok(())
         }
         Some("reproducir") => {
-            let all = meditation::all_meditations()?;
+            let all = meditation::all_meditations(&paths::library_dir())?;
             let m = meditation::find(&all, &rest.join(" "))?;
             if !m.available {
                 bail!("«{}» no está en esta compu: corré `focus sync`", m.name);

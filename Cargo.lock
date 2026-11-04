@@ -404,18 +404,30 @@ name = "focus"
 version = "2.1.0"
 dependencies = [
  "anyhow",
- "cpal",
  "fastrand",
+ "focus-core",
  "libc",
- "ogg",
- "opus",
  "ratatui",
- "rtrb",
  "serde",
  "serde_json",
  "sha2",
  "toml",
  "uds_windows",
+]
+
+[[package]]
+name = "focus-core"
+version = "2.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "fastrand",
+ "ogg",
+ "opus",
+ "rtrb",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

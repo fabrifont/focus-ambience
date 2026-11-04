@@ -1,10 +1,8 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-
-use crate::paths;
 
 /// Visual theme: drives colors and the animated scene in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -154,16 +152,22 @@ pub struct Presets {
     pub presets: Vec<Preset>,
 }
 
-fn manifest_path() -> PathBuf {
-    paths::library_dir().join("sounds.toml")
+/// Where the sound `.opus` files live inside the library folder.
+pub fn sounds_dir(library: &Path) -> PathBuf {
+    library.join("sounds")
 }
 
-fn presets_path() -> PathBuf {
-    paths::library_dir().join("presets.toml")
+fn manifest_path(library: &Path) -> PathBuf {
+    library.join("sounds.toml")
 }
 
-pub fn load_manifest() -> Result<Manifest> {
-    let path = manifest_path();
+fn presets_path(library: &Path) -> PathBuf {
+    library.join("presets.toml")
+}
+
+/// `library` is the folder holding `sounds.toml`, `presets.toml` and `sounds/`. A missing list is empty.
+pub fn load_manifest(library: &Path) -> Result<Manifest> {
+    let path = manifest_path(library);
     match std::fs::read_to_string(&path) {
         Ok(s) => toml::from_str(&s).with_context(|| format!("leyendo {}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Manifest::default()),
@@ -174,16 +178,16 @@ pub fn load_manifest() -> Result<Manifest> {
 const MANIFEST_HEADER: &str = "# Sonidos descargados. Los .opus viven en sounds/ (no versionados) y se\n\
 # sincronizan con `focus sync`. Este archivo también vive en Drive, no en git.\n\n";
 
-pub fn save_manifest(m: &Manifest) -> Result<()> {
-    write_atomic(&manifest_path(), &format!("{MANIFEST_HEADER}{}", toml::to_string_pretty(m)?))
+pub fn save_manifest(library: &Path, m: &Manifest) -> Result<()> {
+    write_atomic(&manifest_path(library), &format!("{MANIFEST_HEADER}{}", toml::to_string_pretty(m)?))
 }
 
-pub fn load_presets() -> Presets {
-    std::fs::read_to_string(presets_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
+pub fn load_presets(library: &Path) -> Presets {
+    std::fs::read_to_string(presets_path(library)).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
 }
 
-pub fn save_presets(p: &Presets) -> Result<()> {
-    write_atomic(&presets_path(), &toml::to_string_pretty(p)?)
+pub fn save_presets(library: &Path, p: &Presets) -> Result<()> {
+    write_atomic(&presets_path(library), &toml::to_string_pretty(p)?)
 }
 
 pub fn write_atomic(path: &std::path::Path, contents: &str) -> Result<()> {
@@ -215,9 +219,9 @@ fn generated() -> Vec<Sound> {
 }
 
 /// Every playable sound, grouped by theme in display order.
-pub fn all_sounds() -> Result<Vec<Sound>> {
-    let dir = paths::sounds_dir();
-    let mut sounds: Vec<Sound> = load_manifest()?
+pub fn all_sounds(library: &Path) -> Result<Vec<Sound>> {
+    let dir = sounds_dir(library);
+    let mut sounds: Vec<Sound> = load_manifest(library)?
         .sounds
         .into_iter()
         .map(|e| Sound {

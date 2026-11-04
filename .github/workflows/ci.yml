@@ -20,12 +20,12 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Formato
-        run: cargo fmt --check
+        run: cargo fmt --all --check
       # El código específico de Windows (#[cfg(windows)]) sólo se compila/lintea en el runner
       # de Windows; clippy en Linux no lo ve.
       - name: Clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Compilar
-        run: cargo build --locked
+        run: cargo build --workspace --locked
       - name: Tests
-        run: cargo test --locked
+        run: cargo test --workspace --locked

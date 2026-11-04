@@ -17,7 +17,7 @@ Ambientes para concentrarse, en la terminal. Sin pestaña de YouTube abierta.
 |---|---|
 | Debian / Ubuntu / Mint | Bajá el `.deb` de [Releases](../../releases) y corré `sudo apt install ./focus_<versión>-1_amd64.deb` |
 | Windows 10 1803+ | Bajá `focus-windows-x86_64.exe` de [Releases](../../releases) y ponelo en el `PATH` |
-| Desde el código | `cargo install --path .` (Rust 1.88+, conviene [rustup](https://rustup.rs)) |
+| Desde el código | `cargo install --path desktop` (Rust 1.88+, conviene [rustup](https://rustup.rs)) |
 
 Para compilar en Linux:
 
@@ -225,10 +225,10 @@ Si existe `FOCUS_LIBRARY`, manda sobre la ruta de la biblioteca.
 ## Desarrollo
 
 ```sh
-cargo build --release      # target/release/focus
-cargo test
-cargo clippy --all-targets
-cargo fmt
+cargo build --release      # target/release/focus (el workspace compila `core` y `desktop`)
+cargo test --workspace
+cargo clippy --workspace --all-targets
+cargo fmt --all
 ```
 
 Los releases se arman en GitHub Actions al subir un tag `v*`.

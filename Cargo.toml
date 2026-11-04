@@ -1,40 +1,12 @@
-[package]
-name = "focus"
+[workspace]
+members = ["core", "desktop"]
+resolver = "3"
+
+[workspace.package]
 version = "2.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Mezclador de ambientes para concentrarse, liviano y en la terminal"
 authors = ["Fabrizio Fontanarrosa <fabriziofontanarrosa@gmail.com>"]
-readme = "README.md"
-
-[package.metadata.deb]
-maintainer = "Fabrizio Fontanarrosa <fabriziofontanarrosa@gmail.com>"
-section = "sound"
-priority = "optional"
-depends = "$auto"
-recommends = "rclone, yt-dlp, ffmpeg"
-extended-description = """\
-Mezclador de ambientes para concentrarse, en la terminal: sonidos de \
-juegos y películas, lluvia, ruido de color y binaural 40 Hz, con \
-temporizador, rutinas y meditaciones guiadas. El audio sigue sonando \
-en segundo plano y las listas se sincronizan con Google Drive."""
-assets = [
-    ["target/release/focus", "usr/bin/", "755"],
-    ["README.md", "usr/share/doc/focus/README", "644"],
-]
-
-[dependencies]
-anyhow = "1.0.104"
-cpal = "0.18.2"
-fastrand = "2.5.0"
-ogg = "0.9.2"
-opus = "0.4.0"
-ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache"] }
-rtrb = "0.4.0"
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
-sha2 = "0.11.1"
-toml = "1.1.8"
 
 [profile.release]
 opt-level = 3
@@ -42,9 +14,3 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
-
-[target."cfg(windows)".dependencies]
-uds_windows = "1.2.1"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"

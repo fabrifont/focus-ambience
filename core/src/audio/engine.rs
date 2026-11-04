@@ -76,6 +76,60 @@ enum StreamCmd {
     Pause,
 }
 
+/// What the player needs from an audio output. [`Engine`] is the real one (cpal); tests plug in a
+/// fake to run without a sound card.
+pub trait AudioOut: Send {
+    /// Start (or re-target) a layer; `make` opens its source only if the layer is new.
+    fn play(&mut self, id: &str, volume: f32, make: Box<dyn FnOnce() -> Result<Box<dyn Source>>>) -> Result<()>;
+    fn set_volume(&self, id: &str, volume: f32);
+    /// Fade out and release a layer.
+    fn stop(&mut self, id: &str);
+    /// A non-looping layer whose source has been decoded to the end.
+    fn has_ended(&self, id: &str) -> bool;
+    fn set_master(&self, v: f32);
+    fn set_fade(&self, v: f32);
+    fn levels(&self) -> (f32, Vec<(String, f32)>);
+    /// Playback position (samples per channel) of every layer whose source reports one.
+    fn positions(&self) -> HashMap<String, u64>;
+    /// Housekeeping, called periodically.
+    fn tick(&mut self);
+    /// False once everything has faded to silence and the device is paused.
+    fn is_running(&self) -> bool;
+}
+
+impl AudioOut for Engine {
+    fn play(&mut self, id: &str, volume: f32, make: Box<dyn FnOnce() -> Result<Box<dyn Source>>>) -> Result<()> {
+        Engine::play(self, id, volume, make)
+    }
+    fn set_volume(&self, id: &str, volume: f32) {
+        Engine::set_volume(self, id, volume)
+    }
+    fn stop(&mut self, id: &str) {
+        Engine::stop(self, id)
+    }
+    fn has_ended(&self, id: &str) -> bool {
+        Engine::has_ended(self, id)
+    }
+    fn set_master(&self, v: f32) {
+        Engine::set_master(self, v)
+    }
+    fn set_fade(&self, v: f32) {
+        Engine::set_fade(self, v)
+    }
+    fn levels(&self) -> (f32, Vec<(String, f32)>) {
+        Engine::levels(self)
+    }
+    fn positions(&self) -> HashMap<String, u64> {
+        Engine::positions(self)
+    }
+    fn tick(&mut self) {
+        Engine::tick(self)
+    }
+    fn is_running(&self) -> bool {
+        Engine::is_running(self)
+    }
+}
+
 pub struct Engine {
     layers: HashMap<String, Arc<LayerCtl>>,
     feeder: Sender<FeedLayer>,

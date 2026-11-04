@@ -1,6 +1,6 @@
 # focus-ambience
 
-Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido, binaural 40 Hz) que reemplaza tener una pestaña de YouTube abierta. TUI en terminal + CLI, escrito en Rust. El usuario habla español (rioplatense): responder en español.
+Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido, binaural 40 Hz) que reemplaza tener una pestaña de YouTube abierta. TUI en terminal + CLI, escrito en Rust, en un workspace: `core/` (motor, Rust puro, lo reusará la app de Android) y `desktop/` (el binario `focus`). El usuario habla español (rioplatense): responder en español.
 
 ## Máquina objetivo (importa para cada decisión)
 
@@ -30,29 +30,43 @@ Mezclador de ambientes para concentrarse (Skyrim, LOTR, Star Wars, lluvia, ruido
 
 ## Arquitectura
 
+Workspace en la raíz (`Cargo.toml` con `[profile.release]` y la versión compartida; `Cargo.lock` único).
+
+**`core/` (crate `focus-core`, lib)**: Rust puro, apto para Android. Reglas: no lanza procesos (`std::process`), no busca rutas del sistema (todo lo que necesita una carpeta la recibe: `Player::new(data_dir)`, `library::load_manifest(&dir)`, `routine::load(&dir)`…; `data_dir` es la carpeta de la biblioteca, la que tiene `sounds.toml`, `sounds/`, etc.) y no depende de ratatui, crossterm, libc, uds_windows ni uniffi. Sus deps son solo las que compilan para `aarch64-linux-android`.
+
 ```
-src/
-  main.rs        CLI (dispatch de subcomandos)
-  paths.rs       rutas: library (carpeta de datos local), socket, estado, log; config opcional
+core/src/
+  lib.rs         módulos y reexport de Player
+  player.rs      `Player` (Send + Sync): dueño del audio, biblioteca, capas, meditación y timer. `send(Command)`, `state()`, `set_event_listener`; hilo propio para el reloj/fades/niveles y otro para despachar eventos. Las descargas las hace el host y se las cuenta con `download_started/progress/finished`. Tests en `player/tests.rs` con una salida de audio falsa
+  protocol.rs    Command, State, Event y demás datos planos (serde)
   library.rs     manifest de sonidos, presets, fuentes generadas
-  routine.rs     rutinas (`library/routines.toml`, por Drive) y última rutina usada (`ui.toml` en el estado local)
   meditation.rs  manifest de meditaciones, categorías, agrupado, elección al azar (pick_random)
-  protocol.rs    mensajes JSON-lines cliente <-> daemon
-  client.rs      conectar al daemon (lanzándolo si no existe)
-  daemon.rs      estado, socket, temporizador, auto-cierre, descargas, reproductor de meditación
+  routine.rs     rutinas (`routines.toml`) y última rutina usada (`ui.toml`)
   audio/
-    engine.rs    salida cpal; el callback mezcla capas con ganancias suavizadas
+    engine.rs    trait `AudioOut` + `Engine` (salida cpal); el callback mezcla capas con ganancias suavizadas
     sources.rs   ruidos, binaural, lector Ogg/Opus con seek (open = loop, open_once = una vez)
+```
+
+**`desktop/` (crate `focus`, binario)**: todo lo que toca el sistema.
+
+```
+desktop/src/
+  main.rs        CLI (dispatch de subcomandos); reexporta los módulos de core (`crate::library`, `crate::protocol`…)
+  paths.rs       rutas: library (carpeta de datos local), socket, estado, log; config opcional. Es quien calcula las carpetas y se las pasa a core
+  client.rs      conectar al daemon (lanzándolo si no existe)
+  daemon.rs      envoltorio fino: socket Unix + clientes, reenvío de eventos del Player, descargas, aviso de escritorio al terminar el timer, auto-cierre
   download.rs    yt-dlp -> ffmpeg -> .opus + sha256 (sonidos: crossfade del loop horneado; meditaciones: entero)
-  progress.rs    `Out`: salida de setup/sync/verify, a consola (CLI) o a un callback (TUI)
+  progress.rs    `Out`: salida de setup/sync/verify, a consola (CLI) o a un callback (TUI); corre subprocesos, por eso no está en core
   sync.rs        rclone copy hacia/desde el remoto (sonidos y meditaciones)
   setup.rs       primera vez: baja rclone (curl + unzip/tar, SHA256 oficial) y crea los remotes de Drive que usa sync (sonidos, meditaciones y library; scope drive.file); lo usan `focus setup` y `focus sync`
   tui/           app (estado + teclas), ui (Focus), menu (inicio, Configuración, Meditaciones, Sonidos ambientales, Presets y el armado de presets; diseño v3: franja de estrellas tranquilas —`Scene::calm`, paleta neutra, sin audio— con el título en letras de bloque, lista centrada como bloque, aviso y teclas centradas; sin franja si la terminal mide menos de 20 filas), routines (lista, editor, ajuste de meditación y rutina en curso: estado y teclas), routine_ui (su dibujo), syncmenu (Configuración > Sincronización: opciones, ventana y teclas), scene (animaciones), theme (paletas)
 ```
 
+- Protocolo del socket: `Command::TogglePause` conserva en el cable el nombre `pause_all` (es el alternar de siempre, para no romper clientes y daemons de versiones distintas); `PauseAll` (`pause`) y `ResumeAll` (`resume`) son los explícitos e idempotentes (pausan/reanudan ambiente y meditación). `Event::TimerFinished` lo consume el daemon (aviso de escritorio) y no llega a los clientes.
+
 - Hilo del callback de audio: sin locks ni allocations en el camino normal. Cada capa tiene su ring buffer (`rtrb`) que llena un hilo "feeder"; volumen/estado van por atómicos.
 - Al descargar se hornea un crossfade de 3 s entre el final y el principio del archivo, así el loop no tiene corte.
-- La meditación es una capa más del motor (id `meditation:<id>:<n>`) con fuente `open_once`; el daemon lleva el reloj de reproducción (pausa = parar la capa y reabrir con seek). La TUI solo pide `Watch{levels}` mientras está en Focus.
+- La meditación es una capa más del motor (id `meditation:<id>:<n>`) con fuente `open_once`; el Player lleva el reloj de reproducción (pausa = parar la capa y reabrir con seek). La TUI solo pide `Watch{levels}` mientras está en Focus.
 - Los sonidos de naturaleza se recortan (p. ej. 60 min) porque repetirlos no se nota; la música se baja entera.
 
 - Rutinas: tareas (`Routine.tasks`) + meditación opcional aparte (`Routine.meditation`, como mucho una); en la TUI la lista de rutinas tiene «+ Nueva rutina» al final y `Enter` sobre una abre su menú («Empezar» solo desde el inicio, «Editar», «Borrar»); el editor tiene las filas «Nombre: …», las tareas (`Enter` abre «Editar texto» / «Mover» / «Borrar»; «Mover» deja la tarea resaltada, `↑↓` la llevan y `Enter` o `Esc` la sueltan: `EdPopup::Move`), «+ Agregar tarea», la meditación y «✓ Guardar» (`EdRow`); `Esc` con cambios abre «Guardar» / «Descartar» / «Seguir editando» (marcada); En la rutina en curso `espacio` y `Enter` hacen lo mismo: marcan hecha una tarea y, sobre una ya hecha, la desmarcan (no hay tecla `u` ni estado «salteado»: los pasos están pendientes o hechos). En el paso de meditación hacen lo que haría arrancar/elegir duración/pausar y nunca marca ni desmarca: el paso se marca solo cuando el daemon avisa que la meditación terminó entera: `State.meditations_finished` (contador) y `State.last_meditation_finished` (id) suben solo cuando el archivo se agotó y el buffer se vació, nunca por un corte, reemplazo o borrado; la TUI marca si el contador supera el que vio al arrancarla desde el paso y el id es el elegido (`App::meditation_ended`, desde `set_state`); una vez hecho no se desmarca. `Routine::run_steps()` arma los pasos de la rutina en curso con la meditación al final. En el archivo, los `[[routine.step]]` viejos de tipo meditación se migran al leer (la primera pasa a ser `[routine.meditation]`, las demás se descartan). La TUI lee y escribe `routines.toml` directamente (no pasa por el daemon; no es audio). Si el archivo está roto no se pisa: se avisa y se bloquean los cambios. `App::persist` es lo único con I/O de ese módulo, para poder probar teclas y pantallas sin disco. En una rutina en curso se manda `PauseAll` al empezar (si había ambiente sonando) y de nuevo al salir; la meditación se corta al salir.
@@ -61,8 +75,10 @@ src/
 
 ```sh
 cargo build --release          # binario en target/release/focus
-cargo install --path .         # instala `focus` en ~/.cargo/bin
-cargo clippy --all-targets
+cargo install --path desktop   # instala `focus` en ~/.cargo/bin
+cargo clippy --workspace --all-targets
+cargo test --workspace
+cargo deb -p focus             # el .deb (metadata en desktop/Cargo.toml)
 ```
 
 Para medir consumo real: `pidstat -u -r -p $(pgrep -f 'focus daemon') 5`.

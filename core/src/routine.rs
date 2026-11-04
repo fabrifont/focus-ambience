@@ -2,14 +2,13 @@
 //! `library/routines.toml` (en Drive, se sincroniza con `focus sync`); la última usada se recuerda aparte,
 //! en el estado local de la TUI.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::library::write_atomic;
 use crate::meditation::Category;
-use crate::paths;
 
 /// Un paso de la rutina en curso: las tareas, y al final la meditación si la rutina tiene.
 #[derive(Debug, Clone, PartialEq)]
@@ -129,8 +128,8 @@ const HEADER: &str = "# Rutinas. Cada paso es una tarea (`text`). La meditación
 # sin `minutes` la duración se elige en el momento. Sin ese bloque, la rutina no tiene meditación.\n\
 # Este archivo vive en Drive (focus sync), no en git.\n\n";
 
-fn path() -> PathBuf {
-    paths::library_dir().join("routines.toml")
+fn path(library: &Path) -> PathBuf {
+    library.join("routines.toml")
 }
 
 pub fn parse(s: &str) -> Result<Routines> {
@@ -142,8 +141,8 @@ pub fn render(r: &Routines) -> Result<String> {
 }
 
 /// Un archivo que falta es una lista vacía; uno roto es un error (para no pisarlo al guardar).
-pub fn load() -> Result<Routines> {
-    let path = path();
+pub fn load(library: &Path) -> Result<Routines> {
+    let path = path(library);
     match std::fs::read_to_string(&path) {
         Ok(s) => parse(&s).with_context(|| format!("leyendo {}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Routines::default()),
@@ -151,8 +150,8 @@ pub fn load() -> Result<Routines> {
     }
 }
 
-pub fn save(r: &Routines) -> Result<()> {
-    write_atomic(&path(), &render(r)?)
+pub fn save(library: &Path, r: &Routines) -> Result<()> {
+    write_atomic(&path(library), &render(r)?)
 }
 
 /// Nombre de una rutina ya usado por otra (sin distinguir mayúsculas). `skip` es el índice que se
@@ -162,8 +161,8 @@ pub fn name_taken(routines: &[Routine], name: &str, skip: Option<usize>) -> bool
     routines.iter().enumerate().any(|(i, r)| Some(i) != skip && r.name.trim().to_lowercase() == n)
 }
 
-fn last_path() -> PathBuf {
-    paths::state_dir().join("ui.toml")
+fn last_path(state_dir: &Path) -> PathBuf {
+    state_dir.join("ui.toml")
 }
 
 /// Lo que la TUI recuerda entre sesiones (`ui.toml` en el estado local, no viaja por Drive).
@@ -175,12 +174,12 @@ pub struct UiState {
     pub focus_minutes: Option<u32>,
 }
 
-pub fn load_ui() -> UiState {
-    std::fs::read_to_string(last_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
+pub fn load_ui(state_dir: &Path) -> UiState {
+    std::fs::read_to_string(last_path(state_dir)).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
 }
 
-pub fn save_ui(ui: &UiState) -> Result<()> {
-    write_atomic(&last_path(), &toml::to_string(ui)?)
+pub fn save_ui(state_dir: &Path, ui: &UiState) -> Result<()> {
+    write_atomic(&last_path(state_dir), &toml::to_string(ui)?)
 }
 
 #[cfg(test)]

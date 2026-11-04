@@ -155,6 +155,8 @@ fn handle(app: &mut App, msg: Msg) -> Result<bool> {
             app.notify(text);
             true
         }
+        // The daemon handles the end of the timer itself (desktop notification).
+        Msg::Daemon(Some(Event::TimerFinished { .. })) => false,
         Msg::Daemon(None) => anyhow::bail!("se perdió la conexión con el audio"),
     })
 }

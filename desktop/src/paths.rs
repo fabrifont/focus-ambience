@@ -86,7 +86,8 @@ pub fn library_dir() -> PathBuf {
     if let Some(p) = config().library {
         return p;
     }
-    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("library");
+    // CARGO_MANIFEST_DIR is `desktop/`: the library sits next to it, at the repo root.
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("library");
     if repo.is_dir() {
         return repo;
     }
@@ -94,11 +95,11 @@ pub fn library_dir() -> PathBuf {
 }
 
 pub fn sounds_dir() -> PathBuf {
-    library_dir().join("sounds")
+    focus_core::library::sounds_dir(&library_dir())
 }
 
 pub fn meditations_dir() -> PathBuf {
-    library_dir().join("meditations")
+    focus_core::meditation::meditations_dir(&library_dir())
 }
 
 #[cfg(unix)]

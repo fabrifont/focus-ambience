@@ -1,13 +1,12 @@
 //! Biblioteca de meditaciones guiadas: manifest propio (`library/meditations.toml`), separado de
 //! los sonidos. Cada una tiene una categoría de duración fija elegida a mano.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::library::write_atomic;
-use crate::paths;
 
 /// Minutos de cada categoría, en el orden en que se muestran.
 pub const CATEGORY_MINUTES: [u32; 8] = [5, 10, 15, 20, 25, 30, 40, 60];
@@ -96,16 +95,21 @@ const HEADER: &str = "# Meditaciones guiadas. Los .opus viven en meditations/ (n
 # sincronizan con `focus sync`. Este archivo también vive en Drive, no en git.\n\
 # `minutes` es la categoría: 5, 10, 15, 20, 25, 30, 40 o 60.\n\n";
 
-fn manifest_path() -> PathBuf {
-    paths::library_dir().join("meditations.toml")
+/// Where the meditation `.opus` files live inside the library folder.
+pub fn meditations_dir(library: &Path) -> PathBuf {
+    library.join("meditations")
+}
+
+fn manifest_path(library: &Path) -> PathBuf {
+    library.join("meditations.toml")
 }
 
 pub fn parse_manifest(s: &str) -> Result<MeditationManifest> {
     Ok(toml::from_str(s)?)
 }
 
-pub fn load_manifest() -> Result<MeditationManifest> {
-    let path = manifest_path();
+pub fn load_manifest(library: &Path) -> Result<MeditationManifest> {
+    let path = manifest_path(library);
     match std::fs::read_to_string(&path) {
         Ok(s) => parse_manifest(&s).with_context(|| format!("leyendo {}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(MeditationManifest::default()),
@@ -113,8 +117,8 @@ pub fn load_manifest() -> Result<MeditationManifest> {
     }
 }
 
-pub fn save_manifest(m: &MeditationManifest) -> Result<()> {
-    write_atomic(&manifest_path(), &format!("{HEADER}{}", toml::to_string_pretty(m)?))
+pub fn save_manifest(library: &Path, m: &MeditationManifest) -> Result<()> {
+    write_atomic(&manifest_path(library), &format!("{HEADER}{}", toml::to_string_pretty(m)?))
 }
 
 /// Agrega la entrada o, si ya existía una con ese id, la reemplaza en el mismo lugar.
@@ -126,9 +130,9 @@ pub fn upsert(m: &mut MeditationManifest, entry: MeditationEntry) {
 }
 
 /// Todas las meditaciones, ordenadas por categoría y después por nombre.
-pub fn all_meditations() -> Result<Vec<Meditation>> {
-    let dir = paths::meditations_dir();
-    let mut v: Vec<Meditation> = load_manifest()?
+pub fn all_meditations(library: &Path) -> Result<Vec<Meditation>> {
+    let dir = meditations_dir(library);
+    let mut v: Vec<Meditation> = load_manifest(library)?
         .meditations
         .into_iter()
         .map(|e| Meditation {

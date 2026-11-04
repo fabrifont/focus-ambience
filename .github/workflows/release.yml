@@ -33,7 +33,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Compilar
         shell: bash
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked -p focus --target ${{ matrix.target }}
         env:
           # Windows: CRT estático, así no hace falta instalar el runtime de Visual C++.
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'Linux'
         # El binario ya está compilado en target/<target>/release; cargo-deb lo arma
         # en target/debian/focus_<versión>-1_amd64.deb.
-        run: cargo deb --locked --no-build --target ${{ matrix.target }}
+        run: cargo deb -p focus --locked --no-build --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
