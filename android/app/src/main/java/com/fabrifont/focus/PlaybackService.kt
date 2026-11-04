@@ -28,6 +28,7 @@ import com.fabrifont.focus.engine.EngineCommand
 import com.fabrifont.focus.engine.EngineState
 import com.fabrifont.focus.engine.FocusEngine
 import com.fabrifont.focus.engine.EngineHost
+import com.fabrifont.focus.engine.togglePause
 import com.fabrifont.focus.ui.formatClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -139,7 +140,6 @@ class PlaybackService : Service() {
         )
         requestFocus()
         engine.timerFinishedCallback = ::onTimerFinished
-        engine.startAudio()
 
         scope.launch {
             engine.state.map { it.toNotif() }.distinctUntilChanged().collect { update(it) }
@@ -154,7 +154,7 @@ class PlaybackService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_TOGGLE) engine.send(EngineCommand.PauseAll)
+        if (intent?.action == ACTION_TOGGLE) engine.togglePause()
         // Cada startForegroundService exige un startForeground, aunque ya estuviéramos en primer plano.
         last?.let {
             ServiceCompat.startForeground(
@@ -171,7 +171,6 @@ class PlaybackService : Service() {
         running = false
         scope.cancel()
         engine.timerFinishedCallback = null
-        engine.stopAudio()
         unregisterReceiver(noisyReceiver)
         focusRequest?.let { audio.abandonAudioFocusRequest(it) }
         session.isActive = false
@@ -186,7 +185,9 @@ class PlaybackService : Service() {
     }
 
     private fun setRunning(wanted: Boolean) {
-        if (engine.state.value.running != wanted) engine.send(EngineCommand.PauseAll)
+        if (engine.state.value.running != wanted) {
+            engine.send(if (wanted) EngineCommand.ResumeBoth else EngineCommand.PauseBoth)
+        }
     }
 
     // ---------- foco de audio ----------
@@ -205,7 +206,7 @@ class PlaybackService : Service() {
                     AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pauseAudible(byFocus = true)
                     AudioManager.AUDIOFOCUS_GAIN -> if (pausedByFocus) {
                         pausedByFocus = false
-                        if (engine.state.value.paused) engine.send(EngineCommand.PauseAll)
+                        if (engine.state.value.paused) engine.send(EngineCommand.ResumeBoth)
                     }
                 }
             }, Handler(Looper.getMainLooper()))
@@ -217,7 +218,7 @@ class PlaybackService : Service() {
     private fun pauseAudible(byFocus: Boolean) {
         if (!engine.state.value.audible) return
         pausedByFocus = byFocus
-        engine.send(EngineCommand.PauseAll)
+        engine.send(EngineCommand.PauseBoth)
     }
 
     // ---------- notificación ----------

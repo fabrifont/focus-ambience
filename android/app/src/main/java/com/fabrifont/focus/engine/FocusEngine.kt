@@ -33,8 +33,11 @@ sealed interface EngineCommand {
     data class SetVolume(val id: String, val volume: Float) : EngineCommand
     data class SetMaster(val volume: Float) : EngineCommand
 
-    /** Alterna pausa/sigue de los sonidos y del timer juntos. */
-    data object PauseAll : EngineCommand
+    /** Pausa los sonidos y el timer juntos. */
+    data object PauseBoth : EngineCommand
+
+    /** Sigue los sonidos y el timer juntos. */
+    data object ResumeBoth : EngineCommand
 
     /** Apaga los sonidos y cancela el timer. */
     data object StopAll : EngineCommand
@@ -51,8 +54,7 @@ interface FocusEngine {
     var timerFinishedCallback: (() -> Unit)?
 
     fun send(cmd: EngineCommand)
-
-    /** Arranca el hilo que produce el audio (lo llama el servicio). */
-    fun startAudio()
-    fun stopAudio()
 }
+
+/** Pausa si algo avanza y sigue si no. */
+fun FocusEngine.togglePause() = send(if (state.value.running) EngineCommand.PauseBoth else EngineCommand.ResumeBoth)

@@ -143,7 +143,7 @@ fun OptionsSheet(
             }
             val resume = !state.running && state.busy
             MenuRow(if (resume) "Seguir todo" else "Pausar todo", enabled = state.busy, tag = "opt-pause") {
-                send(EngineCommand.PauseAll)
+                send(if (resume) EngineCommand.ResumeBoth else EngineCommand.PauseBoth)
                 onDismiss()
             }
             MenuRow("Apagar todo", tag = "opt-stop") {
