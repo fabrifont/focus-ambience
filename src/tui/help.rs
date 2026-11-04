@@ -18,101 +18,47 @@ pub enum Topic {
     Presets,
     Sync,
     Builder,
-    /// `start`: la lista viene de «Elegir otra rutina» (Enter empieza) y no de Configuración (Enter edita).
-    Routines {
-        start: bool,
-    },
+    Routines,
     Editor,
     Step,
     Run,
     IntroTime,
     IntroSounds,
-    /// `deep`: el modo deep work está prendido.
-    Focus {
-        deep: bool,
-    },
+    Focus,
 }
 
 const ENTER: &str = "Enter/␣";
-const QUIT: [(&str, &str); 2] = [("q", "salir"), ("Ctrl+Q", "apagar todo y salir")];
 
 impl Topic {
     fn rows(self) -> Vec<(&'static str, &'static str)> {
-        let mut rows: Vec<(&str, &str)> = match self {
-            Topic::Home => vec![("↑↓ j k", "mover"), (ENTER, "elegir"), ("1-4", "ir directo")],
-            Topic::Config => vec![("↑↓ j k", "mover"), (ENTER, "elegir"), ("Esc", "volver")],
-            Topic::Sync => vec![("↑↓ j k", "mover"), (ENTER, "ejecutar"), ("Esc", "volver")],
-            Topic::Meditations => {
-                vec![("↑↓ j k", "mover"), (ENTER, "play / pausa"), ("a", "agregar"), ("d", "borrar"), ("Esc", "volver")]
+        match self {
+            Topic::Home => vec![("↑↓", "mover"), (ENTER, "elegir")],
+            Topic::Config | Topic::Sync => vec![("↑↓", "mover"), (ENTER, "elegir"), ("Esc", "volver")],
+            Topic::Meditations | Topic::Sounds | Topic::Presets | Topic::Routines | Topic::Editor => {
+                vec![("↑↓", "mover"), (ENTER, "elegir"), ("Esc", "volver")]
             }
-            Topic::Sounds => vec![("↑↓ j k", "mover"), ("a", "agregar"), ("d", "borrar"), ("Esc", "volver")],
-            Topic::Presets => vec![("↑↓ j k", "mover"), ("n", "nuevo"), ("d", "borrar"), ("Esc", "volver")],
-            Topic::Builder => vec![
-                ("↑↓ j k", "mover"),
-                (ENTER, "elegir / quitar"),
-                ("← → h l", "volumen"),
-                ("g", "guardar"),
-                ("Esc", "cancelar"),
-            ],
-            Topic::Routines { start } => vec![
-                ("↑↓ j k", "mover"),
-                (ENTER, if start { "empezar" } else { "editar" }),
-                ("n", "nueva"),
-                ("e", "editar"),
-                ("d", "borrar"),
-                ("Esc", "volver"),
-            ],
-            Topic::Editor => vec![
-                ("↑↓ j k", "mover"),
-                ("a", "agregar tarea"),
-                (ENTER, "editar"),
-                ("m", "meditación"),
-                ("Ctrl+J/K", "mover tarea"),
-                ("d", "borrar tarea"),
-                ("r", "nombre"),
-                ("g", "guardar"),
-                ("Esc", "volver"),
-            ],
-            Topic::Step => {
-                vec![("↑↓ j k", "campo"), ("← → h l", "cambiar"), (ENTER, "listo"), ("Esc", "volver")]
+            Topic::Builder => {
+                vec![("↑↓", "mover"), (ENTER, "elegir / quitar"), ("← →", "volumen"), ("Esc", "cancelar")]
             }
+            Topic::Step => vec![("↑↓", "campo"), ("← →", "cambiar"), (ENTER, "listo"), ("Esc", "volver")],
             Topic::Run => vec![
-                ("↑↓ j k", "mover"),
+                ("↑↓", "mover"),
                 (ENTER, "marcar / desmarcar"),
                 (ENTER, "en meditación: play / pausa"),
                 ("Esc", "volver al menú"),
             ],
             Topic::IntroTime => {
-                return vec![
-                    ("↑↓ j k", "±5 minutos"),
-                    ("0-9", "escribir minutos"),
-                    (ENTER, "seguir"),
-                    ("Esc", "saltear"),
-                ];
+                vec![("↑↓", "±5 minutos"), ("0-9", "escribir minutos"), (ENTER, "seguir"), ("Esc", "saltear")]
             }
-            Topic::IntroSounds => return vec![("↑↓ j k", "elegir"), (ENTER, "empezar"), ("Esc", "saltear")],
-            Topic::Focus { deep } => {
-                return vec![
-                    (ENTER, "encender / apagar sonido"),
-                    ("← →  h l", "volumen del sonido"),
-                    ("↑↓  j k", "moverse"),
-                    ("+ -", "volumen general"),
-                    ("p", "pausar / seguir todo"),
-                    ("x", "apagar todo"),
-                    ("0", "reinicia los sonidos"),
-                    ("r", "pausar / seguir el timer"),
-                    ("t", "temporizador"),
-                    ("d", if deep { "salir del modo deep work" } else { "modo deep work" }),
-                    ("tab", "sonidos ⇄ presets"),
-                    (ENTER, "en presets: cargar el preset"),
-                    ("Esc", "volver al menú de inicio"),
-                    ("q", "salir (pregunta si dejar sonando)"),
-                    ("Ctrl+Q", "apagar todo y salir"),
-                ];
-            }
-        };
-        rows.extend(QUIT);
-        rows
+            Topic::IntroSounds => vec![("↑↓", "elegir"), (ENTER, "empezar"), ("Esc", "saltear")],
+            Topic::Focus => vec![
+                ("↑↓", "moverse"),
+                ("← →", "volumen del sonido"),
+                (ENTER, "encender / apagar"),
+                ("Tab", "opciones"),
+                ("Esc", "volver al inicio"),
+            ],
+        }
     }
 }
 

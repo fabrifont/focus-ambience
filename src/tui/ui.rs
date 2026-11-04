@@ -8,7 +8,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
-use super::app::{ADD_THEMES, App, Deep, Intro, Item, Pane, Popup, Screen, TIMER_CHOICES};
+use super::app::{ADD_THEMES, App, Deep, Intro, Item, OPT_VOLUME, Popup, Screen, TIMER_CHOICES};
 use super::font;
 use super::theme::{self, Palette, Rgb};
 use crate::library::Theme;
@@ -47,16 +47,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_overlay(f.buffer_mut(), scene, app);
 
     let body = body.inner(ratatui::layout::Margin { horizontal: 1, vertical: 0 });
-    if body.width >= 92 {
-        let [left, _, right] =
-            Layout::horizontal([Constraint::Percentage(64), Constraint::Length(2), Constraint::Fill(1)]).areas(body);
-        draw_sounds(f, left, app);
-        draw_presets(f, right, app);
-    } else if app.pane == Pane::Presets {
-        draw_presets(f, body, app);
-    } else {
-        draw_sounds(f, body, app);
-    }
+    draw_sounds(f, body, app);
     draw_footer(f, footer, app);
     draw_popup(f, app, &pal);
     super::help::draw(f, app, &pal);
@@ -113,11 +104,11 @@ fn draw_overlay(buf: &mut Buffer, area: Rect, app: &App) {
         .map(|s| s.name.as_str())
         .collect();
     let (sub, color) = if timer_paused {
-        ("⏸  timer en pausa · r para seguir".to_string(), pal.accent2)
+        ("⏸  timer en pausa".to_string(), pal.accent2)
     } else if names.is_empty() {
-        ("elegí un sonido y apretá espacio".to_string(), pal.dim)
+        ("elegí un sonido y apretá Enter".to_string(), pal.dim)
     } else if app.state.paused {
-        ("⏸  en pausa · p para seguir".to_string(), pal.dim.lerp(pal.fg, 0.4))
+        ("⏸  en pausa".to_string(), pal.dim.lerp(pal.fg, 0.4))
     } else {
         (format!("♫  {}", names.join("  ·  ")), pal.fg.lerp(pal.accent, 0.3))
     };
@@ -170,8 +161,7 @@ fn draw_deep(buf: &mut Buffer, area: Rect, app: &App) {
     let pal = app.palette;
     let t = elapsed(app);
     if app.deep == Deep::Done {
-        let lines =
-            [("¡Buen trabajo!", pal.fg.lerp(pal.accent, 0.5), true), ("presioná d para volver", pal.dim, false)];
+        let lines = [("¡Buen trabajo!", pal.fg.lerp(pal.accent, 0.5), true), ("Enter para volver", pal.dim, false)];
         let y0 = area.y + area.height.saturating_sub(3) / 2;
         for (i, (text, color, bold)) in lines.iter().enumerate() {
             let text = truncate(text, area.width as usize);
@@ -246,7 +236,6 @@ fn header(label: &str, icon: &str, color: Rgb, pal: &Palette, width: u16, bold: 
 fn draw_sounds(f: &mut Frame, area: Rect, app: &App) {
     let pal = app.palette;
     let t = elapsed(app);
-    let focused = app.pane == Pane::Sounds;
     let w = area.width;
     let show_bar = w >= 56;
     let bar_w = 14usize;
@@ -274,7 +263,7 @@ fn draw_sounds(f: &mut Frame, area: Rect, app: &App) {
                 let active = app.is_active(&s.id);
                 let level = (app.levels.get(&s.id).copied().unwrap_or(0.0) * 3.0).min(1.0);
                 let vol = app.shown_volume.get(&s.id).copied().unwrap_or_else(|| app.volume(&s.id));
-                let row_bg = if selected && focused { pal.surface } else { pal.bg };
+                let row_bg = if selected { pal.surface } else { pal.bg };
                 let base = Style::new().bg(row_bg.c());
 
                 let (dot, dot_c) = if !s.available {
@@ -294,7 +283,7 @@ fn draw_sounds(f: &mut Frame, area: Rect, app: &App) {
                     pal.dim
                 };
                 let mut spans = vec![
-                    Span::styled(if selected && focused { " ▌" } else { "  " }, base.fg(tp.accent.c())),
+                    Span::styled(if selected { " ▌" } else { "  " }, base.fg(tp.accent.c())),
                     Span::styled(format!("{dot} "), base.fg(dot_c.c())),
                     Span::styled(
                         pad(&s.name, name_w),
@@ -328,7 +317,7 @@ fn draw_sounds(f: &mut Frame, area: Rect, app: &App) {
                 if selected {
                     cursor_line = lines.len();
                 }
-                let base = Style::new().bg(if selected && focused { pal.surface } else { pal.bg }.c());
+                let base = Style::new().bg(if selected { pal.surface } else { pal.bg }.c());
                 let mut spans = vec![
                     Span::styled("  ", base),
                     Span::styled(pad(&d.name, name_w.saturating_sub(10).max(10)), base.fg(pal.fg.c())),
@@ -387,73 +376,13 @@ pub(super) fn volume_bar(
     out
 }
 
-fn draw_presets(f: &mut Frame, area: Rect, app: &App) {
-    let pal = app.palette;
-    let focused = app.pane == Pane::Presets;
-    let mut lines = vec![header(
-        "presets",
-        "◆",
-        if focused { pal.accent } else { pal.dim.lerp(pal.fg, 0.4) },
-        &pal,
-        area.width,
-        focused,
-    )];
-    if app.state.presets.is_empty() {
-        lines.push(Line::raw(""));
-        lines.push(Line::styled("  todavía no hay presets.", Style::new().fg(pal.dim.c())));
-        lines.push(Line::styled("  corré `focus sync` para traerlos,", Style::new().fg(pal.dim.c())));
-        lines.push(Line::styled("  o armalos en Configuración.", Style::new().fg(pal.dim.c())));
-    }
-    let w = area.width as usize;
-    for (i, p) in app.state.presets.iter().enumerate() {
-        let selected = focused && i == app.preset_cursor;
-        let base = Style::new().bg(if selected { pal.surface } else { pal.bg }.c());
-        let current = !app.state.active.is_empty()
-            && p.layers.len() == app.state.active.len()
-            && app.state.active.iter().all(|a| p.layers.contains_key(a));
-        lines.push(Line::raw(""));
-        lines.push(
-            Line::from(vec![
-                Span::styled(if selected { " ▌" } else { "  " }, base.fg(pal.accent.c())),
-                Span::styled(
-                    if current { "◆ " } else { "◇ " },
-                    base.fg(if current { pal.accent } else { pal.dim }.c()),
-                ),
-                Span::styled(pad(&p.name, w.saturating_sub(5)), base.fg(pal.fg.c()).add_modifier(Modifier::BOLD)),
-            ])
-            .style(base),
-        );
-        let names: Vec<String> = p
-            .layers
-            .keys()
-            .map(|id| app.state.sounds.iter().find(|s| s.id == *id).map_or(id.clone(), |s| s.name.clone()))
-            .collect();
-        lines.push(Line::styled(
-            format!("    {}", truncate(&names.join(" · "), w.saturating_sub(5))),
-            base.fg(pal.dim.c()),
-        ));
-    }
-    f.render_widget(Paragraph::new(lines), area);
-}
-
 fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     let pal = app.palette;
     let key = |k: &'static str| Span::styled(k, Style::new().fg(pal.accent.c()));
     let txt = |d: &'static str| Span::styled(d, Style::new().fg(pal.dim.c()));
     let mut hints = vec![Span::raw(" ")];
-    let pairs: &[(&str, &str)] = if app.pane == Pane::Presets {
-        &[("␣", " cargar  "), ("tab", " sonidos  "), ("t", " timer  "), ("?", " ayuda  "), ("q", " salir")]
-    } else {
-        &[
-            ("␣", " encender  "),
-            ("←→", " volumen  "),
-            ("p", " pausa  "),
-            ("t", " timer  "),
-            ("r", " reloj  "),
-            ("?", " ayuda  "),
-            ("q", " salir"),
-        ]
-    };
+    let pairs: &[(&str, &str)] =
+        &[("Enter", " sonido  "), ("←→", " volumen  "), ("Tab", " opciones  "), ("Esc", " inicio  "), ("?", " ayuda")];
     for (k, d) in pairs {
         hints.push(key(k));
         hints.push(txt(d));
@@ -540,79 +469,88 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
             ]));
             (" Antes de arrancar · 2 de 2 ", 46, lines)
         }
-        Popup::Quit => (
-            " salir ",
-            48,
-            vec![
-                Line::raw(""),
-                Line::styled("  Todavía hay sonidos encendidos.", fg),
-                Line::raw(""),
-                Line::from(vec![Span::styled("   s ", acc), Span::styled("seguir escuchando en background", fg)]),
-                Line::from(vec![Span::styled("   n ", acc), Span::styled("apagar todo y salir", fg)]),
-                Line::from(vec![Span::styled(" esc ", acc), Span::styled("volver", dim)]),
-            ],
-        ),
-        Popup::ConfirmQuit => (
-            " salir ",
-            40,
-            vec![
-                Line::raw(""),
-                Line::styled("  ¿Salir de WorkHub?", fg),
-                Line::raw(""),
-                Line::from(vec![
-                    Span::styled("   s ", acc),
-                    Span::styled("sí, salir    ", fg),
-                    Span::styled("esc ", acc),
-                    Span::styled("no", dim),
-                ]),
-            ],
-        ),
-        Popup::DeletePreset { name } => (
-            " borrar preset ",
-            46,
-            vec![
-                Line::raw(""),
-                Line::styled(format!("  ¿Borrar «{}»?", truncate(name, 30)), fg),
-                Line::raw(""),
-                Line::from(vec![
-                    Span::styled("   s ", acc),
-                    Span::styled("sí, borrar    ", fg),
-                    Span::styled("esc ", acc),
-                    Span::styled("no", dim),
-                ]),
-            ],
-        ),
-        Popup::DiscardPreset => (
-            " descartar preset ",
-            46,
-            vec![
-                Line::raw(""),
-                Line::styled("  ¿Descartar el preset?", fg),
-                Line::raw(""),
-                Line::from(vec![
-                    Span::styled("   s ", acc),
-                    Span::styled("sí, descartar    ", fg),
-                    Span::styled("esc ", acc),
-                    Span::styled("seguir armando", dim),
-                ]),
-            ],
-        ),
-        Popup::DeleteSound { name, .. } => (
-            " borrar sonido ",
-            52,
-            vec![
+        Popup::Quit { sel } => {
+            let mut lines = vec![Line::raw(""), Line::styled("  Todavía hay sonidos encendidos.", fg), Line::raw("")];
+            lines.extend(choice_lines(
+                &pal,
+                &["Seguir escuchando de fondo", "Apagar todo y salir", "Volver"],
+                *sel,
+                "cancelar",
+            ));
+            (" salir ", 48, lines)
+        }
+        Popup::ConfirmQuit { sel } => {
+            let mut lines = vec![Line::raw(""), Line::styled("  ¿Salir de WorkHub?", fg), Line::raw("")];
+            lines.extend(choice_lines(&pal, &["Sí, salir", "No"], *sel, "cancelar"));
+            (" salir ", 40, lines)
+        }
+        Popup::DeletePreset { name, sel } => {
+            let mut lines =
+                vec![Line::raw(""), Line::styled(format!("  ¿Borrar «{}»?", truncate(name, 30)), fg), Line::raw("")];
+            lines.extend(choice_lines(&pal, &["Sí, borrar", "No"], *sel, "cancelar"));
+            (" borrar preset ", 46, lines)
+        }
+        Popup::DiscardPreset { sel } => {
+            let mut lines = vec![Line::raw(""), Line::styled("  ¿Descartar el preset?", fg), Line::raw("")];
+            lines.extend(choice_lines(&pal, &["Sí, descartar", "Seguir armando"], *sel, "seguir armando"));
+            (" descartar preset ", 46, lines)
+        }
+        Popup::DeleteSound { name, sel, .. } => {
+            let mut lines = vec![
                 Line::raw(""),
                 Line::styled(format!("  ¿Borrar «{}»?", truncate(name, 34)), fg),
                 Line::styled("  Se borra también el archivo de esta compu.", dim),
                 Line::raw(""),
-                Line::from(vec![
-                    Span::styled("   s ", acc),
-                    Span::styled("sí, borrar    ", fg),
-                    Span::styled("esc ", acc),
-                    Span::styled("no", dim),
-                ]),
-            ],
-        ),
+            ];
+            lines.extend(choice_lines(&pal, &["Sí, borrar", "No"], *sel, "cancelar"));
+            (" borrar sonido ", 52, lines)
+        }
+        Popup::Options { sel } => {
+            let rows = app.option_rows();
+            let label_w = rows.iter().map(|r| r.chars().count()).max().unwrap_or(0);
+            let mut lines = vec![Line::raw("")];
+            for (i, r) in rows.iter().enumerate() {
+                let on = i == *sel;
+                let mut spans = vec![
+                    Span::styled(if on { "  > " } else { "    " }, acc),
+                    Span::styled(format!("{r:<label_w$}"), if on { fg.add_modifier(Modifier::BOLD) } else { dim }),
+                ];
+                if i == OPT_VOLUME {
+                    let m = app.state.master;
+                    let n = (m * 8.0).round() as usize;
+                    spans.push(Span::styled(format!("  {}", "━".repeat(n)), acc));
+                    spans.push(Span::styled("╌".repeat(8 - n.min(8)), dim));
+                    spans.push(Span::styled(format!(" {:>3.0} %", m * 100.0), dim));
+                }
+                lines.push(Line::from(spans));
+            }
+            lines.push(Line::raw(""));
+            lines.push(keys_line(&pal, "cerrar"));
+            (" opciones ", 42, lines)
+        }
+        Popup::LoadPreset { sel } => {
+            let mut lines = vec![Line::raw("")];
+            if app.state.presets.is_empty() {
+                lines.push(Line::styled("  Todavía no hay presets.", dim));
+                lines.push(Line::styled("  Armalos en Configuración.", dim));
+                lines.push(Line::raw(""));
+                lines.push(Line::from(vec![Span::styled("  Esc ", acc), Span::styled("volver", dim)]));
+            } else {
+                let names: Vec<String> = app.state.presets.iter().map(|p| truncate(&p.name, 36)).collect();
+                // Ventana de 8 filas que sigue a la selección.
+                let top = (*sel + 1).saturating_sub(8);
+                for (i, n) in names.iter().enumerate().skip(top).take(8) {
+                    let on = i == *sel;
+                    lines.push(Line::from(vec![
+                        Span::styled(if on { "  > " } else { "    " }, acc),
+                        Span::styled(n.clone(), if on { fg.add_modifier(Modifier::BOLD) } else { dim }),
+                    ]));
+                }
+                lines.push(Line::raw(""));
+                lines.push(keys_line(&pal, "volver"));
+            }
+            (" cargar preset ", 46, lines)
+        }
         Popup::SavePreset { name } => (
             " guardar preset ",
             50,
@@ -637,8 +575,7 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
             } else {
                 let mut opts: Vec<String> = TIMER_CHOICES
                     .iter()
-                    .enumerate()
-                    .map(|(i, m)| if *m == 0 { "personalizado…".into() } else { format!("{}  {m} min", i + 1) })
+                    .map(|m| if *m == 0 { "personalizado…".into() } else { format!("{m} min") })
                     .collect();
                 if app.state.timer.is_some() {
                     opts.push("cancelar temporizador".into());
@@ -693,16 +630,16 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                             form.name.clone()
                         },
                     ),
-                    field(2, "Tema", format!("‹ {} {} ›", theme::icon(theme), theme.label())),
+                    field(2, "Tema", format!("‹ {} {} › ←→", theme::icon(theme), theme.label())),
                     field(3, "Recortar", trim_hint),
                     Line::raw(""),
                     Line::styled("  Se baja solo el audio, una vez. Podés seguir usando la app.", dim),
                     Line::from(vec![
-                        Span::styled("  tab ", acc),
+                        Span::styled("  ↑↓ ", acc),
                         Span::styled("campo  ", dim),
-                        Span::styled("enter ", acc),
+                        Span::styled("Enter ", acc),
                         Span::styled("siguiente/descargar  ", dim),
-                        Span::styled("esc ", acc),
+                        Span::styled("Esc ", acc),
                         Span::styled("cancelar", dim),
                     ]),
                 ],
@@ -710,6 +647,41 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
         }
     };
     draw_dialog(f, &pal, title, w, lines);
+}
+
+/// Filas de una ventanita de elección: la marcada lleva «>» y va en negrita; abajo, las teclas.
+pub(super) fn choice_lines(pal: &Palette, rows: &[&str], sel: usize, esc: &str) -> Vec<Line<'static>> {
+    let acc = Style::new().fg(pal.accent.c());
+    let fg = Style::new().fg(pal.fg.c());
+    let dim = Style::new().fg(pal.dim.c());
+    let mut lines: Vec<Line> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let on = i == sel;
+            Line::from(vec![
+                Span::styled(if on { "  > " } else { "    " }, acc),
+                Span::styled(r.to_string(), if on { fg.add_modifier(Modifier::BOLD) } else { dim }),
+            ])
+        })
+        .collect();
+    lines.push(Line::raw(""));
+    lines.push(keys_line(pal, esc));
+    lines
+}
+
+/// «↑↓ mover  Enter elegir  Esc <esc>», la línea de teclas de las ventanitas de filas.
+pub(super) fn keys_line(pal: &Palette, esc: &str) -> Line<'static> {
+    let acc = Style::new().fg(pal.accent.c());
+    let dim = Style::new().fg(pal.dim.c());
+    Line::from(vec![
+        Span::styled("  ↑↓ ", acc),
+        Span::styled("mover  ", dim),
+        Span::styled("Enter ", acc),
+        Span::styled("elegir  ", dim),
+        Span::styled("Esc ", acc),
+        Span::styled(esc.to_string(), dim),
+    ])
 }
 
 /// The bordered rounded box every popup uses (help included), centered over the screen.

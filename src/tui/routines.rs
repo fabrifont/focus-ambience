@@ -2,9 +2,9 @@
 //! estado vive en `App` (para poder probarlo sin terminal ni disco); `App::persist` es lo único
 //! que escribe archivos y lo llama el bucle principal.
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use super::app::{App, MAX_MINUTES, Screen};
+use super::app::{App, MAX_MINUTES, RowKey, SAFE_ROW, Screen, row_key};
 use crate::meditation::{self, Category};
 use crate::protocol::Command;
 use crate::routine::{self, MeditationSetting, Routine, Step};
@@ -17,7 +17,16 @@ const DEFAULT_CATEGORY: usize = 1; // 10 minutos
 // ---------------------------------------------------------------- lista
 
 pub enum ListPopup {
-    Delete { index: usize, name: String },
+    /// Enter sobre una rutina: «Empezar» (solo desde el inicio), «Editar» y «Borrar».
+    Menu {
+        index: usize,
+        sel: usize,
+    },
+    Delete {
+        index: usize,
+        name: String,
+        sel: usize,
+    },
 }
 
 // -------------------------------------------------------------- editor
@@ -33,11 +42,31 @@ pub enum EdPopup {
         text: String,
         at: Option<usize>,
     },
+    /// Enter sobre una tarea: «Editar texto», «Mover» y «Borrar».
+    TaskMenu {
+        at: usize,
+        sel: usize,
+    },
+    /// «Mover»: la tarea del cursor queda resaltada y ↑↓ la llevan; Enter o Esc la sueltan.
+    Move,
     DeleteStep {
         at: usize,
+        sel: usize,
     },
-    /// Esc con cambios sin guardar.
-    Unsaved,
+    /// Esc con cambios sin guardar: «Guardar», «Descartar» y «Seguir editando» (marcada).
+    Unsaved {
+        sel: usize,
+    },
+}
+
+/// Una fila del editor, de arriba abajo.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EdRow {
+    Name,
+    Task(usize),
+    Add,
+    Meditation,
+    Save,
 }
 
 /// El ajuste de meditación que se está armando en su pantalla.
@@ -64,6 +93,27 @@ pub struct Editor {
 impl Editor {
     pub fn dirty(&self) -> bool {
         self.routine != self.original
+    }
+
+    /// Cantidad de filas: nombre, tareas, «+ Agregar tarea», meditación y «✓ Guardar».
+    pub fn rows(&self) -> usize {
+        self.routine.tasks.len() + 4
+    }
+
+    /// Qué hay en la fila `at`.
+    pub fn row_at(&self, at: usize) -> EdRow {
+        let n = self.routine.tasks.len();
+        match at {
+            0 => EdRow::Name,
+            i if i <= n => EdRow::Task(i - 1),
+            i if i == n + 1 => EdRow::Add,
+            i if i == n + 2 => EdRow::Meditation,
+            _ => EdRow::Save,
+        }
+    }
+
+    pub fn row(&self) -> EdRow {
+        self.row_at(self.cursor)
     }
 }
 
@@ -171,48 +221,63 @@ impl App {
 
     pub fn open_routines(&mut self, from: Screen) {
         self.list_from = from;
-        self.list_cursor = self.list_cursor.min(self.routines.len().saturating_sub(1));
+        self.list_cursor = self.list_cursor.min(self.routines.len());
         self.go(Screen::Routines);
+    }
+
+    /// Filas del menú de una rutina: desde el inicio empieza; desde Configuración solo se edita.
+    pub fn list_menu_rows(&self) -> Vec<&'static str> {
+        if self.list_from == Screen::Home { vec!["Empezar", "Editar", "Borrar"] } else { vec!["Editar", "Borrar"] }
     }
 
     // ----------------------------------------------------------- lista
 
+    /// Las rutinas y, al final, «+ Nueva rutina» (cursor = cantidad). Enter sobre una abre su menú.
     pub fn routines_key(&mut self, k: KeyEvent) {
-        if let Some(ListPopup::Delete { index, name }) = self.list_popup.take() {
-            match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
-                    if self.routines_writable() {
-                        self.routines.remove(index);
-                        self.routines_dirty = true;
-                        self.list_cursor = self.list_cursor.min(self.routines.len().saturating_sub(1));
-                    }
-                }
-                KeyCode::Esc | KeyCode::Char('n') => {}
-                _ => self.list_popup = Some(ListPopup::Delete { index, name }),
-            }
-            return;
+        if let Some(popup) = self.list_popup.take() {
+            return self.list_popup_key(popup, k);
         }
         let n = self.routines.len();
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => self.list_cursor = self.list_cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => self.list_cursor = (self.list_cursor + 1).min(n.saturating_sub(1)),
-            // Desde «Elegir otra rutina» empieza; desde Configuración solo se edita.
-            KeyCode::Enter if n > 0 => {
-                if self.list_from == Screen::Home {
-                    self.start_run(self.list_cursor);
-                } else {
-                    self.edit_routine(self.list_cursor);
+            KeyCode::Up => self.list_cursor = self.list_cursor.saturating_sub(1),
+            KeyCode::Down => self.list_cursor = (self.list_cursor + 1).min(n),
+            KeyCode::Enter if self.list_cursor < n => {
+                self.list_popup = Some(ListPopup::Menu { index: self.list_cursor, sel: 0 });
+            }
+            KeyCode::Enter => self.new_routine(),
+            KeyCode::Esc => self.go(self.list_from),
+            _ => {}
+        }
+    }
+
+    fn list_popup_key(&mut self, popup: ListPopup, k: KeyEvent) {
+        match popup {
+            ListPopup::Menu { index, mut sel } => {
+                let rows = self.list_menu_rows();
+                match row_key(k, &mut sel, rows.len()) {
+                    RowKey::Stay => self.list_popup = Some(ListPopup::Menu { index, sel }),
+                    RowKey::Cancel => {}
+                    RowKey::Chosen(row) => match rows[row] {
+                        "Empezar" => self.start_run(index),
+                        "Editar" => self.edit_routine(index),
+                        _ => {
+                            let name = self.routines[index].name.clone();
+                            self.list_popup = Some(ListPopup::Delete { index, name, sel: SAFE_ROW });
+                        }
+                    },
                 }
             }
-            KeyCode::Char('n') => self.new_routine(),
-            KeyCode::Char('e') if n > 0 => self.edit_routine(self.list_cursor),
-            KeyCode::Char('d') | KeyCode::Delete if n > 0 => {
-                let r = &self.routines[self.list_cursor];
-                self.list_popup = Some(ListPopup::Delete { index: self.list_cursor, name: r.name.clone() });
-            }
-            KeyCode::Esc => self.go(self.list_from),
-            KeyCode::Char('q') => self.request_quit(),
-            _ => {}
+            ListPopup::Delete { index, name, mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Stay => self.list_popup = Some(ListPopup::Delete { index, name, sel }),
+                RowKey::Chosen(0) => {
+                    if self.routines_writable() {
+                        self.routines.remove(index);
+                        self.routines_dirty = true;
+                        self.list_cursor = self.list_cursor.min(self.routines.len());
+                    }
+                }
+                RowKey::Chosen(_) | RowKey::Cancel => {}
+            },
         }
     }
 
@@ -256,46 +321,20 @@ impl App {
         if ed.popup.is_some() {
             return self.editor_popup_key(k);
         }
-        // Las tareas y, después, la fila del ajuste de meditación.
-        let n = ed.routine.tasks.len();
-        let on_meditation = ed.cursor >= n;
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let last = ed.rows() - 1;
         match k.code {
-            // Ctrl+J/Ctrl+K mueven la tarea; sin tarea que mover no hacen nada.
-            KeyCode::Char('j' | 'k') if ctrl => {
-                if let KeyCode::Char('k') = k.code
-                    && !on_meditation
-                    && ed.cursor > 0
-                {
-                    ed.routine.tasks.swap(ed.cursor, ed.cursor - 1);
-                    ed.cursor -= 1;
-                } else if let KeyCode::Char('j') = k.code
-                    && ed.cursor + 1 < n
-                {
-                    ed.routine.tasks.swap(ed.cursor, ed.cursor + 1);
-                    ed.cursor += 1;
-                }
-            }
-            KeyCode::Up | KeyCode::Char('k') => ed.cursor = ed.cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => ed.cursor = (ed.cursor + 1).min(n),
-            KeyCode::Char('a') => ed.popup = Some(EdPopup::Task { text: String::new(), at: None }),
-            KeyCode::Char('r') => {
-                ed.popup = Some(EdPopup::Name { text: ed.routine.name.clone(), new: false });
-            }
-            KeyCode::Char('m') => self.open_meditation_setting(),
-            KeyCode::Enter if on_meditation => self.open_meditation_setting(),
-            KeyCode::Enter => {
-                let text = ed.routine.tasks[ed.cursor].clone();
-                ed.popup = Some(EdPopup::Task { text, at: Some(ed.cursor) });
-            }
-            KeyCode::Char('d') | KeyCode::Delete if !on_meditation => {
-                ed.popup = Some(EdPopup::DeleteStep { at: ed.cursor });
-            }
-            KeyCode::Char('g') => drop(self.save_editor()),
-            KeyCode::Char('q') => self.request_quit(),
+            KeyCode::Up => ed.cursor = ed.cursor.saturating_sub(1),
+            KeyCode::Down => ed.cursor = (ed.cursor + 1).min(last),
+            KeyCode::Enter => match ed.row() {
+                EdRow::Name => ed.popup = Some(EdPopup::Name { text: ed.routine.name.clone(), new: false }),
+                EdRow::Task(at) => ed.popup = Some(EdPopup::TaskMenu { at, sel: 0 }),
+                EdRow::Add => ed.popup = Some(EdPopup::Task { text: String::new(), at: None }),
+                EdRow::Meditation => self.open_meditation_setting(),
+                EdRow::Save => drop(self.save_editor()),
+            },
             KeyCode::Esc => {
                 if ed.dirty() {
-                    ed.popup = Some(EdPopup::Unsaved);
+                    ed.popup = Some(EdPopup::Unsaved { sel: 2 });
                 } else {
                     self.close_editor();
                 }
@@ -323,11 +362,11 @@ impl App {
         let Some(ed) = self.editor.as_ref() else { return false };
         let name = ed.routine.name.trim().to_string();
         let problem = if name.is_empty() {
-            Some("la rutina necesita un nombre: apretá r")
+            Some("la rutina necesita un nombre: elegí la fila Nombre")
         } else if ed.routine.tasks.is_empty() && ed.routine.meditation.is_none() {
-            Some("agregá al menos una tarea con a, o activá la meditación")
+            Some("agregá al menos una tarea, o activá la meditación")
         } else if routine::name_taken(&self.routines, &name, ed.index) {
-            Some("ya hay otra rutina con ese nombre: apretá r para cambiarlo")
+            Some("ya hay otra rutina con ese nombre: cambialo en la fila Nombre")
         } else {
             None
         };
@@ -393,7 +432,8 @@ impl App {
                         Some(i) => ed.routine.tasks[i] = task,
                         None => {
                             ed.routine.tasks.push(task);
-                            ed.cursor = ed.routine.tasks.len() - 1;
+                            // El cursor queda en la tarea nueva (las tareas arrancan en la fila 1).
+                            ed.cursor = ed.routine.tasks.len();
                         }
                     }
                     None
@@ -403,27 +443,51 @@ impl App {
                     Some(EdPopup::Task { text, at })
                 }
             },
-            EdPopup::DeleteStep { at } => match k.code {
-                KeyCode::Char('s' | 'y') | KeyCode::Enter => {
+            EdPopup::TaskMenu { at, mut sel } => match row_key(k, &mut sel, 3) {
+                RowKey::Stay => Some(EdPopup::TaskMenu { at, sel }),
+                RowKey::Cancel => None,
+                RowKey::Chosen(0) => Some(EdPopup::Task { text: ed.routine.tasks[at].clone(), at: Some(at) }),
+                RowKey::Chosen(1) => Some(EdPopup::Move),
+                RowKey::Chosen(_) => Some(EdPopup::DeleteStep { at, sel: SAFE_ROW }),
+            },
+            EdPopup::Move => {
+                // El cursor está en la fila de la tarea (las tareas arrancan en la fila 1).
+                let i = ed.cursor - 1;
+                match k.code {
+                    KeyCode::Up if i > 0 => {
+                        ed.routine.tasks.swap(i, i - 1);
+                        ed.cursor -= 1;
+                        Some(EdPopup::Move)
+                    }
+                    KeyCode::Down if i + 1 < ed.routine.tasks.len() => {
+                        ed.routine.tasks.swap(i, i + 1);
+                        ed.cursor += 1;
+                        Some(EdPopup::Move)
+                    }
+                    KeyCode::Enter | KeyCode::Esc => None,
+                    _ => Some(EdPopup::Move),
+                }
+            }
+            EdPopup::DeleteStep { at, mut sel } => match row_key(k, &mut sel, 2) {
+                RowKey::Stay => Some(EdPopup::DeleteStep { at, sel }),
+                RowKey::Chosen(0) => {
                     ed.routine.tasks.remove(at);
                     ed.cursor = ed.cursor.min(ed.routine.tasks.len());
                     None
                 }
-                KeyCode::Esc | KeyCode::Char('n') => None,
-                _ => Some(EdPopup::DeleteStep { at }),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
             },
-            EdPopup::Unsaved => match k.code {
-                KeyCode::Char('g') | KeyCode::Enter => {
-                    ed.popup = Some(EdPopup::Unsaved);
+            EdPopup::Unsaved { mut sel } => match row_key(k, &mut sel, 3) {
+                RowKey::Stay => Some(EdPopup::Unsaved { sel }),
+                RowKey::Chosen(0) => {
                     self.save_editor();
                     return;
                 }
-                KeyCode::Char('d') => {
+                RowKey::Chosen(1) => {
                     self.close_editor();
                     return;
                 }
-                KeyCode::Esc => None,
-                _ => Some(EdPopup::Unsaved),
+                RowKey::Chosen(_) | RowKey::Cancel => None,
             },
         };
     }
@@ -435,10 +499,10 @@ impl App {
         let Some(d) = ed.step.as_mut() else { return self.go(Screen::RoutineEditor) };
         let n = Category::ALL.len();
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => d.field = d.field.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => d.field = (d.field + 1).min(2),
-            KeyCode::Left | KeyCode::Char('h') | KeyCode::Right | KeyCode::Char('l') => {
-                let right = matches!(k.code, KeyCode::Right | KeyCode::Char('l'));
+            KeyCode::Up => d.field = d.field.saturating_sub(1),
+            KeyCode::Down => d.field = (d.field + 1).min(2),
+            KeyCode::Left | KeyCode::Right => {
+                let right = k.code == KeyCode::Right;
                 match d.field {
                     0 => d.enabled = !d.enabled,
                     1 if d.enabled => d.free = !d.free,
@@ -458,7 +522,6 @@ impl App {
                 ed.step = None;
                 self.go(Screen::RoutineEditor);
             }
-            KeyCode::Char('q') => self.request_quit(),
             _ => {}
         }
     }
@@ -486,7 +549,7 @@ impl App {
         let Some(routine) = self.routines.get(i).cloned() else { return };
         let steps = routine.run_steps();
         if steps.is_empty() {
-            self.notify("esa rutina no tiene pasos: editala con e");
+            self.notify("esa rutina no tiene pasos: editala desde su menú");
             return;
         }
         let picks: Vec<Option<Pick>> = steps
@@ -539,10 +602,9 @@ impl App {
         }
         let n = run.marks.len();
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => run.cursor = run.cursor.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => run.cursor = (run.cursor + 1).min(n - 1),
+            KeyCode::Up => run.cursor = run.cursor.saturating_sub(1),
+            KeyCode::Down => run.cursor = (run.cursor + 1).min(n - 1),
             KeyCode::Enter => self.toggle_mark(),
-            KeyCode::Char('q') => self.request_quit(),
             KeyCode::Esc => {
                 self.end_run();
                 self.go(Screen::Home);
@@ -628,8 +690,8 @@ impl App {
         let cats = self.available_categories();
         let Some(ch) = self.run.as_mut().and_then(|r| r.chooser.as_mut()) else { return };
         match k.code {
-            KeyCode::Up | KeyCode::Char('k') => ch.sel = ch.sel.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => ch.sel = (ch.sel + 1).min(cats.len().saturating_sub(1)),
+            KeyCode::Up => ch.sel = ch.sel.saturating_sub(1),
+            KeyCode::Down => ch.sel = (ch.sel + 1).min(cats.len().saturating_sub(1)),
             KeyCode::Enter => {
                 let (step, sel) = (ch.step, ch.sel);
                 let Some(&cat) = cats.get(sel) else { return };
