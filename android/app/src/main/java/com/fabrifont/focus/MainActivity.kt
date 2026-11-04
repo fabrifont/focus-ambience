@@ -1,45 +1,54 @@
 package com.fabrifont.focus
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
-import com.fabrifont.focus.ui.theme.FocusTheme
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.fabrifont.focus.engine.EngineHost
+import com.fabrifont.focus.ui.FocusApp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
-// TODO(core): acá van los bindings UniFFI de core/
 class MainActivity : ComponentActivity() {
+    private val askNotifications =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* sin permiso igual suena */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            FocusTheme {
-                Placeholder()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
+        val engine = EngineHost.get(this)
+        val prefs = Prefs(this)
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        // Al prender el primer sonido o el timer arranca el servicio (él se apaga solo al quedar sin nada).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                engine.state.map { it.busy }.distinctUntilChanged().collect { busy ->
+                    if (busy && !PlaybackService.running) PlaybackService.start(this@MainActivity)
+                }
             }
         }
-    }
-}
 
-@Composable
-private fun Placeholder() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "focus · Android (esqueleto)",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontFamily = FontFamily.Monospace,
-        )
+        setContent { FocusApp(engine, prefs) }
     }
 }
