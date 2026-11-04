@@ -50,22 +50,27 @@ Al abrir arranca sin sonar; recuerda volúmenes y la posición de cada pista.
 
 ## Teclas
 
-En todas las pantallas: `↑↓` (o `j` `k`) mueven, `Enter` o `␣` eligen (hacen lo mismo en todas las pantallas; en los campos de texto `␣` escribe un espacio), `Esc` vuelve un paso, `q` sale. Las letras no distinguen mayúsculas (salvo al escribir texto). `?` abre la ayuda con las teclas de la pantalla en que estés (menos al escribir texto, donde escribe un `?`).
+En toda la app: `↑↓` mueven, `←→` cambian un valor (volumen, tema), `Enter` o `␣` eligen (hacen lo mismo; en los campos de texto `␣` escribe un espacio), `Esc` vuelve un paso, `?` abre la ayuda de la pantalla y `Tab` abre el menú **Opciones** (solo en Focus). Las letras, los números y `?` solo se escriben dentro de un campo de texto. Para salir: `Esc` hasta el inicio y la fila **Salir**.
 
-### Salir
+Agregar, editar y borrar no tienen tecla propia:
 
-| Tecla | Qué hace |
-|---|---|
-| `q` | Si algo suena, pregunta si dejarlo en background; si no, confirma la salida |
-| `Ctrl+Q` | Apaga todo y sale, sin preguntar |
-| `Ctrl+C` | Cierra la interfaz y deja el audio como está |
+- **Agregar o crear**: una fila `+ …` arriba de la lista.
+- **Acciones sobre un ítem**: `Enter` sobre el ítem abre su menú, con la acción principal ya marcada.
+- **Guardar**: una fila `✓ Guardar` al final.
+- **Confirmaciones**: filas `Sí, …` / `No`; viene marcada la opción segura y `Esc` es siempre «no».
+
+`Ctrl+C` queda como salida de emergencia: cierra la interfaz y deja el audio como está.
 
 ### Inicio
 
+Continuar, Elegir otra rutina, Ir a Focus, Configuración y **Salir**.
+
 | Tecla | Qué hace |
 |---|---|
-| `1` – `4` | Va directo a: Continuar, Elegir otra rutina, Ir a Focus, Configuración |
-| `Enter` | Elige la opción marcada |
+| `↑↓` | Mueve |
+| `Enter` | Elige |
+
+**Salir** pregunta: si algo suena, `Seguir escuchando de fondo` / `Apagar todo y salir` / `Volver` (marcada); si no, `Sí, salir` / `No` (marcada).
 
 ### Antes de arrancar
 
@@ -80,39 +85,50 @@ Si elegís un preset, arranca el modo deep work.
 
 ### Focus
 
+Solo la lista de sonidos.
+
 | Tecla | Qué hace |
 |---|---|
-| `␣` / `Enter` | Prende o apaga el sonido seleccionado |
-| `←` `→` (o `h` `l`) | Volumen del sonido |
-| `+` / `-` | Volumen general |
-| `Tab` | Cambia entre sonidos y presets (`Enter` carga el preset) |
-| `g` / `End` | Primer / último elemento (`Ctrl+G` también va al final) |
-| `p` | Pausa o reanuda los sonidos |
-| `x` | Apaga todo |
-| `0` | Reinicia desde el principio los sonidos que están sonando |
-| `t` | Temporizador: `1` 25 min, `2` 50, `3` 90, personalizado o cancelar |
-| `r` | Pausa o reanuda el temporizador (el sonido sigue) |
-| `d` | Modo deep work |
-| `?` | Ayuda (en todas las pantallas) |
-| `Esc` | Vuelve al menú, sin cortar el sonido |
+| `↑↓` | Mueve por los sonidos |
+| `←` `→` | Volumen del sonido |
+| `Enter` / `␣` | Prende o apaga el sonido |
+| `Tab` | Abre **Opciones** |
+| `Esc` | Vuelve al inicio, sin cortar el sonido |
+
+Hay dos atajos ocultos que no figuran en ninguna ayuda: `0` reinicia desde el principio los sonidos que suenan y `t` pausa o reanuda el timer (el sonido sigue).
+
+**Opciones** (`↑↓` mueven, `Enter` elige, `Esc` cierra):
+
+| Fila | Qué hace |
+|---|---|
+| Timer › | 25, 50, 90 min, personalizado o cancelar |
+| Modo deep work / Salir de deep work | Prende o apaga el modo |
+| Cargar preset › | Elige un preset de la lista |
+| Volumen general | `←→` lo cambian sin cerrar el menú |
+| Pausar todo / Seguir todo | Pausa o reanuda los sonidos |
+| Apagar todo | Apaga todos los sonidos |
+| Volver al inicio | Como `Esc` |
+| Salir | Pregunta cómo salir |
 
 ### Deep work
 
 Solo el reloj grande y `? ayuda` abajo.
 
-- Las teclas de Focus siguen activas, aunque no se vean (sonido, volumen, `r`, `q`, `Ctrl+Q`).
-- `d` o `Esc` vuelven a Focus normal.
-- Si el timer llega a cero estando en el modo: «¡Buen trabajo!» y `d` para volver.
+- Las teclas de Focus siguen activas, aunque no se vean (sonido, volumen, `Tab`).
+- Para salir del modo: `Tab` › Salir de deep work, o `Esc` para volver al inicio.
+- Si el timer llega a cero estando en el modo: «¡Buen trabajo!» y `Enter` para volver.
 
 ### Rutinas
 
 | Pantalla | Teclas |
 |---|---|
-| Lista | `Enter` empieza (desde Configuración, edita) · `n` nueva · `e` editar · `d` borrar |
-| Editor | `a` agrega tarea · `Enter` edita · `Ctrl+J` / `Ctrl+K` bajan / suben · `d` borra · `r` renombra · `m` meditación · `g` guarda · `Esc` sale |
+| Lista | `+ Nueva rutina` arriba · `Enter` sobre una rutina abre `Empezar` · `Editar` · `Borrar` (desde Configuración, `Editar` · `Borrar`) |
+| Editor | `Nombre: …`, las tareas, `+ Agregar tarea`, la meditación y `✓ Guardar` · `Enter` sobre una tarea abre `Editar texto` · `Mover` · `Borrar` |
+| Mover | La tarea queda resaltada · `↑↓` la llevan · `Enter` o `Esc` la sueltan |
 | Meditación | `↑↓` campo · `←→` cambia (sí/no, fija/libre, duración) · `Enter` acepta |
 | En curso | `␣` / `Enter` marca o desmarca una tarea · `↑↓` mueven · `Esc` vuelve al menú |
 
+- `Esc` en el editor con cambios pregunta: `Guardar` · `Descartar` · `Seguir editando` (marcada).
 - En el paso de meditación, `␣` / `Enter` reproduce o pausa y elige la duración si es libre. Se marca sola cuando el audio termina.
 - Durante la rutina se silencia el ambiente; se devuelve al salir.
 - Al completar todos los pasos se entra a Focus.
@@ -121,10 +137,10 @@ Solo el reloj grande y `? ayuda` abajo.
 
 | Pantalla | Teclas |
 |---|---|
-| Meditaciones | `Enter` / `␣` reproduce o pausa · `a` agrega · `d` borra |
-| Sonidos ambientales | `a` agrega · `d` borra |
-| Presets | `n` nuevo · `d` borra |
-| Armar preset | `␣` elige o saca un sonido (suena en vivo) · `←→` volumen · `g` guarda · `Esc` descarta |
+| Meditaciones | `+ Agregar desde YouTube` arriba · `Enter` sobre una meditación abre `Escuchar` / `Pausar` · `Borrar` |
+| Sonidos ambientales | `+ Agregar desde YouTube` arriba · `Enter` sobre un sonido pregunta si borrarlo |
+| Presets | `+ Nuevo preset` arriba · `Enter` sobre un preset pregunta si borrarlo |
+| Armar preset | `Enter` elige o saca un sonido (suena en vivo) · `←→` volumen · `✓ Guardar preset` al final · `Esc` descarta (pregunta) |
 | Sincronización | `Enter` / `␣` elige: **Conectar Google Drive** (`focus setup`), **Sincronizar** (`focus sync`) o **Verificar archivos** (`focus verify`) |
 
 En Sincronización se abre una ventana con el avance. Mientras trabaja no responde ninguna tecla; al terminar, `Enter`, `␣` o `Esc` la cierran. Al conectar Drive se abre el navegador y el link también se ve en la ventana.
@@ -135,9 +151,10 @@ En Meditaciones y Sonidos ambientales, pegar un link de YouTube abre el diálogo
 
 | Tecla | Qué hace |
 |---|---|
+| Escribir | Letras, números, espacio y `?` |
 | `Enter` | Acepta (en el diálogo de agregar, pasa al campo siguiente) |
-| `Tab` / `↑↓` | Cambia de campo (agregar sonido) |
-| `←` `→` | Cambia el tema |
+| `↑↓` | Cambia de campo (agregar sonido) o de duración (agregar meditación) |
+| `←` `→` | Cambia el tema (agregar sonido) |
 | `Esc` | Cancela |
 
 ## Comandos de terminal
