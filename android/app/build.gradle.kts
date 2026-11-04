@@ -1,5 +1,3 @@
-// TODO(core): acá van los bindings UniFFI de core/
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -16,6 +14,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -36,6 +35,19 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Bindings Kotlin generados por UniFFI (build-rust.sh).
+    sourceSets.getByName("main").java.srcDir("build/generated/uniffi")
+}
+
+// Puente Rust: .so en jniLibs + bindings Kotlin. Con -PskipRust se usa lo ya generado.
+val buildRust by tasks.registering(Exec::class) {
+    workingDir = rootDir
+    commandLine("bash", "build-rust.sh")
+}
+
+if (!project.hasProperty("skipRust")) {
+    tasks.named("preBuild") { dependsOn(buildRust) }
 }
 
 dependencies {
@@ -45,5 +57,12 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.media)
+    implementation("net.java.dev.jna:jna:5.14.0@aar")
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }
