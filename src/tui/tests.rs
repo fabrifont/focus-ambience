@@ -548,7 +548,9 @@ fn config_opens_the_sounds_list_with_downloaded_sounds_only() {
 fn the_plus_row_adds_a_sound_with_the_same_form_and_flow_as_before() {
     let mut app = app_with_sounds();
     open_sounds(&mut app);
-    assert_eq!(app.sound_cursor, 0, "arranca sobre «+ Agregar desde YouTube»");
+    assert_eq!(app.sound_cursor, 0, "arranca sobre el primer sonido");
+    ks(&mut app, "down*40");
+    assert_eq!(app.sound_cursor, app.file_sounds().len(), "la fila «+» es la última");
     ks(&mut app, "enter");
     assert!(matches!(app.popup, Some(app::Popup::Add(_))));
     assert!(screen_text(&app, 90, 30).contains("agregar desde YouTube"));
@@ -567,6 +569,7 @@ fn empty_sounds_list_still_has_the_plus_row_and_says_what_to_do() {
     open_sounds(&mut app);
     let t = screen_text(&app, 100, 24);
     assert!(t.contains("Todavía no hay sonidos descargados") && t.contains("+ Agregar desde YouTube"), "{t}");
+    assert_eq!(app.sound_cursor, 0, "con la lista vacía arranca sobre la fila «+»");
     ks(&mut app, "down*3");
     assert_eq!(app.sound_cursor, 0);
     ks(&mut app, "enter");
@@ -577,7 +580,7 @@ fn empty_sounds_list_still_has_the_plus_row_and_says_what_to_do() {
 fn the_add_form_moves_between_fields_with_arrows_and_picks_the_theme_with_left_right() {
     let mut app = app_with_sounds();
     open_sounds(&mut app);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     let field = |app: &App| match &app.popup {
         Some(app::Popup::Add(f)) => (f.field, f.url.clone(), f.name.clone(), f.trim.clone(), f.theme),
         _ => panic!("falta el formulario"),
@@ -611,7 +614,7 @@ fn the_add_form_moves_between_fields_with_arrows_and_picks_the_theme_with_left_r
 fn tab_does_nothing_in_the_add_form() {
     let mut app = app_with_sounds();
     open_sounds(&mut app);
-    ks(&mut app, "enter tab backtab");
+    ks(&mut app, "down*40 enter tab backtab");
     match &app.popup {
         Some(app::Popup::Add(f)) => assert_eq!(f.field, 0),
         _ => panic!("falta el formulario"),
@@ -697,7 +700,8 @@ fn presets_screen_lists_them_with_their_sounds_and_volumes() {
         assert!(t.contains(s), "falta «{s}» en:\n{t}");
     }
     let pos = |s: &str| t.find(s).unwrap();
-    assert!(pos("+ Nuevo preset") < pos("Templo Jedi"), "la fila «+» va arriba");
+    assert!(pos("+ Nuevo preset") > pos("Lluvia y fuego"), "la fila «+» va al final");
+    assert!(t.contains("> Templo Jedi"), "el cursor arranca en el primer preset:\n{t}");
     app.key(key(Esc));
     assert_eq!(app.screen, app::Screen::Config);
 }
@@ -707,6 +711,7 @@ fn empty_presets_list_has_the_plus_row() {
     let mut app = App::new();
     open_presets(&mut app);
     assert!(screen_text(&app, 100, 24).contains("Todavía no hay presets"));
+    assert_eq!(app.preset_list_cursor, 0, "con la lista vacía arranca sobre la fila «+»");
     ks(&mut app, "down*2");
     assert_eq!(app.preset_list_cursor, 0);
     ks(&mut app, "enter");
@@ -717,7 +722,7 @@ fn empty_presets_list_has_the_plus_row() {
 fn enter_on_a_preset_asks_before_deleting_it_with_no_preselected() {
     let mut app = app_with_sounds_and_presets();
     open_presets(&mut app);
-    ks(&mut app, "down*2");
+    ks(&mut app, "down");
     ks(&mut app, "enter");
     assert!(sent(&mut app).is_empty());
     let t = screen_text(&app, 80, 24);
@@ -732,7 +737,7 @@ fn enter_on_a_preset_asks_before_deleting_it_with_no_preselected() {
 
 fn open_builder(app: &mut App) {
     open_presets(app);
-    ks(app, "enter");
+    ks(app, "down*40 enter");
     assert_eq!(app.screen, app::Screen::PresetBuilder);
 }
 
@@ -1130,6 +1135,37 @@ fn options_timer_opens_the_timer_list_without_digits() {
     ks(&mut app, "down enter");
     assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Timer { minutes: Some(50) })));
     assert!(app.popup.is_none());
+}
+
+#[test]
+fn esc_in_the_timer_goes_back_to_options_with_timer_selected() {
+    let mut app = focus_app();
+    ks(&mut app, "tab enter");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { custom: None, .. })));
+    ks(&mut app, "esc");
+    assert!(matches!(app.popup, Some(app::Popup::Options { sel: 0 })));
+    assert!(screen_text(&app, 80, 24).contains("> Timer ›"));
+    assert!(sent(&mut app).is_empty());
+    // Un segundo Esc cierra Opciones.
+    ks(&mut app, "esc");
+    assert!(app.popup.is_none());
+    // Elegir un tiempo sigue cerrando todo.
+    ks(&mut app, "tab enter down enter");
+    assert!(app.popup.is_none());
+    assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Timer { minutes: Some(50) })));
+}
+
+#[test]
+fn esc_in_the_custom_minutes_goes_back_to_the_list_and_then_to_options() {
+    let mut app = focus_app();
+    ks(&mut app, "tab enter down*3 enter"); // «personalizado…»
+    assert!(matches!(app.popup, Some(app::Popup::Timer { custom: Some(_), .. })));
+    press(&mut app, "12");
+    ks(&mut app, "esc");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { custom: None, .. })));
+    ks(&mut app, "esc");
+    assert!(matches!(app.popup, Some(app::Popup::Options { sel: 0 })));
+    assert!(sent(&mut app).is_empty());
 }
 
 #[test]
@@ -1606,24 +1642,59 @@ fn config_lists_its_entries() {
 // ------------------------------------------------------------- Meditaciones
 
 #[test]
-fn meditations_screen_groups_by_duration_with_the_plus_row_on_top() {
+fn meditations_screen_groups_by_duration_with_the_plus_row_last() {
     let mut app = app_with_meditations();
     app.screen = app::Screen::Meditations;
     let t = screen_text(&app, 80, 24);
     let pos = |s: &str| t.find(s).unwrap_or_else(|| panic!("falta «{s}» en:\n{t}"));
-    assert!(pos("+ Agregar desde YouTube") < pos("5 MINUTOS"));
     assert!(pos("5 MINUTOS") < pos("Respiración 4-7-8"));
     assert!(pos("Respiración 4-7-8") < pos("10 MINUTOS"));
     assert!(pos("10 MINUTOS") < pos("Calma guiada"));
     assert!(!t.contains("20 MINUTOS"), "las categorías vacías no se muestran");
-    assert!(t.contains("> + Agregar desde YouTube"), "el cursor arranca en la fila «+»");
+    assert!(pos("Calma guiada") < pos("+ Agregar desde YouTube"), "la fila «+» va al final");
+    assert!(t.contains(">   Respiración 4-7-8"), "el cursor arranca en la primera meditación:\n{t}");
+}
+
+#[test]
+fn an_empty_meditations_list_starts_on_the_plus_row_and_the_cursor_stays_valid() {
+    let mut app = App::new();
+    app.screen = app::Screen::Meditations;
+    assert_eq!(app.med_cursor, 0);
+    assert!(screen_text(&app, 80, 24).contains("> + Agregar desde YouTube"));
+    ks(&mut app, "down*3");
+    assert_eq!(app.med_cursor, 0);
+    ks(&mut app, "enter");
+    assert!(matches!(app.med_popup, Some(app::MedPopup::Add { .. })));
+}
+
+#[test]
+fn the_cursor_stays_valid_when_the_last_item_of_each_list_disappears() {
+    let mut app = app_with_meditations();
+    let n = app.state.meditations.len();
+    app.med_cursor = n; // sobre «+»
+    let mut st = app.state.clone();
+    st.meditations.pop();
+    app.set_state(st);
+    assert_eq!(app.med_cursor, n - 1, "ahora «+» es la fila n-1");
+    app.med_cursor = n - 2; // sobre la última meditación
+    let mut st = app.state.clone();
+    st.meditations.pop();
+    app.set_state(st);
+    assert!(app.med_cursor <= app.state.meditations.len());
+
+    let mut app = app_with_sounds_and_presets();
+    app.preset_list_cursor = app.state.presets.len() - 1;
+    let mut st = app.state.clone();
+    st.presets.pop();
+    app.set_state(st);
+    assert_eq!(app.preset_list_cursor, app.state.presets.len(), "cae sobre la fila «+»");
 }
 
 #[test]
 fn enter_on_a_meditation_opens_its_menu_with_listen_preselected() {
     let mut app = app_with_meditations();
     app.screen = app::Screen::Meditations;
-    ks(&mut app, "down enter");
+    ks(&mut app, "enter");
     assert!(matches!(app.med_popup, Some(app::MedPopup::Menu { sel: 0, .. })));
     let t = screen_text(&app, 80, 24);
     assert!(t.contains("Respiración 4-7-8") && t.contains("> Escuchar") && t.contains("Borrar"), "{t}");
@@ -1654,7 +1725,7 @@ fn enter_on_a_meditation_opens_its_menu_with_listen_preselected() {
 fn the_plus_row_asks_for_the_link_then_the_category_with_up_down_only() {
     let mut app = app_with_meditations();
     app.screen = app::Screen::Meditations;
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     ks(&mut app, "enter"); // sin link no avanza
     assert!(matches!(app.med_popup, Some(app::MedPopup::Add { category: None, .. })));
     app.paste("https://youtu.be/abc");
@@ -1674,7 +1745,7 @@ fn the_plus_row_asks_for_the_link_then_the_category_with_up_down_only() {
 fn deleting_a_meditation_goes_through_its_menu_and_a_confirmation_with_no_preselected() {
     let mut app = app_with_meditations();
     app.screen = app::Screen::Meditations;
-    ks(&mut app, "down enter down enter");
+    ks(&mut app, "enter down enter");
     assert!(matches!(app.med_popup, Some(app::MedPopup::Delete { sel: 1, .. })));
     let t = screen_text(&app, 80, 24);
     assert!(t.contains("¿Borrar «Respiración 4-7-8»?") && t.contains("Sí, borrar") && t.contains("> No"), "{t}");
@@ -1698,7 +1769,7 @@ fn menu_screens_are_still_so_the_tui_idles() {
 /// Abre el editor de la rutina `i` desde Configuración > Rutinas (Enter sobre «Editar»).
 fn edit_routine_n(app: &mut App, i: usize) {
     config(app, 0);
-    ks(app, &format!("down*{} enter enter", i + 1));
+    ks(app, &format!("down*{i} enter enter"));
     assert_eq!(app.screen, app::Screen::RoutineEditor);
 }
 
@@ -1742,16 +1813,16 @@ fn a_missing_last_routine_falls_back_to_the_first() {
 }
 
 #[test]
-fn list_has_a_plus_row_on_top_summaries_and_esc_goes_back_to_where_it_came_from() {
+fn list_has_a_plus_row_last_summaries_and_esc_goes_back_to_where_it_came_from() {
     let mut app = app_with_routines();
     home(&mut app, 1);
     assert_eq!(app.screen, app::Screen::Routines);
     assert_eq!(app.list_cursor, 0);
     let t = screen_text(&app, 80, 20);
-    for s in ["> + Nueva rutina", "Mañana de estudio", "4 pasos · 1 meditación", "Enter elegir"] {
+    for s in ["> Mañana de estudio", "+ Nueva rutina", "4 pasos · 1 meditación", "Enter elegir"] {
         assert!(t.contains(s), "falta «{s}» en:\n{t}");
     }
-    assert!(t.find("+ Nueva rutina").unwrap() < t.find("Mañana de estudio").unwrap());
+    assert!(t.find("Mañana de estudio").unwrap() < t.find("+ Nueva rutina").unwrap());
     for gone in ["nueva  ", "editar  ", "borrar  "] {
         assert!(!t.contains(gone), "{t}");
     }
@@ -1767,16 +1838,31 @@ fn list_has_a_plus_row_on_top_summaries_and_esc_goes_back_to_where_it_came_from(
 fn the_plus_row_creates_a_routine() {
     let mut app = app_with_routines();
     home(&mut app, 1);
+    ks(&mut app, "down*40");
+    assert_eq!(app.list_cursor, 2);
+    assert!(screen_text(&app, 80, 20).contains("> + Nueva rutina"));
     ks(&mut app, "enter");
     assert_eq!(app.screen, app::Screen::RoutineEditor);
     assert!(editor(&app).index.is_none());
 }
 
 #[test]
+fn with_no_routines_the_list_starts_on_the_plus_row() {
+    let mut app = App::new();
+    home(&mut app, 1);
+    assert_eq!(app.screen, app::Screen::Routines);
+    assert!(screen_text(&app, 80, 20).contains("> + Nueva rutina"));
+    ks(&mut app, "down*3");
+    assert_eq!(app.list_cursor, 0);
+    ks(&mut app, "enter");
+    assert_eq!(app.screen, app::Screen::RoutineEditor);
+}
+
+#[test]
 fn enter_on_a_routine_from_home_opens_empezar_editar_borrar_with_empezar_preselected() {
     let mut app = app_with_routines();
     home(&mut app, 1);
-    ks(&mut app, "down enter");
+    ks(&mut app, "enter");
     assert!(matches!(app.list_popup, Some(routines::ListPopup::Menu { index: 0, sel: 0 })));
     let t = screen_text(&app, 80, 24);
     assert!(t.contains("> Empezar") && t.contains("Editar") && t.contains("Borrar"), "{t}");
@@ -1788,7 +1874,7 @@ fn enter_on_a_routine_from_home_opens_empezar_editar_borrar_with_empezar_presele
     // Editar es la segunda fila.
     let mut app = app_with_routines();
     home(&mut app, 1);
-    ks(&mut app, "down*2 enter down enter");
+    ks(&mut app, "down enter down enter");
     assert_eq!(app.screen, app::Screen::RoutineEditor);
     assert_eq!(editor(&app).routine.name, "Tarde");
 }
@@ -1797,7 +1883,7 @@ fn enter_on_a_routine_from_home_opens_empezar_editar_borrar_with_empezar_presele
 fn enter_on_a_routine_from_config_opens_editar_borrar_with_editar_preselected() {
     let mut app = app_with_routines();
     config(&mut app, 0);
-    ks(&mut app, "down enter");
+    ks(&mut app, "enter");
     let t = screen_text(&app, 80, 24);
     assert!(t.contains("> Editar") && t.contains("Borrar") && !t.contains("Empezar"), "{t}");
     ks(&mut app, "enter");
@@ -1808,7 +1894,7 @@ fn enter_on_a_routine_from_config_opens_editar_borrar_with_editar_preselected() 
 fn deleting_a_routine_goes_through_the_menu_and_asks_first_with_no_preselected() {
     let mut app = app_with_routines();
     config(&mut app, 0);
-    ks(&mut app, "down enter down enter");
+    ks(&mut app, "enter down enter");
     assert!(matches!(app.list_popup, Some(routines::ListPopup::Delete { sel: 1, .. })));
     let t = screen_text(&app, 80, 24);
     assert!(
@@ -1830,7 +1916,7 @@ fn deleting_a_routine_goes_through_the_menu_and_asks_first_with_no_preselected()
 fn from_home_the_delete_row_is_the_third_one() {
     let mut app = app_with_routines();
     home(&mut app, 1);
-    ks(&mut app, "down enter down*2 enter");
+    ks(&mut app, "enter down*2 enter");
     assert!(matches!(app.list_popup, Some(routines::ListPopup::Delete { .. })));
 }
 
@@ -1839,12 +1925,12 @@ fn a_broken_routines_file_is_never_overwritten() {
     let mut app = app_with_routines();
     app.routines_locked = Some("toml roto".into());
     home(&mut app, 1);
-    ks(&mut app, "down enter down*2 enter up enter");
+    ks(&mut app, "enter down*2 enter up enter");
     assert_eq!(app.routines.len(), 2);
     assert!(!app.routines_dirty);
-    ks(&mut app, "up enter");
+    ks(&mut app, "down*40 enter");
     assert_eq!(app.screen, app::Screen::Routines, "tampoco crea");
-    ks(&mut app, "down enter down enter");
+    ks(&mut app, "up*40 enter down enter");
     assert_eq!(app.screen, app::Screen::Routines, "ni edita");
 }
 
@@ -2085,7 +2171,7 @@ fn esc_with_unsaved_changes_asks_with_keep_editing_preselected() {
 /// Desde la lista de rutinas (ya abierta desde Configuración), edita la primera.
 fn edit_first_again(app: &mut App) {
     assert_eq!(app.screen, app::Screen::Routines);
-    ks(app, "up*10 down enter enter");
+    ks(app, "up*10 enter enter");
     assert_eq!(app.screen, app::Screen::RoutineEditor);
 }
 
@@ -2579,7 +2665,7 @@ fn only_ctrl_c_is_a_shortcut_and_it_stays_hidden_everywhere() {
     // En un campo de texto, Ctrl+letra no escribe nada ni sale (salvo Ctrl+C).
     let mut app = app_with_routines();
     config(&mut app, 0);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     ctrl(&mut app, "q");
     assert!(app.exit.is_none());
     match app.editor.as_ref().and_then(|e| e.popup.as_ref()) {
@@ -2606,7 +2692,7 @@ fn text_fields_keep_their_capitals_and_every_character() {
     use app::{Popup, Screen};
     let mut app = app_with_sounds();
     open_sounds(&mut app);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     press(&mut app, "HTTP://X?0 t");
     match &app.popup {
         Some(Popup::Add(f)) => assert_eq!(f.url, "HTTP://X?0 t"),
@@ -2615,7 +2701,7 @@ fn text_fields_keep_their_capitals_and_every_character() {
     assert!(app.help.is_none());
     let mut app = app_with_meditations();
     app.go(Screen::Meditations);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     press(&mut app, "HTTP://Q?");
     match &app.med_popup {
         Some(app::MedPopup::Add { url, .. }) => assert_eq!(url, "HTTP://Q?"),
@@ -2623,7 +2709,7 @@ fn text_fields_keep_their_capitals_and_every_character() {
     }
     let mut app = app_with_routines();
     config(&mut app, 0);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     press(&mut app, "Mañana QGJK ?0");
     match app.editor.as_ref().and_then(|e| e.popup.as_ref()) {
         Some(routines::EdPopup::Name { text, .. }) => assert_eq!(text, "Mañana QGJK ?0"),
@@ -2774,16 +2860,14 @@ fn lists_are_centered_as_a_block_keeping_their_columns() {
 fn the_selected_row_keeps_its_mark_on_every_list() {
     let mut app = app_with_sounds();
     open_sounds(&mut app);
-    assert!(v3_text(&mut app, 100, 30).contains("> + Agregar desde YouTube"), "sonidos");
-    ks(&mut app, "down");
     assert!(v3_text(&mut app, 100, 30).contains(">   Templo Jedi"), "sonidos");
+    ks(&mut app, "down*40");
+    assert!(v3_text(&mut app, 100, 30).contains("> + Agregar desde YouTube"), "sonidos");
     let mut app = app_with_meditations();
     app.screen = app::Screen::Meditations;
-    ks(&mut app, "down");
     assert!(v3_text(&mut app, 100, 30).contains(">   Respiración"));
     let mut app = app_with_routines();
     home(&mut app, 1);
-    ks(&mut app, "down");
     let t = v3_text(&mut app, 100, 30);
     assert!(t.lines().any(|l| l.contains("> Mañana de estudio")), "{t}");
     // Los resúmenes quedan en columna.
@@ -3110,7 +3194,7 @@ fn space_still_types_in_every_text_field() {
     // Link de la meditación.
     let mut app = app_with_meditations();
     app.screen = app::Screen::Meditations;
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     press(&mut app, "a b");
     assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, category: None }) if url == "a b"));
 }
@@ -3494,7 +3578,7 @@ fn question_mark_works_in_the_before_you_start_window() {
 fn question_mark_types_in_text_fields_and_leaves_other_popups_alone() {
     let mut app = app_with_routines();
     home(&mut app, 1);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     type_text(&mut app, "a?");
     assert!(app.help.is_none());
     assert_eq!(
@@ -3506,7 +3590,7 @@ fn question_mark_types_in_text_fields_and_leaves_other_popups_alone() {
     );
     let mut app = app_with_meditations();
     app.go(app::Screen::Meditations);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     press(&mut app, "?");
     assert!(app.help.is_none());
     assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, .. }) if url == "?"));
@@ -3517,12 +3601,12 @@ fn question_mark_types_in_text_fields_and_leaves_other_popups_alone() {
     assert!(app.help.is_none() && matches!(app.popup, Some(app::Popup::Options { .. })));
     let mut app = app_with_routines();
     home(&mut app, 1);
-    ks(&mut app, "down enter");
+    ks(&mut app, "enter");
     press(&mut app, "?");
     assert!(app.help.is_none() && app.list_popup.is_some());
     let mut app = app_with_sounds();
     open_sounds(&mut app);
-    ks(&mut app, "enter");
+    ks(&mut app, "down*40 enter");
     press(&mut app, "?");
     assert!(app.help.is_none());
     let mut app = app_with_sounds();

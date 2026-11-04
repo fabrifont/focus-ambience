@@ -232,7 +232,7 @@ impl App {
 
     // ----------------------------------------------------------- lista
 
-    /// Fila 0: «+ Nueva rutina»; después las rutinas. Enter sobre una abre su menú.
+    /// Las rutinas y, al final, «+ Nueva rutina» (cursor = cantidad). Enter sobre una abre su menú.
     pub fn routines_key(&mut self, k: KeyEvent) {
         if let Some(popup) = self.list_popup.take() {
             return self.list_popup_key(popup, k);
@@ -241,11 +241,10 @@ impl App {
         match k.code {
             KeyCode::Up => self.list_cursor = self.list_cursor.saturating_sub(1),
             KeyCode::Down => self.list_cursor = (self.list_cursor + 1).min(n),
-            KeyCode::Enter => match self.list_cursor.checked_sub(1) {
-                None => self.new_routine(),
-                Some(index) if index < n => self.list_popup = Some(ListPopup::Menu { index, sel: 0 }),
-                Some(_) => {}
-            },
+            KeyCode::Enter if self.list_cursor < n => {
+                self.list_popup = Some(ListPopup::Menu { index: self.list_cursor, sel: 0 });
+            }
+            KeyCode::Enter => self.new_routine(),
             KeyCode::Esc => self.go(self.list_from),
             _ => {}
         }

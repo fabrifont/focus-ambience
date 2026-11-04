@@ -249,8 +249,14 @@ pub(super) fn row(selected: bool, prefix: String, label: &str, pal: &Palette) ->
 }
 
 /// La fila «+ …» de arriba de una lista, seguida de una línea en blanco.
-fn add_rows(selected: bool, label: &str, pal: &Palette) -> Vec<Line<'static>> {
-    vec![row(selected, String::new(), label, pal), Line::raw("")]
+/// La fila «+ …» va al final de la lista, separada por una línea en blanco (si hay algo antes).
+/// Devuelve el índice de la línea donde quedó.
+fn push_add_row(v: &mut Vec<Line<'static>>, selected: bool, label: &str, pal: &Palette) -> usize {
+    if !v.is_empty() {
+        v.push(Line::raw(""));
+    }
+    v.push(row(selected, String::new(), label, pal));
+    v.len() - 1
 }
 
 fn home_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
@@ -272,16 +278,16 @@ fn config_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
 /// The meditations list grouped by duration, plus the index of the selected line.
 pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = add_rows(app.med_cursor == 0, "+ Agregar desde YouTube", pal);
+    let mut v = Vec::new();
     let mut selected_line = 0;
     let mut index = 0;
     for (cat, items) in meditation::group(&app.state.meditations) {
-        if v.len() > 2 {
+        if !v.is_empty() {
             v.push(Line::raw(""));
         }
         v.push(section(&cat.label(), pal));
         for m in items {
-            let sel = index + 1 == app.med_cursor;
+            let sel = index == app.med_cursor;
             if sel {
                 selected_line = v.len();
             }
@@ -309,7 +315,11 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
         }
     }
     if app.state.meditations.is_empty() {
-        v.push(note("Todavía no hay meditaciones. Corré `focus sync` o agregá una arriba.", dim));
+        v.push(note("Todavía no hay meditaciones. Corré `focus sync` o agregá una abajo.", dim));
+    }
+    let add_line = push_add_row(&mut v, app.med_cursor >= app.state.meditations.len(), "+ Agregar desde YouTube", pal);
+    if app.med_cursor >= app.state.meditations.len() {
+        selected_line = add_line;
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| d.meditation).collect();
     if !downloads.is_empty() {
@@ -329,7 +339,7 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
 /// Downloaded sounds grouped by theme, plus the index of the selected line.
 fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = add_rows(app.sound_cursor == 0, "+ Agregar desde YouTube", pal);
+    let mut v = Vec::new();
     let mut selected_line = 0;
     let mut theme = None;
     for (index, s) in app.file_sounds().into_iter().enumerate() {
@@ -340,15 +350,20 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
             theme = Some(s.theme);
             v.push(section(s.theme.label(), pal));
         }
-        let sel = index + 1 == app.sound_cursor;
+        let sel = index == app.sound_cursor;
         if sel {
             selected_line = v.len();
         }
         let cloud = if s.available { "" } else { "☁ " };
         v.push(row(sel, format!("  {cloud}"), &trunc(&s.name, width.saturating_sub(8)), pal));
     }
-    if app.file_sounds().is_empty() {
-        v.push(note("Todavía no hay sonidos descargados. Corré `focus sync` o agregá uno arriba.", dim));
+    let count = app.file_sounds().len();
+    if count == 0 {
+        v.push(note("Todavía no hay sonidos descargados. Corré `focus sync` o agregá uno abajo.", dim));
+    }
+    let add_line = push_add_row(&mut v, app.sound_cursor >= count, "+ Agregar desde YouTube", pal);
+    if app.sound_cursor >= count {
+        selected_line = add_line;
     }
     let downloads: Vec<_> = app.state.downloads.iter().filter(|d| !d.meditation).collect();
     if !downloads.is_empty() {
@@ -368,10 +383,10 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
 /// Saved presets with the sounds and volumes each one has, plus the index of the selected line.
 fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, usize) {
     let dim = Style::new().fg(pal.dim.c());
-    let mut v = add_rows(app.preset_list_cursor == 0, "+ Nuevo preset", pal);
+    let mut v = Vec::new();
     let mut selected_line = 0;
     for (i, p) in app.state.presets.iter().enumerate() {
-        let sel = i + 1 == app.preset_list_cursor;
+        let sel = i == app.preset_list_cursor;
         if sel {
             selected_line = v.len();
         }
@@ -387,7 +402,12 @@ fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, 
         v.push(Line::styled(format!("    {}", trunc(&sounds.join(" · "), width.saturating_sub(6))), dim));
     }
     if app.state.presets.is_empty() {
-        v.push(note("Todavía no hay presets. Corré `focus sync` o armá uno arriba.", dim));
+        v.push(note("Todavía no hay presets. Corré `focus sync` o armá uno abajo.", dim));
+    }
+    let on_add = app.preset_list_cursor >= app.state.presets.len();
+    let add_line = push_add_row(&mut v, on_add, "+ Nuevo preset", pal);
+    if on_add {
+        selected_line = add_line;
     }
     (v, selected_line)
 }

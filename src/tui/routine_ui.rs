@@ -32,7 +32,7 @@ pub fn view(app: &App, pal: &Palette, width: usize) -> View {
 
 fn list_view(app: &App, pal: &Palette, width: usize) -> View {
     let dim = Style::new().fg(pal.dim.c());
-    let mut lines = vec![row(app.list_cursor == 0, String::new(), "+ Nueva rutina", pal), Line::raw("")];
+    let mut lines = Vec::new();
     let mut selected = 0;
     // Names padded to the longest one, so the summaries line up in a column.
     let summary_w = app.routines.iter().map(|r| r.summary().chars().count()).max().unwrap_or(0);
@@ -40,17 +40,24 @@ fn list_view(app: &App, pal: &Palette, width: usize) -> View {
         app.routines.iter().map(|r| trunc(&r.name, width.saturating_sub(summary_w + 10).max(8))).collect();
     let name_w = names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
     for (i, r) in app.routines.iter().enumerate() {
-        if i + 1 == app.list_cursor {
+        if i == app.list_cursor {
             selected = lines.len();
         }
-        let mut line = row(i + 1 == app.list_cursor, String::new(), &names[i], pal);
+        let mut line = row(i == app.list_cursor, String::new(), &names[i], pal);
         line.spans.push(Span::raw(" ".repeat(name_w - names[i].chars().count() + 3)));
         line.spans.push(Span::styled(r.summary(), dim));
         lines.push(line);
     }
     if app.routines.is_empty() {
-        lines.push(note("Todavía no hay rutinas. Creá una arriba (o corré `focus sync` para traerlas).", dim));
+        lines.push(note("Todavía no hay rutinas. Creá una abajo (o corré `focus sync` para traerlas).", dim));
     }
+    if !lines.is_empty() {
+        lines.push(Line::raw(""));
+    }
+    if app.list_cursor >= app.routines.len() {
+        selected = lines.len();
+    }
+    lines.push(row(app.list_cursor >= app.routines.len(), String::new(), "+ Nueva rutina", pal));
     let hints: Hints = &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")];
     View { lines, hints, selected }
 }

@@ -192,12 +192,12 @@ pub struct App {
     pub screen: Screen,
     pub home_cursor: usize,
     pub config_cursor: usize,
-    /// Cursor de Meditaciones: 0 es «+ Agregar desde YouTube», después la lista agrupada.
+    /// Cursor de Meditaciones: arranca en el primero; la fila «+ Agregar desde YouTube» es la última (cursor = cantidad).
     pub med_cursor: usize,
     pub med_popup: Option<MedPopup>,
-    /// Cursor de Configuración > Sonidos ambientales: 0 es «+ Agregar desde YouTube», después `file_sounds`.
+    /// Cursor de Configuración > Sonidos ambientales: arranca en el primero; «+ Agregar desde YouTube» es la última fila.
     pub sound_cursor: usize,
-    /// Cursor de Configuración > Presets: 0 es «+ Nuevo preset», después los presets.
+    /// Cursor de Configuración > Presets: arranca en el primero; «+ Nuevo preset» es la última fila.
     pub preset_list_cursor: usize,
     pub builder: Option<PresetDraft>,
     /// Cursor de Configuración > Sincronización.
@@ -310,7 +310,7 @@ impl App {
     }
 
     pub fn selected_file_sound(&self) -> Option<&Sound> {
-        self.file_sounds().get(self.sound_cursor.checked_sub(1)?).copied()
+        self.file_sounds().get(self.sound_cursor).copied()
     }
 
     pub fn selected_sound(&self) -> Option<&Sound> {
@@ -326,7 +326,7 @@ impl App {
     }
 
     pub fn selected_meditation(&self) -> Option<&Meditation> {
-        self.meditations().get(self.med_cursor.checked_sub(1)?).copied()
+        self.meditations().get(self.med_cursor).copied()
     }
 
     pub fn is_active(&self, id: &str) -> bool {
@@ -351,7 +351,7 @@ impl App {
         self.meditation_ended();
         let n = self.items().len();
         self.cursor = self.cursor.min(n.saturating_sub(1));
-        // Cada lista tiene arriba la fila «+ …», por eso un lugar más que ítems.
+        // Cada lista tiene al final la fila «+ …» (el cursor igual a la cantidad), por eso un lugar más que ítems.
         self.med_cursor = self.med_cursor.min(self.state.meditations.len());
         self.preset_list_cursor = self.preset_list_cursor.min(self.state.presets.len());
         self.sound_cursor = self.sound_cursor.min(self.file_sounds().len());
@@ -609,7 +609,7 @@ impl App {
         match k.code {
             KeyCode::Up => self.preset_list_cursor = self.preset_list_cursor.saturating_sub(1),
             KeyCode::Down => self.preset_list_cursor = (self.preset_list_cursor + 1).min(n),
-            KeyCode::Enter => match self.preset_list_cursor.checked_sub(1).and_then(|i| self.state.presets.get(i)) {
+            KeyCode::Enter => match self.state.presets.get(self.preset_list_cursor) {
                 Some(p) => self.popup = Some(Popup::DeletePreset { name: p.name.clone(), sel: SAFE_ROW }),
                 None => self.enter_builder(),
             },
@@ -1030,6 +1030,13 @@ impl App {
         // Esc cierra cualquier ventanita (en las de confirmación es siempre «no»), salvo las que
         // lo tratan distinto antes de llegar acá.
         if k.code == KeyCode::Esc {
+            // El Timer solo se abre desde Opciones: Esc vuelve un paso (campo de minutos → lista →
+            // Opciones, con «Timer ›» marcada) en vez de cerrar todo.
+            self.popup = match popup {
+                Popup::Timer { sel, custom: Some(_) } => Some(Popup::Timer { sel, custom: None }),
+                Popup::Timer { custom: None, .. } => Some(Popup::Options { sel: 0 }),
+                _ => None,
+            };
             return;
         }
         self.popup = match popup {

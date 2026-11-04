@@ -54,7 +54,7 @@ En toda la app: `↑↓` mueven, `←→` cambian un valor (volumen, tema), `Ent
 
 Agregar, editar y borrar no tienen tecla propia:
 
-- **Agregar o crear**: una fila `+ …` arriba de la lista.
+- **Agregar o crear**: una fila `+ …` al final de la lista (el cursor arranca en el primer ítem; con la lista vacía, en la fila `+`).
 - **Acciones sobre un ítem**: `Enter` sobre el ítem abre su menú, con la acción principal ya marcada.
 - **Guardar**: una fila `✓ Guardar` al final.
 - **Confirmaciones**: filas `Sí, …` / `No`; viene marcada la opción segura y `Esc` es siempre «no».
@@ -101,7 +101,7 @@ Hay dos atajos ocultos que no figuran en ninguna ayuda: `0` reinicia desde el pr
 
 | Fila | Qué hace |
 |---|---|
-| Timer › | 25, 50, 90 min, personalizado o cancelar |
+| Timer › | 25, 50, 90 min, personalizado o cancelar (`Esc` vuelve a Opciones) |
 | Modo deep work / Salir de deep work | Prende o apaga el modo |
 | Cargar preset › | Elige un preset de la lista |
 | Volumen general | `←→` lo cambian sin cerrar el menú |
@@ -122,7 +122,7 @@ Solo el reloj grande y `? ayuda` abajo.
 
 | Pantalla | Teclas |
 |---|---|
-| Lista | `+ Nueva rutina` arriba · `Enter` sobre una rutina abre `Empezar` · `Editar` · `Borrar` (desde Configuración, `Editar` · `Borrar`) |
+| Lista | `+ Nueva rutina` al final · `Enter` sobre una rutina abre `Empezar` · `Editar` · `Borrar` (desde Configuración, `Editar` · `Borrar`) |
 | Editor | `Nombre: …`, las tareas, `+ Agregar tarea`, la meditación y `✓ Guardar` · `Enter` sobre una tarea abre `Editar texto` · `Mover` · `Borrar` |
 | Mover | La tarea queda resaltada · `↑↓` la llevan · `Enter` o `Esc` la sueltan |
 | Meditación | `↑↓` campo · `←→` cambia (sí/no, fija/libre, duración) · `Enter` acepta |
@@ -137,9 +137,9 @@ Solo el reloj grande y `? ayuda` abajo.
 
 | Pantalla | Teclas |
 |---|---|
-| Meditaciones | `+ Agregar desde YouTube` arriba · `Enter` sobre una meditación abre `Escuchar` / `Pausar` · `Borrar` |
-| Sonidos ambientales | `+ Agregar desde YouTube` arriba · `Enter` sobre un sonido pregunta si borrarlo |
-| Presets | `+ Nuevo preset` arriba · `Enter` sobre un preset pregunta si borrarlo |
+| Meditaciones | `+ Agregar desde YouTube` al final · `Enter` sobre una meditación abre `Escuchar` / `Pausar` · `Borrar` |
+| Sonidos ambientales | `+ Agregar desde YouTube` al final · `Enter` sobre un sonido pregunta si borrarlo |
+| Presets | `+ Nuevo preset` al final · `Enter` sobre un preset pregunta si borrarlo |
 | Armar preset | `Enter` elige o saca un sonido (suena en vivo) · `←→` volumen · `✓ Guardar preset` al final · `Esc` descarta (pregunta) |
 | Sincronización | `Enter` / `␣` elige: **Conectar Google Drive** (`focus setup`), **Sincronizar** (`focus sync`) o **Verificar archivos** (`focus verify`) |
 
