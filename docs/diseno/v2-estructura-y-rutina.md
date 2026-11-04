@@ -1,5 +1,7 @@
 # Diseño v2: estructura y rutina (cerrado 31/10/2026)
 
+> **Documento histórico.** Las teclas que menciona ya no son las de la app. Desde el PR #14 (03/11/2026) rigen las teclas simplificadas: ↑↓, ←→, Enter/␣, Esc, ? y Tab en Focus. Las teclas de cada pantalla están en el README y en la ayuda `?`. La estructura y los flujos de este documento siguen valiendo como referencia.
+
 Copia de la página de Notion https://app.notion.com/p/40a1e02f1f31813aa4bace3f162fb100. Si cambia, manda Notion.
 
 Versión 2, repensada de cero a partir de "Decisiones: estructura de la app" y actualizada con todas las respuestas de Fabrizio (31/10/2026). La v1 queda como estaba. Es para la PC, en pantallas de terminal; el celular viene cuando se elija la tecnología.
