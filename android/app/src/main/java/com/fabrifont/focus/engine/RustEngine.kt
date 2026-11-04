@@ -11,6 +11,8 @@ import uniffi.focus_ffi.Command
 import uniffi.focus_ffi.CoreException
 import uniffi.focus_ffi.Listener
 import uniffi.focus_ffi.Player
+import uniffi.focus_ffi.Routine
+import uniffi.focus_ffi.RoutineMeditation
 import uniffi.focus_ffi.State
 
 /** Envuelve el Player de core (vía focus_ffi): el audio lo produce core con AAudio. */
@@ -54,7 +56,23 @@ class RustEngine(context: Context) : FocusEngine {
             }
         }
     }
+
+    override fun routines(): List<RoutineItem> = player.routines().map {
+        RoutineItem(it.name, it.tasks, it.meditation?.let { m -> MeditationSlot(m.minutes?.toInt()) })
+    }
+
+    override fun saveRoutines(routines: List<RoutineItem>) = player.saveRoutines(routines.map { it.toCore() })
+
+    override fun routineNameTaken(routines: List<RoutineItem>, name: String, skip: Int?): Boolean =
+        player.routineNameTaken(routines.map { it.toCore() }, name, skip?.toUInt())
+
+    override fun lastRoutine(): String? = player.lastRoutine()
+
+    override fun setLastRoutine(name: String?) = player.setLastRoutine(name)
 }
+
+private fun RoutineItem.toCore() =
+    Routine(name, tasks, meditation?.let { RoutineMeditation(it.minutes?.toUInt()) })
 
 private fun State.toUi() = EngineState(
     sounds = sounds.map { SoundItem(it.id, it.name, it.theme) },
@@ -63,6 +81,7 @@ private fun State.toUi() = EngineState(
     paused = paused,
     master = master,
     timer = timer?.let { TimerInfo(it.totalSecs.toLong(), it.remainingSecs.toLong(), it.paused) },
+    presets = presets.map { PresetItem(it.name, it.layers) },
 )
 
 private fun EngineCommand.toCore(): Command = when (this) {
@@ -75,4 +94,9 @@ private fun EngineCommand.toCore(): Command = when (this) {
     EngineCommand.StopAll -> Command.StopAll
     is EngineCommand.Timer -> Command.Timer(minutes?.toUInt())
     EngineCommand.ToggleTimerPause -> Command.ToggleTimerPause
+    EngineCommand.PauseAmbient -> Command.PauseAll
+    EngineCommand.ResumeAmbient -> Command.ResumeAll
+    is EngineCommand.LoadPreset -> Command.LoadPreset(name)
+    is EngineCommand.DeletePreset -> Command.DeletePreset(name)
+    is EngineCommand.StorePreset -> Command.StorePreset(name, layers)
 }

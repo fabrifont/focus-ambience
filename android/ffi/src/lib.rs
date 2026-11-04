@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use focus_core::audio::engine::AudioOut;
 use focus_core::library::{self, SoundKind};
+use focus_core::meditation::Category;
+use focus_core::routine;
 use focus_core::protocol::{self as core_proto, Event};
 use focus_core::PlayerOptions;
 
@@ -55,6 +57,30 @@ pub struct State {
     pub paused: bool,
     pub master: f32,
     pub timer: Option<TimerState>,
+    pub presets: Vec<Preset>,
+}
+
+/// Un preset de `presets.toml`: id de sonido -> volumen (0..1).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct Preset {
+    pub name: String,
+    pub layers: HashMap<String, f32>,
+}
+
+/// La meditación de una rutina. Android no la edita (meditaciones pendientes de Fabrizio), pero
+/// se lee y se vuelve a escribir tal cual para no perderla de `routines.toml`.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct RoutineMeditation {
+    /// `None` = duración libre.
+    pub minutes: Option<u32>,
+}
+
+/// Una rutina de `routines.toml` (mismo formato que escritorio, lo lee y escribe core).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct Routine {
+    pub name: String,
+    pub tasks: Vec<String>,
+    pub meditation: Option<RoutineMeditation>,
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
@@ -69,6 +95,10 @@ pub enum Command {
     /// `None` cancela.
     Timer { minutes: Option<u32> },
     ToggleTimerPause,
+    LoadPreset { name: String },
+    DeletePreset { name: String },
+    /// Guarda (o reemplaza) un preset armado a mano.
+    StorePreset { name: String, layers: HashMap<String, f32> },
     /// Puente: pausa los sonidos y el timer juntos.
     PauseBoth,
     /// Puente: sigue los sonidos y el timer juntos.
@@ -116,6 +146,11 @@ fn map_state(s: core_proto::State) -> State {
             remaining_secs: t.remaining_secs,
             paused: t.paused,
         }),
+        presets: s
+            .presets
+            .into_iter()
+            .map(|p| Preset { name: p.name, layers: p.layers.into_iter().collect() })
+            .collect(),
     }
 }
 
@@ -133,6 +168,9 @@ fn map_command(cmd: Command, timer: Option<&core_proto::TimerState>) -> Vec<core
         Command::StopAll => vec![C::StopAll],
         Command::Timer { minutes } => vec![C::Timer { minutes }],
         Command::ToggleTimerPause => vec![C::ToggleTimerPause],
+        Command::LoadPreset { name } => vec![C::LoadPreset { name }],
+        Command::DeletePreset { name } => vec![C::DeletePreset { name }],
+        Command::StorePreset { name, layers } => vec![C::StorePreset { name, layers: layers.into_iter().collect() }],
         Command::PauseBoth => both(true, timer),
         Command::ResumeBoth => both(false, timer),
     }
@@ -151,6 +189,28 @@ fn both(pause: bool, timer: Option<&core_proto::TimerState>) -> Vec<core_proto::
 #[derive(uniffi::Object)]
 pub struct Player {
     inner: focus_core::Player,
+    library: PathBuf,
+    /// Donde va `ui.toml` (última rutina), como el estado local de escritorio.
+    state_dir: PathBuf,
+}
+
+fn to_core_routine(r: Routine) -> Result<routine::Routine, CoreError> {
+    let meditation = match r.meditation {
+        None => None,
+        Some(RoutineMeditation { minutes: None }) => Some(routine::MeditationSetting { minutes: None }),
+        Some(RoutineMeditation { minutes: Some(m) }) => Some(routine::MeditationSetting {
+            minutes: Some(Category::try_from(m).map_err(|e| internal(format!("{e:#}")))?),
+        }),
+    };
+    Ok(routine::Routine { name: r.name, tasks: r.tasks, meditation })
+}
+
+fn from_core_routine(r: routine::Routine) -> Routine {
+    Routine {
+        name: r.name,
+        tasks: r.tasks,
+        meditation: r.meditation.map(|m| RoutineMeditation { minutes: m.minutes.map(u32::from) }),
+    }
 }
 
 impl Player {
@@ -163,7 +223,8 @@ impl Player {
         )
         .map_err(|e| internal(format!("{e:#}")))?;
         inner.set_state_events(true);
-        Ok(Arc::new(Player { inner }))
+        let state_dir = data_dir.parent().unwrap_or(data_dir).to_path_buf();
+        Ok(Arc::new(Player { inner, library: data_dir.to_path_buf(), state_dir }))
     }
 }
 
@@ -184,6 +245,37 @@ impl Player {
 
     pub fn state(&self) -> State {
         map_state(self.inner.state())
+    }
+
+    /// Las rutinas de `routines.toml`. Un archivo roto es un error (para no pisarlo al guardar).
+    pub fn routines(&self) -> Result<Vec<Routine>, CoreError> {
+        let r = routine::load(&self.library).map_err(|e| internal(format!("{e:#}")))?;
+        Ok(r.routines.into_iter().map(from_core_routine).collect())
+    }
+
+    /// Reescribe `routines.toml` con esta lista (core le pone el encabezado de siempre).
+    pub fn save_routines(&self, routines: Vec<Routine>) -> Result<(), CoreError> {
+        let routines = routines.into_iter().map(to_core_routine).collect::<Result<Vec<_>, _>>()?;
+        routine::save(&self.library, &routine::Routines { routines }).map_err(|e| internal(format!("{e:#}")))
+    }
+
+    /// Si `name` ya lo usa otra rutina (sin distinguir mayúsculas); `skip` es la que se edita.
+    pub fn routine_name_taken(&self, routines: Vec<Routine>, name: String, skip: Option<u32>) -> bool {
+        let r: Vec<_> = routines
+            .into_iter()
+            .map(|r| routine::Routine { name: r.name, tasks: Vec::new(), meditation: None })
+            .collect();
+        routine::name_taken(&r, &name, skip.map(|i| i as usize))
+    }
+
+    pub fn last_routine(&self) -> Option<String> {
+        routine::load_ui(&self.state_dir).last_routine
+    }
+
+    pub fn set_last_routine(&self, name: Option<String>) -> Result<(), CoreError> {
+        let mut ui = routine::load_ui(&self.state_dir);
+        ui.last_routine = name;
+        routine::save_ui(&self.state_dir, &ui).map_err(|e| internal(format!("{e:#}")))
     }
 
     pub fn set_listener(&self, listener: Box<dyn Listener>) {
@@ -316,6 +408,31 @@ mod tests {
         let st = p.state();
         assert!(!st.paused && !st.timer.as_ref().unwrap().paused);
         p.send(Command::StopAll).unwrap();
+
+        // Presets: guardar, cargar y borrar.
+        let layers = HashMap::from([("noise-pink".to_string(), 0.5)]);
+        p.send(Command::StorePreset { name: "Mate".into(), layers: layers.clone() }).unwrap();
+        assert_eq!(p.state().presets, [Preset { name: "Mate".into(), layers }]);
+        p.send(Command::LoadPreset { name: "Mate".into() }).unwrap();
+        assert_eq!(p.state().active, ["noise-pink"]);
+        p.send(Command::DeletePreset { name: "Mate".into() }).unwrap();
+        assert!(p.state().presets.is_empty());
+
+        // Rutinas: ida y vuelta por routines.toml, sin perder la meditación.
+        assert!(p.routines().unwrap().is_empty());
+        let rs = vec![
+            Routine { name: "Mañana".into(), tasks: vec!["Mate".into(), "Mails".into()], meditation: Some(RoutineMeditation { minutes: Some(10) }) },
+            Routine { name: "Tarde".into(), tasks: vec![], meditation: None },
+        ];
+        p.save_routines(rs.clone()).unwrap();
+        assert_eq!(p.routines().unwrap(), rs);
+        assert!(std::fs::read_to_string(dir.join("routines.toml")).unwrap().starts_with("# Rutinas."));
+        assert!(p.routine_name_taken(rs.clone(), "mañana".into(), None));
+        assert!(!p.routine_name_taken(rs.clone(), "mañana".into(), Some(0)));
+        assert!(p.save_routines(vec![Routine { name: "x".into(), tasks: vec![], meditation: Some(RoutineMeditation { minutes: Some(7) }) }]).is_err());
+        assert_eq!(p.last_routine(), None);
+        p.set_last_routine(Some("Tarde".into())).unwrap();
+        assert_eq!(p.last_routine().as_deref(), Some("Tarde"));
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
 }
