@@ -535,13 +535,13 @@ impl App {
         self.popup = Some(if self.playing() { Popup::Quit { sel: 2 } } else { Popup::ConfirmQuit { sel: SAFE_ROW } });
     }
 
-    /// Las cinco opciones del menú; la primera depende de si ya hay rutinas.
+    /// Las cinco opciones del menú; la segunda depende de si ya hay rutinas.
     pub fn home_items(&self) -> [String; 5] {
         let first = match self.continue_routine() {
             Some(i) => format!("Continuar \"{}\"", self.routines[i].name),
             None => "Crear mi primera rutina".to_string(),
         };
-        [first, "Elegir otra rutina".into(), "Ir a Focus".into(), "Configuración".into(), "Salir".into()]
+        ["Ir a Focus".into(), first, "Elegir otra rutina".into(), "Configuración".into(), "Salir".into()]
     }
 
     fn home_key(&mut self, k: KeyEvent) {
@@ -556,9 +556,9 @@ impl App {
     fn choose_home(&mut self, i: usize) {
         self.home_cursor = i;
         match i {
-            0 => self.choose_continue(),
-            1 => self.open_routines(Screen::Home),
-            2 => self.enter_focus(),
+            0 => self.enter_focus(),
+            1 => self.choose_continue(),
+            2 => self.open_routines(Screen::Home),
             3 => self.go(Screen::Config),
             _ => self.request_quit(),
         }

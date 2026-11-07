@@ -34,7 +34,7 @@ Se actualiza en cada PR. Una función no está terminada hasta que está en las 
 ## Funciones
 | Función | Escritorio | Android |
 |---|---|---|
-| Inicio (Continuar, Elegir rutina, Focus, Configuración) | ✅ | ✅ (#17, #19, falta celu real) |
+| Inicio (Focus, Continuar, Elegir rutina, Configuración) | ✅ | ⚠️ sigue con el orden viejo, Continuar primero (#17, #19, falta celu real) |
 | Antes de arrancar (minutos, preset) | ✅ | ✅ (#17, #19) |
 | Focus: sonidos con volumen | ✅ | ✅ solo generados (#17) |
 | Timer con fade-out | ✅ | ✅ (#17, via core) |

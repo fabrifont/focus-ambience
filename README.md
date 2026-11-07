@@ -63,7 +63,7 @@ Agregar, editar y borrar no tienen tecla propia:
 
 ### Inicio
 
-Continuar, Elegir otra rutina, Ir a Focus, Configuración y **Salir**.
+Ir a Focus, Continuar, Elegir otra rutina, Configuración y **Salir**.
 
 | Tecla | Qué hace |
 |---|---|
