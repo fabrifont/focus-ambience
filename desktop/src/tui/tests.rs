@@ -140,7 +140,7 @@ fn screen_text(app: &App, w: u16, h: u16) -> String {
     (0..h).map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect()
 }
 
-/// Opción `i` del menú de inicio (0 Continuar, 1 Elegir otra rutina, 2 Ir a Focus, 3 Configuración, 4 Salir).
+/// Opción `i` del menú de inicio (0 Ir a Focus, 1 Continuar, 2 Elegir otra rutina, 3 Configuración, 4 Salir).
 fn home(app: &mut App, i: usize) {
     app.home_cursor = 0;
     for _ in 0..i {
@@ -245,7 +245,7 @@ fn starts_on_the_home_menu_with_its_five_options() {
 #[test]
 fn go_to_focus_and_esc_back_toggle_the_level_stream() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert_eq!(app.screen, app::Screen::Focus);
     assert!(matches!(app.outbox.last(), Some(Command::Watch { levels: true })));
     ks(&mut app, "esc"); // saltea la ventanita
@@ -260,7 +260,7 @@ fn home_has_a_salir_row_that_asks_before_leaving() {
     // En silencio: «¿Salir de WorkHub?» con «No» marcada; Enter no sale, Esc tampoco.
     let mut app = App::new();
     ks(&mut app, "down*10");
-    assert_eq!(app.home_cursor, 4, "Salir es la quinta fila");
+    assert_eq!(app.home_cursor, 4, "Salir sigue siendo la quinta fila");
     ks(&mut app, "enter");
     assert!(matches!(app.popup, Some(app::Popup::ConfirmQuit { sel: 1 })));
     let t = screen_text(&app, 80, 20);
@@ -300,7 +300,7 @@ fn quitting_with_sound_playing_offers_background_or_off_with_back_preselected() 
 fn going_to_focus_opens_the_time_step_with_the_last_value() {
     let mut app = app_with_presets();
     app.focus_minutes = 35;
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert_eq!(app.screen, app::Screen::Focus);
     assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 35, typed: false }));
     let t = screen_text(&app, 90, 30);
@@ -313,7 +313,7 @@ fn going_to_focus_skips_the_popup_when_a_sound_is_playing() {
     let mut app = app_with_presets();
     app.state.active = vec!["rain".into()];
     app.state.paused = false;
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert_eq!(app.screen, app::Screen::Focus);
     assert!(app.popup.is_none());
     assert_eq!(app.deep, app::Deep::Off);
@@ -323,7 +323,7 @@ fn going_to_focus_skips_the_popup_when_a_sound_is_playing() {
 fn going_to_focus_skips_the_popup_when_the_timer_is_running() {
     let mut app = app_with_presets();
     app.state.timer = Some(crate::protocol::TimerState { total_secs: 600, remaining_secs: 300, paused: false });
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert_eq!(app.screen, app::Screen::Focus);
     assert!(app.popup.is_none());
 }
@@ -333,7 +333,7 @@ fn going_to_focus_skips_the_popup_when_sounds_are_only_paused_and_no_timer() {
     let mut app = app_with_presets();
     app.state.active = vec!["rain".into()];
     app.state.paused = true;
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert_eq!(app.screen, app::Screen::Focus);
     assert!(app.popup.is_none());
 }
@@ -341,14 +341,14 @@ fn going_to_focus_skips_the_popup_when_sounds_are_only_paused_and_no_timer() {
 #[test]
 fn the_first_run_starts_at_fifty_minutes() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 50, typed: false }));
 }
 
 #[test]
 fn arrows_change_the_time_by_five_and_never_below_one() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     app.key(key(Up));
     assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 55, typed: false }));
     ks(&mut app, "down*20");
@@ -358,7 +358,7 @@ fn arrows_change_the_time_by_five_and_never_below_one() {
 #[test]
 fn typing_replaces_the_value_then_appends_and_backspace_erases() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     press(&mut app, "4");
     assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 4, typed: true }));
     press(&mut app, "5");
@@ -374,7 +374,7 @@ fn typing_replaces_the_value_then_appends_and_backspace_erases() {
 #[test]
 fn j_and_k_no_longer_change_the_minutes_or_the_preset() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     press(&mut app, "kjkj");
     assert_eq!(intro(&app), Some(app::Intro::Time { minutes: 50, typed: false }));
     ks(&mut app, "enter");
@@ -385,7 +385,7 @@ fn j_and_k_no_longer_change_the_minutes_or_the_preset() {
 #[test]
 fn zero_minutes_cannot_continue() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     press(&mut app, "0");
     app.key(key(Enter));
     assert!(matches!(intro(&app), Some(app::Intro::Time { minutes: 0, .. })));
@@ -395,7 +395,7 @@ fn zero_minutes_cannot_continue() {
 #[test]
 fn esc_on_the_time_step_goes_straight_to_focus_without_starting_anything() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     sent(&mut app);
     app.key(key(Esc));
     assert!(app.popup.is_none());
@@ -407,7 +407,7 @@ fn esc_on_the_time_step_goes_straight_to_focus_without_starting_anything() {
 #[test]
 fn enter_remembers_the_time_and_moves_to_the_sounds_step_listing_presets_and_custom() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     press(&mut app, "25");
     app.key(key(Enter));
     assert_eq!(app.focus_minutes, 25);
@@ -422,7 +422,7 @@ fn enter_remembers_the_time_and_moves_to_the_sounds_step_listing_presets_and_cus
 #[test]
 fn esc_on_the_sounds_step_enters_focus_without_a_timer_or_a_preset() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     app.key(key(Enter));
     sent(&mut app);
     app.key(key(Esc));
@@ -435,7 +435,7 @@ fn esc_on_the_sounds_step_enters_focus_without_a_timer_or_a_preset() {
 #[test]
 fn choosing_a_preset_starts_the_timer_and_loads_it() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     press(&mut app, "30");
     ks(&mut app, "enter down enter");
     assert!(app.popup.is_none());
@@ -448,7 +448,7 @@ fn choosing_a_preset_starts_the_timer_and_loads_it() {
 #[test]
 fn custom_sounds_starts_only_the_timer() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     ks(&mut app, "enter down*3"); // más allá de la última fila no pasa
     assert_eq!(intro(&app), Some(app::Intro::Sounds { minutes: 50, sel: 2 }));
     app.key(key(Enter));
@@ -462,7 +462,7 @@ fn custom_sounds_starts_only_the_timer() {
 #[test]
 fn without_presets_the_only_option_is_custom_sounds() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     app.key(key(Enter));
     assert!(screen_text(&app, 90, 30).contains("Sonidos personalizados"));
     app.key(key(Enter));
@@ -472,7 +472,7 @@ fn without_presets_the_only_option_is_custom_sounds() {
 #[test]
 fn the_window_also_opens_when_a_routine_ends() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     press(&mut app, "   "); // las tres tareas
     assert_eq!(app.screen, app::Screen::RoutineRun, "falta la meditación");
     let id = start_meditation(&mut app);
@@ -485,17 +485,17 @@ fn the_window_also_opens_when_a_routine_ends() {
 #[test]
 fn it_shows_up_every_time_focus_is_entered() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     ks(&mut app, "esc esc");
     assert_eq!(app.screen, app::Screen::Home);
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert!(intro(&app).is_some());
 }
 
 #[test]
 fn the_window_cannot_quit_the_app() {
     let mut app = App::new();
-    home(&mut app, 2);
+    home(&mut app, 0);
     press(&mut app, "qQ");
     assert!(app.exit.is_none());
 }
@@ -1008,7 +1008,7 @@ fn the_save_popup_types_every_character() {
 
 fn focus_app() -> App {
     let mut app = app_with_sounds_and_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     app.key(key(Esc)); // saltea la ventanita
     app.outbox.clear();
     app
@@ -1046,7 +1046,7 @@ fn deep_on(app: &mut App) {
 #[test]
 fn focus_has_no_presets_panel_and_no_removed_hints() {
     let mut app = app_with_sounds_and_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     app.key(key(Esc));
     for (w, h) in [(80, 24), (120, 34), (200, 50)] {
         let t = screen_text(&app, w, h);
@@ -1078,7 +1078,7 @@ fn tab_does_nothing_outside_focus() {
     ks(&mut app, "tab");
     assert!(app.popup.is_none() && app.screen == app::Screen::Home);
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     ks(&mut app, "tab");
     assert!(matches!(app.popup, Some(app::Popup::Intro(_))), "dentro de «Antes de arrancar» tampoco");
 }
@@ -1457,7 +1457,7 @@ fn d_no_longer_toggles_deep_work() {
 #[test]
 fn tab_does_nothing_in_the_intro_popup() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     ks(&mut app, "tab");
     assert_eq!(app.deep, app::Deep::Off);
     assert!(intro(&app).is_some());
@@ -1798,13 +1798,13 @@ const MED_ROW: usize = 5;
 fn home_continues_the_last_routine_or_offers_to_create_the_first() {
     let mut app = App::new();
     assert!(screen_text(&app, 80, 20).contains("Crear mi primera rutina"));
-    home(&mut app, 0);
+    home(&mut app, 1);
     assert_eq!(app.screen, app::Screen::RoutineEditor, "sin rutinas, la primera opción crea");
     let mut app = app_with_routines();
     assert!(screen_text(&app, 80, 20).contains("Continuar \"Mañana de estudio\""));
     app.last_routine = Some("Tarde".into());
-    assert_eq!(app.home_items()[0], "Continuar \"Tarde\"");
-    home(&mut app, 0);
+    assert_eq!(app.home_items()[1], "Continuar \"Tarde\"");
+    home(&mut app, 1);
     assert_eq!(app.screen, app::Screen::RoutineRun);
     assert_eq!(app.run.as_ref().unwrap().routine.name, "Tarde");
     assert!(app.last_dirty);
@@ -1814,13 +1814,13 @@ fn home_continues_the_last_routine_or_offers_to_create_the_first() {
 fn a_missing_last_routine_falls_back_to_the_first() {
     let mut app = app_with_routines();
     app.last_routine = Some("Borrada".into());
-    assert_eq!(app.home_items()[0], "Continuar \"Mañana de estudio\"");
+    assert_eq!(app.home_items()[1], "Continuar \"Mañana de estudio\"");
 }
 
 #[test]
 fn list_has_a_plus_row_last_summaries_and_esc_goes_back_to_where_it_came_from() {
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     assert_eq!(app.screen, app::Screen::Routines);
     assert_eq!(app.list_cursor, 0);
     let t = screen_text(&app, 80, 20);
@@ -1842,7 +1842,7 @@ fn list_has_a_plus_row_last_summaries_and_esc_goes_back_to_where_it_came_from() 
 #[test]
 fn the_plus_row_creates_a_routine() {
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "down*40");
     assert_eq!(app.list_cursor, 2);
     assert!(screen_text(&app, 80, 20).contains("> + Nueva rutina"));
@@ -1854,7 +1854,7 @@ fn the_plus_row_creates_a_routine() {
 #[test]
 fn with_no_routines_the_list_starts_on_the_plus_row() {
     let mut app = App::new();
-    home(&mut app, 1);
+    home(&mut app, 2);
     assert_eq!(app.screen, app::Screen::Routines);
     assert!(screen_text(&app, 80, 20).contains("> + Nueva rutina"));
     ks(&mut app, "down*3");
@@ -1866,7 +1866,7 @@ fn with_no_routines_the_list_starts_on_the_plus_row() {
 #[test]
 fn enter_on_a_routine_from_home_opens_empezar_editar_borrar_with_empezar_preselected() {
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "enter");
     assert!(matches!(app.list_popup, Some(routines::ListPopup::Menu { index: 0, sel: 0 })));
     let t = screen_text(&app, 80, 24);
@@ -1878,7 +1878,7 @@ fn enter_on_a_routine_from_home_opens_empezar_editar_borrar_with_empezar_presele
     assert_eq!(app.run.as_ref().unwrap().routine.name, "Mañana de estudio");
     // Editar es la segunda fila.
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "down enter down enter");
     assert_eq!(app.screen, app::Screen::RoutineEditor);
     assert_eq!(editor(&app).routine.name, "Tarde");
@@ -1920,7 +1920,7 @@ fn deleting_a_routine_goes_through_the_menu_and_asks_first_with_no_preselected()
 #[test]
 fn from_home_the_delete_row_is_the_third_one() {
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "enter down*2 enter");
     assert!(matches!(app.list_popup, Some(routines::ListPopup::Delete { .. })));
 }
@@ -1929,7 +1929,7 @@ fn from_home_the_delete_row_is_the_third_one() {
 fn a_broken_routines_file_is_never_overwritten() {
     let mut app = app_with_routines();
     app.routines_locked = Some("toml roto".into());
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "enter down*2 enter up enter");
     assert_eq!(app.routines.len(), 2);
     assert!(!app.routines_dirty);
@@ -1942,7 +1942,7 @@ fn a_broken_routines_file_is_never_overwritten() {
 #[test]
 fn new_routine_asks_the_name_then_collects_tasks_and_saves_from_the_save_row() {
     let mut app = app_with_meditations();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "enter");
     assert_eq!(app.screen, app::Screen::RoutineEditor);
     assert!(screen_text(&app, 80, 24).contains("Nombre de la rutina"));
@@ -1979,7 +1979,7 @@ fn new_routine_asks_the_name_then_collects_tasks_and_saves_from_the_save_row() {
 #[test]
 fn a_routine_with_only_the_meditation_can_be_saved() {
     let mut app = app_with_meditations();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "enter");
     type_text(&mut app, "Sola");
     ks(&mut app, "enter");
@@ -1995,7 +1995,7 @@ fn a_routine_with_only_the_meditation_can_be_saved() {
 #[test]
 fn cancelling_the_name_of_a_new_routine_leaves_the_editor() {
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "enter esc");
     assert_eq!(app.screen, app::Screen::Routines);
     assert!(app.editor.is_none());
@@ -2258,7 +2258,7 @@ fn esc_on_the_meditation_screen_discards_the_change() {
 fn running_a_routine_silences_ambient_sounds_and_gives_them_back() {
     let mut app = app_with_routines();
     app.state.active = vec!["noise-brown".into()];
-    home(&mut app, 0);
+    home(&mut app, 1);
     assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
     app.state.paused = true; // lo que contestaría el daemon
     app.key(key(Esc));
@@ -2270,7 +2270,7 @@ fn running_a_routine_silences_ambient_sounds_and_gives_them_back() {
 #[test]
 fn running_does_not_touch_the_sound_when_nothing_was_playing() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     app.key(key(Esc));
     assert!(sent(&mut app).is_empty());
 }
@@ -2278,7 +2278,7 @@ fn running_does_not_touch_the_sound_when_nothing_was_playing() {
 #[test]
 fn marks_go_in_any_order_and_count() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     assert!(screen_text(&app, 80, 24).contains("0 de 4 listos"));
     ks(&mut app, "down*2"); // última tarea primero
     press(&mut app, " ");
@@ -2292,7 +2292,7 @@ fn marks_go_in_any_order_and_count() {
 #[test]
 fn space_unmarks_done_steps_and_keeps_the_cursor() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     press(&mut app, "  "); // 0 y 1 hechos; el cursor queda en el 2
     assert_eq!(app.run.as_ref().unwrap().done_count(), 2);
     app.key(key(Up)); // sobre el 1, hecho
@@ -2311,7 +2311,7 @@ fn space_unmarks_done_steps_and_keeps_the_cursor() {
 #[test]
 fn letters_do_nothing_in_a_running_routine() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     press(&mut app, " ");
     app.key(key(Up));
     press(&mut app, "usjkqhl");
@@ -2328,7 +2328,7 @@ fn letters_do_nothing_in_a_running_routine() {
 fn finishing_every_step_enters_focus_and_gives_back_the_ambient() {
     let mut app = app_with_routines();
     app.state.active = vec!["noise-brown".into()];
-    home(&mut app, 0);
+    home(&mut app, 1);
     sent(&mut app);
     app.state.paused = true;
     press(&mut app, "   "); // las tres tareas
@@ -2374,7 +2374,7 @@ fn end_meditation(app: &mut App, id: &str) {
 #[test]
 fn fixed_meditation_gets_a_random_pick_and_space_plays_then_toggles() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     ks(&mut app, "down*3");
     let t = screen_text(&app, 90, 24);
     assert!(t.contains("Meditación 10 min · ") && t.contains("(al azar)"), "{t}");
@@ -2398,7 +2398,7 @@ fn fixed_meditation_gets_a_random_pick_and_space_plays_then_toggles() {
 fn the_audio_ending_marks_the_step_and_it_cannot_be_unmarked() {
     use routines::Mark;
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     let id = start_meditation(&mut app);
     sent(&mut app);
     end_meditation(&mut app, &id);
@@ -2415,7 +2415,7 @@ fn the_audio_ending_marks_the_step_and_it_cannot_be_unmarked() {
 #[test]
 fn a_meditation_cut_midway_does_not_mark_the_step() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     let id = start_meditation(&mut app);
     // Aunque la última posición vista estuviera pegada al final: sin señal no se marca.
     app.state.meditation.as_mut().unwrap().position_secs = 599;
@@ -2430,7 +2430,7 @@ fn a_finish_signal_from_before_starting_or_for_another_meditation_does_not_mark(
     // Ya había terminado una antes de entrar a la rutina.
     app.state.meditations_finished = 3;
     app.state.last_meditation_finished = Some("scan".into());
-    home(&mut app, 0);
+    home(&mut app, 1);
     let id = start_meditation(&mut app);
     let mut s = app.state.clone();
     s.meditations_finished += 1;
@@ -2445,7 +2445,7 @@ fn a_finish_signal_from_before_starting_or_for_another_meditation_does_not_mark(
 fn enter_on_a_task_step_toggles_the_mark() {
     use routines::Mark;
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     ks(&mut app, "enter");
     assert_eq!(app.run.as_ref().unwrap().marks[0], Mark::Done);
     ks(&mut app, "up enter");
@@ -2455,7 +2455,7 @@ fn enter_on_a_task_step_toggles_the_mark() {
 #[test]
 fn enter_on_the_meditation_step_starts_and_pauses_but_never_marks() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     ks(&mut app, "down*3 enter");
     let id = match sent(&mut app).pop() {
         Some(Command::PlayMeditation { id }) => id,
@@ -2472,7 +2472,7 @@ fn enter_on_the_meditation_step_starts_and_pauses_but_never_marks() {
 #[test]
 fn space_on_the_meditation_step_never_marks_it() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     ks(&mut app, "down*3");
     press(&mut app, " ");
     let run = app.run.as_ref().unwrap();
@@ -2484,7 +2484,7 @@ fn space_on_the_meditation_step_never_marks_it() {
 fn fixed_step_without_meditations_warns_and_lets_pick_another_duration() {
     let mut app = app_with_routines();
     app.routines[0].meditation = setting(Some(20));
-    home(&mut app, 0);
+    home(&mut app, 1);
     ks(&mut app, "down*3");
     let t = screen_text(&app, 90, 24);
     assert!(t.contains("No hay meditaciones de 20 minutos") && t.contains("Enter elige otra duración"), "{t}");
@@ -2506,7 +2506,7 @@ fn meditations_that_are_not_downloaded_here_are_not_offered() {
 #[test]
 fn leaving_a_routine_stops_the_meditation_it_started() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     ks(&mut app, "down*3");
     press(&mut app, " ");
     sent(&mut app);
@@ -2517,7 +2517,7 @@ fn leaving_a_routine_stops_the_meditation_it_started() {
 #[test]
 fn routine_screens_do_not_animate() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     assert!(!app.animating());
 }
 
@@ -2594,7 +2594,7 @@ fn inert_screen(i: usize) -> (&'static str, App) {
         }
         7 => {
             let mut a = app_with_routines();
-            home(&mut a, 1);
+            home(&mut a, 2);
             ("rutinas (inicio)", a)
         }
         8 => {
@@ -2615,7 +2615,7 @@ fn inert_screen(i: usize) -> (&'static str, App) {
         }
         11 => {
             let mut a = app_with_routines();
-            home(&mut a, 0);
+            home(&mut a, 1);
             ("rutina en curso", a)
         }
         12 => {
@@ -2781,7 +2781,7 @@ fn each_screen_shows_its_title_in_block_letters() {
     home(&mut app, 3);
     at("CONFIGURACIÓN", app);
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     at("RUTINAS", app);
     let mut app = app_with_routines();
     edit_first(&mut app);
@@ -2804,7 +2804,7 @@ fn each_screen_shows_its_title_in_block_letters() {
     open_builder(&mut app);
     at("NUEVO PRESET", app);
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     at("RUTINA", app);
     for (title, t) in shown {
         assert!(has_block_title(&t, title), "falta el título {title} en:\n{t}");
@@ -2841,8 +2841,8 @@ fn lists_are_centered_as_a_block_keeping_their_columns() {
         let line = t.lines().find(|l| l.contains(needle)).unwrap_or_else(|| panic!("falta {needle}:\n{t}"));
         line[..line.find(needle).unwrap()].chars().count()
     };
-    // «> Continuar…» y «  Elegir…»: el «>» y las etiquetas en columna.
-    let (sel, second, third, last) = (col("> Continuar"), col("Elegir otra"), col("Ir a Focus"), col("Salir"));
+    // «> Ir a Focus» y «  Continuar…»: el «>» y las etiquetas en columna.
+    let (sel, second, third, last) = (col("> Ir a Focus"), col("Continuar"), col("Elegir otra"), col("Salir"));
     assert_eq!(sel + 2, second);
     assert_eq!(second, third);
     assert_eq!(second, last);
@@ -2872,7 +2872,7 @@ fn the_selected_row_keeps_its_mark_on_every_list() {
     app.screen = app::Screen::Meditations;
     assert!(v3_text(&mut app, 100, 30).contains(">   Respiración"));
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     let t = v3_text(&mut app, 100, 30);
     assert!(t.lines().any(|l| l.contains("> Mañana de estudio")), "{t}");
     // Los resúmenes quedan en columna.
@@ -2904,7 +2904,7 @@ fn subsections_are_uppercase_and_dim() {
 #[test]
 fn popups_have_a_border_and_sit_in_the_middle() {
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "down enter");
     let t = v3_text(&mut app, 100, 30);
     let lines: Vec<&str> = t.lines().collect();
@@ -2932,7 +2932,7 @@ fn the_options_popup_uses_the_same_bordered_box() {
 #[test]
 fn the_running_routine_shows_rutina_its_name_and_the_meditation_with_its_bar() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     let t = v3_text(&mut app, 100, 30);
     assert!(has_block_title(&t, "RUTINA") && !has_block_title(&t, "WORKHUB"), "{t}");
     assert!(t.contains("Mañana de estudio") && t.contains("0 de 4 listos") && t.contains('✿'), "{t}");
@@ -2950,7 +2950,7 @@ fn the_running_routine_shows_rutina_its_name_and_the_meditation_with_its_bar() {
 #[test]
 fn the_meditation_step_uses_the_second_accent() {
     let mut app = app_with_routines();
-    home(&mut app, 0);
+    home(&mut app, 1);
     let band = menu::band_area(ratatui::layout::Rect::new(0, 0, 100, 30));
     app.animate(0.05, band.width, band.height);
     let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
@@ -3092,12 +3092,12 @@ fn space_and_enter_do_the_same_everywhere_outside_text_fields() {
     });
     same_as_enter("rutina en curso: elegir duración", |a| {
         a.routines[0].meditation = setting(Some(20));
-        home(a, 0);
+        home(a, 1);
         ks(a, "down*3 enter");
     });
-    same_as_enter("rutina en curso: tarea", |a| home(a, 0));
+    same_as_enter("rutina en curso: tarea", |a| home(a, 1));
     same_as_enter("rutina en curso: meditación", |a| {
-        home(a, 0);
+        home(a, 1);
         ks(a, "down*3");
     });
     same_as_enter("meditaciones: agregar", |a| a.screen = app::Screen::Meditations);
@@ -3483,7 +3483,7 @@ fn every_screens_help_lists_only_the_new_keys() {
         vec!["guardar"],
     ));
     let mut a = app_with_routines();
-    home(&mut a, 1);
+    home(&mut a, 2);
     cases.push(("rutinas (inicio)", a, vec!["↑↓", "Enter/␣", "elegir", "Esc", "volver"], vec!["empezar", "nueva"]));
     let mut a = app_with_routines();
     config(&mut a, 0);
@@ -3501,7 +3501,7 @@ fn every_screens_help_lists_only_the_new_keys() {
     ks(&mut a, "down*5 enter");
     cases.push(("ajuste de meditación", a, vec!["↑↓", "campo", "← →", "cambiar", "listo", "Esc"], vec!["h l", "j k"]));
     let mut a = app_with_routines();
-    home(&mut a, 0);
+    home(&mut a, 1);
     cases.push((
         "rutina en curso",
         a,
@@ -3509,7 +3509,7 @@ fn every_screens_help_lists_only_the_new_keys() {
         vec![],
     ));
     let mut a = app_with_presets();
-    home(&mut a, 2);
+    home(&mut a, 0);
     cases.push((
         "antes de arrancar: tiempo",
         a,
@@ -3517,7 +3517,7 @@ fn every_screens_help_lists_only_the_new_keys() {
         vec![],
     ));
     let mut a = app_with_presets();
-    home(&mut a, 2);
+    home(&mut a, 0);
     ks(&mut a, "enter");
     cases.push(("antes de arrancar: sonidos", a, vec!["↑↓", "elegir", "empezar", "saltear"], vec![]));
     let mut a = focus_app();
@@ -3567,7 +3567,7 @@ fn deep_work_help_is_the_focus_one() {
 #[test]
 fn question_mark_works_in_the_before_you_start_window() {
     let mut app = app_with_presets();
-    home(&mut app, 2);
+    home(&mut app, 0);
     assert!(matches!(app.popup, Some(app::Popup::Intro(_))));
     press(&mut app, "?");
     assert!(screen_text(&app, 80, 24).contains("escribir minutos"));
@@ -3582,7 +3582,7 @@ fn question_mark_works_in_the_before_you_start_window() {
 #[test]
 fn question_mark_types_in_text_fields_and_leaves_other_popups_alone() {
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "down*40 enter");
     type_text(&mut app, "a?");
     assert!(app.help.is_none());
@@ -3605,7 +3605,7 @@ fn question_mark_types_in_text_fields_and_leaves_other_popups_alone() {
     press(&mut app, "?");
     assert!(app.help.is_none() && matches!(app.popup, Some(app::Popup::Options { .. })));
     let mut app = app_with_routines();
-    home(&mut app, 1);
+    home(&mut app, 2);
     ks(&mut app, "enter");
     press(&mut app, "?");
     assert!(app.help.is_none() && app.list_popup.is_some());
