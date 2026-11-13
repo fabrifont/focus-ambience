@@ -52,8 +52,14 @@ jobs:
       - name: Armar el .deb
         if: runner.os == 'Linux'
         # El binario ya está compilado en target/<target>/release; cargo-deb lo arma
-        # en target/debian/focus_<versión>-1_amd64.deb.
-        run: cargo deb -p focus --locked --no-build --target ${{ matrix.target }}
+        # en target/<target>/debian/focus_<versión>-1_amd64.deb (sin el epoch en el
+        # nombre del archivo). La versión del paquete lleva
+        # epoch 1: (1:<versión>-1) para que apt la tome como más nueva que la 2.1.1
+        # de antes de pasar a 0.x.y.
+        run: |
+          ver=$(cargo pkgid -p focus | sed 's/.*[@#]//')
+          cargo deb -p focus --locked --no-build --target ${{ matrix.target }} --deb-version "1:${ver}-1" \
+            --output target/${{ matrix.target }}/debian/focus_${ver}-1_amd64.deb
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
