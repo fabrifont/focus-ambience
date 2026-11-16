@@ -52,24 +52,26 @@ jobs:
           C:\focus\focus.exe timer off 2>&1 | ForEach-Object { "$_" }
           "--- daemon.log al arrancar"; Get-Content "$env:LOCALAPPDATA\focus-ambience\daemon.log" -ErrorAction SilentlyContinue
           Get-Process focus -ErrorAction SilentlyContinue | Format-Table Id, ProcessName
-          $sock = New-Object System.Net.Sockets.Socket([System.Net.Sockets.AddressFamily]::Unix, [System.Net.Sockets.SocketType]::Stream, [System.Net.Sockets.ProtocolType]::Unspecified)
-          $sock.Connect((New-Object System.Net.Sockets.UnixDomainSocketEndPoint("$env:TEMP\focus-ambience.sock")))
-          $ns = New-Object System.Net.Sockets.NetworkStream($sock)
-          $r = New-Object System.IO.StreamReader($ns); $w = New-Object System.IO.StreamWriter($ns); $w.AutoFlush = $true
-          $null = $r.ReadLine()
-          $w.WriteLine('{"cmd":"add","url":"https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg","name":"daemon","theme":"other","visual":null,"trim":null}')
-          $deadline = (Get-Date).AddSeconds(90); $last = ""
-          while ((Get-Date) -lt $deadline) {
-            $task = $r.ReadLineAsync()
-            if (-not $task.Wait(5000)) { continue }
-            $l = $task.Result; if ($null -eq $l) { break }
-            if ($l -match '"event":"notice"') { "NOTICE: $l" }
-            elseif ($l -match '"event":"state"') {
-              $m = [regex]::Match($l, '"downloads":\[[^\]]*\]').Value
-              if ($m -ne $last) { "downloads: $m"; $last = $m }
-              if ($l -match '"id":"daemon"') { "listo: el sonido aparece en el estado"; break }
+          try {
+            $sock = New-Object System.Net.Sockets.Socket([System.Net.Sockets.AddressFamily]::Unix, [System.Net.Sockets.SocketType]::Stream, [System.Net.Sockets.ProtocolType]::Unspecified)
+            $sock.Connect((New-Object System.Net.Sockets.UnixDomainSocketEndPoint("$env:TEMP\focus-ambience.sock")))
+            $ns = New-Object System.Net.Sockets.NetworkStream($sock)
+            $r = New-Object System.IO.StreamReader($ns); $w = New-Object System.IO.StreamWriter($ns); $w.AutoFlush = $true
+            $null = $r.ReadLine()
+            $w.WriteLine('{"cmd":"add","url":"https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg","name":"daemon","theme":"other","visual":null,"trim":null}')
+            $deadline = (Get-Date).AddSeconds(90); $last = ""
+            while ((Get-Date) -lt $deadline) {
+              $task = $r.ReadLineAsync()
+              if (-not $task.Wait(5000)) { continue }
+              $l = $task.Result; if ($null -eq $l) { break }
+              if ($l -match '"event":"notice"') { "NOTICE: $l" }
+              elseif ($l -match '"event":"state"') {
+                $m = [regex]::Match($l, '"downloads":\[[^\]]*\]').Value
+                if ($m -ne $last) { "downloads: $m"; $last = $m }
+                if ($l -match '"id":"daemon"') { "listo: el sonido aparece en el estado"; break }
+              }
             }
-          }
+          } catch { "EXCEPCION: " + $_.Exception.ToString() }
           C:\focus\focus.exe list 2>&1 | ForEach-Object { "$_" }
           "--- daemon.log"
           Get-ChildItem -Recurse $env:LOCALAPPDATA,$env:APPDATA -Filter daemon.log -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName; Get-Content $_.FullName }
