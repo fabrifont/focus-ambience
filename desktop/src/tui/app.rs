@@ -115,9 +115,11 @@ pub enum Popup {
     ConfirmQuit {
         sel: usize,
     },
+    /// Opciones › Timer: la misma ventanita de minutos de «Antes de arrancar», pero solo pide el
+    /// tiempo y arranca el timer sin tocar el sonido.
     Timer {
-        sel: usize,
-        custom: Option<String>,
+        minutes: u32,
+        typed: bool,
     },
     SavePreset {
         name: String,
@@ -146,10 +148,22 @@ pub enum Popup {
     },
 }
 
-/// Fila de «Volumen general» en el menú Opciones (← → lo cambian sin cerrarlo).
-pub const OPT_VOLUME: usize = 3;
-/// Cantidad de filas del menú Opciones.
-pub const OPT_ROWS: usize = 9;
+/// Qué hace cada fila del menú Opciones. «Cancelar timer» solo existe con un timer en marcha,
+/// así que las posiciones cambian: se elige por tipo de fila, no por número.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum OptRow {
+    Timer,
+    CancelTimer,
+    Deep,
+    LoadPreset,
+    /// «Volumen general» (← → lo cambian sin cerrar el menú).
+    Volume,
+    PauseAll,
+    PauseSound,
+    PauseTimer,
+    Home,
+    Quit,
+}
 
 /// Qué pasó con una tecla en una ventanita de filas.
 pub(super) enum RowKey {
@@ -179,7 +193,6 @@ pub struct AddForm {
 }
 
 pub const ADD_THEMES: [Theme; 5] = [Theme::Skyrim, Theme::Lotr, Theme::Starwars, Theme::Nature, Theme::Other];
-pub const TIMER_CHOICES: [u32; 4] = [25, 50, 90, 0];
 
 /// A selectable line in the sounds pane.
 #[derive(Clone, Copy, PartialEq)]
@@ -473,38 +486,47 @@ impl App {
         self.popup = Some(Popup::Intro(Intro::Time { minutes: self.focus_minutes, typed: false }));
     }
 
+    /// Teclas de la ventanita de minutos (la comparten «Antes de arrancar» y Opciones › Timer).
+    /// Devuelve `true` al confirmar con un tiempo válido, y ahí lo guarda como el último usado.
+    fn minutes_key(&mut self, k: KeyEvent, minutes: &mut u32, typed: &mut bool, esc_hint: &str) -> bool {
+        match k.code {
+            KeyCode::Up => {
+                *minutes = (*minutes + MINUTES_STEP).min(MAX_MINUTES);
+                *typed = false;
+            }
+            KeyCode::Down => {
+                *minutes = minutes.saturating_sub(MINUTES_STEP).max(1);
+                *typed = false;
+            }
+            KeyCode::Char(c) if c.is_ascii_digit() => {
+                // El primer dígito reemplaza el valor que había; los siguientes se suman.
+                let base = if *typed { *minutes } else { 0 };
+                let n = base * 10 + c.to_digit(10).expect("is a digit");
+                if n <= MAX_MINUTES {
+                    *minutes = n;
+                }
+                *typed = true;
+            }
+            KeyCode::Backspace => {
+                *minutes /= 10;
+                *typed = true;
+            }
+            KeyCode::Enter if *minutes == 0 => self.notify(format!("poné al menos 1 minuto ({esc_hint})")),
+            KeyCode::Enter => {
+                self.focus_minutes = *minutes;
+                self.last_dirty = true;
+                return true;
+            }
+            _ => {}
+        }
+        false
+    }
+
     fn intro_key(&mut self, intro: Intro, k: KeyEvent) -> Option<Popup> {
         match intro {
             Intro::Time { mut minutes, mut typed } => {
-                match k.code {
-                    KeyCode::Up => {
-                        minutes = (minutes + MINUTES_STEP).min(MAX_MINUTES);
-                        typed = false;
-                    }
-                    KeyCode::Down => {
-                        minutes = minutes.saturating_sub(MINUTES_STEP).max(1);
-                        typed = false;
-                    }
-                    KeyCode::Char(c) if c.is_ascii_digit() => {
-                        // El primer dígito reemplaza el valor que había; los siguientes se suman.
-                        let base = if typed { minutes } else { 0 };
-                        let n = base * 10 + c.to_digit(10).expect("is a digit");
-                        if n <= MAX_MINUTES {
-                            minutes = n;
-                        }
-                        typed = true;
-                    }
-                    KeyCode::Backspace => {
-                        minutes /= 10;
-                        typed = true;
-                    }
-                    KeyCode::Enter if minutes == 0 => self.notify("poné al menos 1 minuto (Esc saltea la ventanita)"),
-                    KeyCode::Enter => {
-                        self.focus_minutes = minutes;
-                        self.last_dirty = true;
-                        return Some(Popup::Intro(Intro::Sounds { minutes, sel: 0 }));
-                    }
-                    _ => {}
+                if self.minutes_key(k, &mut minutes, &mut typed, "Esc saltea la ventanita") {
+                    return Some(Popup::Intro(Intro::Sounds { minutes, sel: 0 }));
                 }
                 Some(Popup::Intro(Intro::Time { minutes, typed }))
             }
@@ -847,10 +869,9 @@ impl App {
             )
     }
 
-    /// ¿El espacio se escribe (o se ignora) en vez de confirmar? Pasa en los campos de texto y
-    /// en los minutos del temporizador personalizado.
+    /// ¿El espacio se escribe (o se ignora) en vez de confirmar? Pasa en los campos de texto.
     fn space_is_text(&self) -> bool {
-        self.typing() || matches!(self.popup, Some(Popup::Timer { custom: Some(_), .. }))
+        self.typing()
     }
 
     /// Con Bloq Mayús (o Shift) las letras llegan en mayúscula: se pasan a minúscula para que
@@ -897,9 +918,9 @@ impl App {
         }
     }
 
-    /// `?` abre la ayuda salvo con otro diálogo abierto; «Antes de arrancar» es la excepción.
+    /// `?` abre la ayuda salvo con otro diálogo abierto; «Antes de arrancar» y los minutos del Timer son la excepción.
     fn help_allowed(&self) -> bool {
-        let popup_free = matches!(self.popup, None | Some(Popup::Intro(_)));
+        let popup_free = matches!(self.popup, None | Some(Popup::Intro(_) | Popup::Timer { .. }));
         let screen_free = match self.screen {
             Screen::Focus => true,
             Screen::Routines => self.list_popup.is_none(),
@@ -913,6 +934,7 @@ impl App {
     fn help_topic(&self) -> Topic {
         match (&self.popup, self.screen) {
             (Some(Popup::Intro(Intro::Time { .. })), _) => Topic::IntroTime,
+            (Some(Popup::Timer { .. }), _) => Topic::TimerTime,
             (Some(Popup::Intro(Intro::Sounds { .. })), _) => Topic::IntroSounds,
             (_, Screen::Home) => Topic::Home,
             (_, Screen::Config) => Topic::Config,
@@ -1001,44 +1023,58 @@ impl App {
     }
 
     /// Filas del menú Opciones, en el orden en que se dibujan (la del volumen lleva su barra aparte).
-    pub fn option_rows(&self) -> [&'static str; OPT_ROWS] {
-        [
-            "Timer ›",
-            if self.deep == Deep::Off { "Modo deep work" } else { "Salir de deep work" },
-            "Cargar preset ›",
-            "Volumen general",
-            if self.all_paused() { "Seguir todo" } else { "Pausar todo" },
-            if self.state.paused { "Seguir solo sonido" } else { "Pausar solo sonido" },
-            if self.state.timer.as_ref().is_some_and(|t| t.paused) { "Seguir solo timer" } else { "Pausar solo timer" },
-            "Volver al inicio",
-            "Salir",
-        ]
+    /// «Cancelar timer» va justo después de «Timer ›» y solo con un timer en marcha.
+    pub fn option_rows(&self) -> Vec<(OptRow, &'static str)> {
+        let mut rows = vec![(OptRow::Timer, "Timer ›")];
+        if self.state.timer.is_some() {
+            rows.push((OptRow::CancelTimer, "Cancelar timer"));
+        }
+        rows.extend([
+            (OptRow::Deep, if self.deep == Deep::Off { "Modo deep work" } else { "Salir de deep work" }),
+            (OptRow::LoadPreset, "Cargar preset ›"),
+            (OptRow::Volume, "Volumen general"),
+            (OptRow::PauseAll, if self.all_paused() { "Seguir todo" } else { "Pausar todo" }),
+            (OptRow::PauseSound, if self.state.paused { "Seguir solo sonido" } else { "Pausar solo sonido" }),
+            (
+                OptRow::PauseTimer,
+                if self.state.timer.as_ref().is_some_and(|t| t.paused) {
+                    "Seguir solo timer"
+                } else {
+                    "Pausar solo timer"
+                },
+            ),
+            (OptRow::Home, "Volver al inicio"),
+            (OptRow::Quit, "Salir"),
+        ]);
+        rows
     }
 
-    /// Enter sobre una fila de Opciones. Devuelve la ventanita que sigue (`None` la cierra).
-    fn option_chosen(&mut self, row: usize) -> Option<Popup> {
-        match row {
-            0 => return Some(Popup::Timer { sel: 0, custom: None }),
-            1 => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
-            2 => return Some(Popup::LoadPreset { sel: 0 }),
-            OPT_VOLUME => return Some(Popup::Options { sel: row }),
-            4 => self.send(Command::TogglePauseAll),
-            5 => {
+    /// Enter sobre la fila `sel` de Opciones. Devuelve la ventanita que sigue (`None` la cierra).
+    fn option_chosen(&mut self, sel: usize) -> Option<Popup> {
+        let kind = self.option_rows().get(sel).map(|r| r.0)?;
+        match kind {
+            OptRow::Timer => return Some(Popup::Timer { minutes: self.focus_minutes, typed: false }),
+            OptRow::CancelTimer => self.send(Command::Timer { minutes: None }),
+            OptRow::Deep => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
+            OptRow::LoadPreset => return Some(Popup::LoadPreset { sel: 0 }),
+            OptRow::Volume => return Some(Popup::Options { sel }),
+            OptRow::PauseAll => self.send(Command::TogglePauseAll),
+            OptRow::PauseSound => {
                 if self.state.active.is_empty() {
                     self.notify("no hay sonido");
                 } else {
                     self.send(Command::TogglePause);
                 }
             }
-            6 => {
+            OptRow::PauseTimer => {
                 if self.state.timer.is_some() {
                     self.send(Command::ToggleTimerPause);
                 } else {
                     self.notify("no hay timer");
                 }
             }
-            7 => self.go(Screen::Home),
-            _ => {
+            OptRow::Home => self.go(Screen::Home),
+            OptRow::Quit => {
                 self.request_quit();
                 return self.popup.take();
             }
@@ -1051,11 +1087,9 @@ impl App {
         // Esc cierra cualquier ventanita (en las de confirmación es siempre «no»), salvo las que
         // lo tratan distinto antes de llegar acá.
         if k.code == KeyCode::Esc {
-            // El Timer solo se abre desde Opciones: Esc vuelve un paso (campo de minutos → lista →
-            // Opciones, con «Timer ›» marcada) en vez de cerrar todo.
+            // El Timer solo se abre desde Opciones: Esc vuelve ahí, con «Timer ›» marcada.
             self.popup = match popup {
-                Popup::Timer { sel, custom: Some(_) } => Some(Popup::Timer { sel, custom: None }),
-                Popup::Timer { custom: None, .. } => Some(Popup::Options { sel: 0 }),
+                Popup::Timer { .. } => Some(Popup::Options { sel: 0 }),
                 _ => None,
             };
             return;
@@ -1107,19 +1141,25 @@ impl App {
                 RowKey::Chosen(_) | RowKey::Cancel => None,
                 RowKey::Stay => Some(Popup::DiscardPreset { sel }),
             },
-            Popup::Options { mut sel } => match k.code {
-                KeyCode::Left | KeyCode::Right if sel == OPT_VOLUME => {
-                    let delta = if k.code == KeyCode::Left { -0.05 } else { 0.05 };
-                    self.state.master = (self.state.master + delta).clamp(0.0, 1.0);
-                    self.send(Command::SetMaster { volume: self.state.master });
-                    Some(Popup::Options { sel })
+            Popup::Options { mut sel } => {
+                // El timer puede terminar con el menú abierto y sacar una fila: la marca no se sale.
+                sel = sel.min(self.option_rows().len() - 1);
+                match k.code {
+                    KeyCode::Left | KeyCode::Right
+                        if self.option_rows().get(sel).is_some_and(|r| r.0 == OptRow::Volume) =>
+                    {
+                        let delta = if k.code == KeyCode::Left { -0.05 } else { 0.05 };
+                        self.state.master = (self.state.master + delta).clamp(0.0, 1.0);
+                        self.send(Command::SetMaster { volume: self.state.master });
+                        Some(Popup::Options { sel })
+                    }
+                    _ => match row_key(k, &mut sel, self.option_rows().len()) {
+                        RowKey::Chosen(row) => self.option_chosen(row),
+                        RowKey::Cancel => None,
+                        RowKey::Stay => Some(Popup::Options { sel }),
+                    },
                 }
-                _ => match row_key(k, &mut sel, OPT_ROWS) {
-                    RowKey::Chosen(row) => self.option_chosen(row),
-                    RowKey::Cancel => None,
-                    RowKey::Stay => Some(Popup::Options { sel }),
-                },
-            },
+            }
             Popup::LoadPreset { mut sel } => match row_key(k, &mut sel, self.state.presets.len()) {
                 RowKey::Chosen(i) => {
                     if let Some(p) = self.state.presets.get(i) {
@@ -1160,42 +1200,12 @@ impl App {
                 }
                 _ => Some(Popup::SavePreset { name }),
             },
-            Popup::Timer { mut sel, custom: Some(mut s) } => match k.code {
-                KeyCode::Enter => {
-                    if let Ok(m) = s.parse::<u32>() {
-                        self.send(Command::Timer { minutes: Some(m) });
-                    }
-                    None
+            Popup::Timer { mut minutes, mut typed } => {
+                if self.minutes_key(k, &mut minutes, &mut typed, "Esc vuelve") {
+                    self.send(Command::Timer { minutes: Some(minutes) });
+                    return;
                 }
-                KeyCode::Backspace => {
-                    s.pop();
-                    Some(Popup::Timer { sel, custom: Some(s) })
-                }
-                KeyCode::Char(c) if c.is_ascii_digit() && s.len() < 3 => {
-                    s.push(c);
-                    Some(Popup::Timer { sel, custom: Some(s) })
-                }
-                _ => {
-                    sel = sel.min(TIMER_CHOICES.len());
-                    Some(Popup::Timer { sel, custom: Some(s) })
-                }
-            },
-            Popup::Timer { mut sel, custom: None } => {
-                // Choices: the presets, "custom", and "cancel" when a timer is running.
-                let n = TIMER_CHOICES.len() + self.state.timer.is_some() as usize;
-                match k.code {
-                    KeyCode::Up => sel = sel.saturating_sub(1),
-                    KeyCode::Down => sel = (sel + 1).min(n - 1),
-                    KeyCode::Enter => {
-                        return match TIMER_CHOICES.get(sel) {
-                            Some(0) => self.popup = Some(Popup::Timer { sel, custom: Some(String::new()) }),
-                            Some(&m) => self.send(Command::Timer { minutes: Some(m) }),
-                            None => self.send(Command::Timer { minutes: None }),
-                        };
-                    }
-                    _ => {}
-                }
-                Some(Popup::Timer { sel, custom: None })
+                Some(Popup::Timer { minutes, typed })
             }
             Popup::Add(mut f) => {
                 match k.code {

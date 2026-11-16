@@ -1038,7 +1038,9 @@ fn pause_cmds(app: &mut App) -> usize {
 
 /// Prende el modo deep work por Tab › Modo deep work.
 fn deep_on(app: &mut App) {
-    ks(app, "tab down enter");
+    let row = app.option_rows().iter().position(|r| r.0 == app::OptRow::Deep).unwrap();
+    ks(app, "tab");
+    ks(app, &format!("down*{row} enter"));
     assert_eq!(app.deep, app::Deep::On);
     sent(app);
 }
@@ -1129,25 +1131,65 @@ fn options_rows_change_label_with_the_state() {
 }
 
 #[test]
-fn options_timer_opens_the_timer_list_without_digits() {
+fn options_timer_opens_the_minutes_picker() {
     let mut app = focus_app();
     ks(&mut app, "tab enter");
-    assert!(matches!(app.popup, Some(app::Popup::Timer { sel: 0, custom: None })));
+    assert!(matches!(app.popup, Some(app::Popup::Timer { minutes: 50, typed: false })));
     let t = screen_text(&app, 80, 24);
-    for s in ["25 min", "50 min", "90 min", "personalizado…"] {
+    for s in ["¿Cuánto vas a trabajar?", "[ 50 ] minutos", "arrancar", "volver"] {
         assert!(t.contains(s), "falta «{s}»:\n{t}");
     }
-    assert!(!t.contains("1  25") && !t.contains("2  50") && !t.contains("3  90"), "{t}");
-    ks(&mut app, "down enter");
-    assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Timer { minutes: Some(50) })));
+    assert!(!t.contains("personalizado") && !t.contains("25 min"), "{t}");
+    // Arranca con el último valor usado, como «Antes de arrancar».
+    app.focus_minutes = 30;
+    ks(&mut app, "esc enter");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { minutes: 30, .. })));
+}
+
+#[test]
+fn timer_picker_keys_start_the_timer_and_leave_the_sound_alone() {
+    let mut app = focus_app();
+    ks(&mut app, "tab enter up");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { minutes: 55, .. })));
+    ks(&mut app, "down*2");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { minutes: 45, .. })));
+    press(&mut app, "25");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { minutes: 25, typed: true })));
+    ks(&mut app, "bs");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { minutes: 2, .. })));
+    press(&mut app, "0");
+    assert!(sent(&mut app).is_empty());
+    ks(&mut app, "enter");
     assert!(app.popup.is_none());
+    let out = sent(&mut app);
+    assert!(matches!(out.as_slice(), [Command::Timer { minutes: Some(20) }]), "{out:?}");
+    assert_eq!(app.deep, app::Deep::Off);
+    assert_eq!(app.focus_minutes, 20);
+    assert!(app.last_dirty);
+}
+
+#[test]
+fn timer_picker_does_not_touch_deep_work_and_rejects_zero() {
+    let mut app = focus_app();
+    app.deep = app::Deep::On;
+    ks(&mut app, "tab enter");
+    press(&mut app, "0");
+    ks(&mut app, "enter");
+    assert!(matches!(app.popup, Some(app::Popup::Timer { minutes: 0, .. })), "sigue abierta");
+    assert!(sent(&mut app).is_empty());
+    assert!(app.notice.as_ref().is_some_and(|(n, _)| n.contains("poné al menos 1 minuto")));
+    press(&mut app, "7");
+    ks(&mut app, "enter");
+    let out = sent(&mut app);
+    assert!(matches!(out.as_slice(), [Command::Timer { minutes: Some(7) }]), "{out:?}");
+    assert_eq!(app.deep, app::Deep::On);
 }
 
 #[test]
 fn esc_in_the_timer_goes_back_to_options_with_timer_selected() {
     let mut app = focus_app();
     ks(&mut app, "tab enter");
-    assert!(matches!(app.popup, Some(app::Popup::Timer { custom: None, .. })));
+    press(&mut app, "12");
     ks(&mut app, "esc");
     assert!(matches!(app.popup, Some(app::Popup::Options { sel: 0 })));
     assert!(screen_text(&app, 80, 24).contains("> Timer ›"));
@@ -1155,46 +1197,50 @@ fn esc_in_the_timer_goes_back_to_options_with_timer_selected() {
     // Un segundo Esc cierra Opciones.
     ks(&mut app, "esc");
     assert!(app.popup.is_none());
-    // Elegir un tiempo sigue cerrando todo.
-    ks(&mut app, "tab enter down enter");
-    assert!(app.popup.is_none());
-    assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Timer { minutes: Some(50) })));
 }
 
 #[test]
-fn esc_in_the_custom_minutes_goes_back_to_the_list_and_then_to_options() {
+fn the_cancel_timer_row_only_exists_with_a_running_timer() {
     let mut app = focus_app();
-    ks(&mut app, "tab enter down*3 enter"); // «personalizado…»
-    assert!(matches!(app.popup, Some(app::Popup::Timer { custom: Some(_), .. })));
-    press(&mut app, "12");
+    ks(&mut app, "tab");
+    assert!(!screen_text(&app, 80, 24).contains("Cancelar timer"));
+    assert_eq!(app.option_rows().len(), 9);
     ks(&mut app, "esc");
-    assert!(matches!(app.popup, Some(app::Popup::Timer { custom: None, .. })));
-    ks(&mut app, "esc");
-    assert!(matches!(app.popup, Some(app::Popup::Options { sel: 0 })));
-    assert!(sent(&mut app).is_empty());
-}
-
-#[test]
-fn digits_one_to_three_no_longer_pick_a_timer() {
-    let mut app = focus_app();
-    ks(&mut app, "tab enter");
-    press(&mut app, "123");
-    assert!(sent(&mut app).is_empty());
-    assert!(matches!(app.popup, Some(app::Popup::Timer { sel: 0, custom: None })));
-    press(&mut app, "jk");
-    assert!(matches!(app.popup, Some(app::Popup::Timer { sel: 0, .. })));
-}
-
-#[test]
-fn the_timer_list_offers_cancel_when_running_and_custom_types_minutes() {
-    let mut app = focus_app();
     with_timer(&mut app, 600);
-    ks(&mut app, "tab enter down*4 enter");
-    assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Timer { minutes: None })));
-    ks(&mut app, "tab enter down*3 enter");
-    press(&mut app, "4 5");
+    assert_eq!(app.option_rows().len(), 10);
+    assert_eq!(app.option_rows()[1].1, "Cancelar timer");
+    ks(&mut app, "tab down");
+    assert!(screen_text(&app, 80, 24).contains("> Cancelar timer"));
     ks(&mut app, "enter");
-    assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Timer { minutes: Some(45) })));
+    let out = sent(&mut app);
+    assert!(matches!(out.as_slice(), [Command::Timer { minutes: None }]), "{out:?}");
+    assert!(app.popup.is_none());
+}
+
+#[test]
+fn options_rows_shift_with_the_cancel_row_and_volume_still_works() {
+    let mut app = focus_app();
+    app.state.master = 0.5;
+    with_timer(&mut app, 600);
+    app.outbox.clear();
+    ks(&mut app, "tab down*4 right");
+    assert!(matches!(app.popup, Some(app::Popup::Options { sel: 4 })));
+    assert!((app.state.master - 0.55).abs() < 1e-4);
+    // Con la fila de cancelar, «Modo deep work» está una más abajo y ← → no hacen nada ahí.
+    sent(&mut app);
+    ks(&mut app, "esc tab down*2 left right");
+    assert!(sent(&mut app).is_empty() && (app.state.master - 0.55).abs() < 1e-4);
+    // Sin timer, el volumen queda en la fila 3.
+    without_timer(&mut app);
+    ks(&mut app, "esc tab down*3 left");
+    assert!((app.state.master - 0.5).abs() < 1e-4);
+    // Si el timer termina con Opciones abierta, la marca no se sale de la lista.
+    with_timer(&mut app, 600);
+    ks(&mut app, "esc tab down*9");
+    assert!(matches!(app.popup, Some(app::Popup::Options { sel: 9 })));
+    without_timer(&mut app);
+    ks(&mut app, "down");
+    assert!(matches!(app.popup, Some(app::Popup::Options { sel: 8 })));
 }
 
 #[test]
@@ -1275,9 +1321,9 @@ fn options_pause_only_rows_send_their_own_command() {
     app.state.active = vec!["noise-brown".into()];
     with_timer(&mut app, 600);
     app.outbox.clear();
-    ks(&mut app, "tab down*5 enter");
-    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
     ks(&mut app, "tab down*6 enter");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
+    ks(&mut app, "tab down*7 enter");
     assert!(matches!(sent(&mut app).as_slice(), [Command::ToggleTimerPause]));
 }
 
@@ -1298,13 +1344,13 @@ fn options_pause_labels_follow_the_state() {
     let mut s = app.state.clone();
     s.timer = Some(crate::protocol::TimerState { total_secs: 600, remaining_secs: 500, paused: false });
     app.set_state(s);
-    let rows = app.option_rows();
-    assert_eq!((rows[4], rows[5], rows[6]), ("Pausar todo", "Seguir solo sonido", "Pausar solo timer"));
+    let rows: Vec<_> = app.option_rows().into_iter().map(|r| r.1).collect();
+    assert_eq!((rows[5], rows[6], rows[7]), ("Pausar todo", "Seguir solo sonido", "Pausar solo timer"));
     let mut s = app.state.clone();
     s.timer.as_mut().unwrap().paused = true;
     app.set_state(s);
-    let rows = app.option_rows();
-    assert_eq!((rows[4], rows[5], rows[6]), ("Seguir todo", "Seguir solo sonido", "Seguir solo timer"));
+    let rows: Vec<_> = app.option_rows().into_iter().map(|r| r.1).collect();
+    assert_eq!((rows[5], rows[6], rows[7]), ("Seguir todo", "Seguir solo sonido", "Seguir solo timer"));
 }
 
 #[test]
@@ -1401,9 +1447,9 @@ fn zero_inside_options_and_the_custom_minutes_does_not_restart() {
     press(&mut app, "0");
     assert!(sent(&mut app).is_empty());
     let mut app = focus_app();
-    app.popup = Some(app::Popup::Timer { sel: 0, custom: Some(String::new()) });
+    app.popup = Some(app::Popup::Timer { minutes: 0, typed: false });
     press(&mut app, "50");
-    assert!(matches!(&app.popup, Some(app::Popup::Timer { custom: Some(s), .. }) if s == "50"));
+    assert!(matches!(&app.popup, Some(app::Popup::Timer { minutes: 50, .. })));
     assert!(app.outbox.iter().all(|c| !matches!(c, Command::RestartSounds)));
 }
 
@@ -1443,9 +1489,8 @@ fn t_types_normally_in_text_fields_and_does_nothing_in_popups() {
     let mut app = focus_app();
     with_timer(&mut app, 1200);
     ks(&mut app, "tab enter");
-    press(&mut app, "t"); // en la lista de tiempos no hace nada
+    press(&mut app, "t"); // en la ventanita de minutos no hace nada
     assert_eq!(pause_cmds(&mut app), 0);
-    app.popup = Some(app::Popup::Timer { sel: 0, custom: Some(String::new()) });
     press(&mut app, "tT");
     assert_eq!(pause_cmds(&mut app), 0);
     let mut app = app_with_routines();
@@ -3195,7 +3240,7 @@ fn space_and_enter_do_the_same_everywhere_outside_text_fields() {
         a.screen = app::Screen::Focus;
         ks(a, "tab down*8");
     });
-    same_as_enter("timer: 25 minutos", |a| a.popup = Some(Popup::Timer { sel: 0, custom: None }));
+    same_as_enter("timer: minutos", |a| a.popup = Some(Popup::Timer { minutes: 25, typed: false }));
     same_as_enter("cargar preset", |a| a.popup = Some(Popup::LoadPreset { sel: 0 }));
 }
 
@@ -3243,16 +3288,6 @@ fn space_still_types_in_every_text_field() {
     ks(&mut app, "down*40 enter");
     press(&mut app, "a b");
     assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, category: None }) if url == "a b"));
-}
-
-#[test]
-fn space_is_still_ignored_in_the_custom_timer_minutes() {
-    use app::Popup;
-    let mut app = app_with_routines();
-    app.popup = Some(Popup::Timer { sel: 0, custom: Some(String::new()) });
-    press(&mut app, "5 5");
-    assert!(matches!(&app.popup, Some(Popup::Timer { custom: Some(s), .. }) if s == "55"));
-    assert!(sent(&mut app).is_empty(), "espacio no confirma");
 }
 
 // ------------------------------------------------------- sincronización

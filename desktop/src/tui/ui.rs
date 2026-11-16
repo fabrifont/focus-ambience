@@ -8,7 +8,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
-use super::app::{ADD_THEMES, App, Deep, Intro, Item, OPT_VOLUME, Popup, Screen, TIMER_CHOICES};
+use super::app::{ADD_THEMES, App, Deep, Intro, Item, OptRow, Popup, Screen};
 use super::font;
 use super::theme::{self, Palette, Rgb};
 use crate::library::Theme;
@@ -415,6 +415,32 @@ pub(super) fn popup_area(area: Rect, w: u16, h: u16) -> Rect {
     Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
 }
 
+/// Cuerpo de la ventanita de minutos (la usan «Antes de arrancar» y Opciones › Timer).
+fn minutes_lines(pal: &Palette, minutes: u32, enter: &str, esc: &str) -> Vec<Line<'static>> {
+    let dim = Style::new().fg(pal.dim.c());
+    let fg = Style::new().fg(pal.fg.c());
+    let acc = Style::new().fg(pal.accent.c());
+    vec![
+        Line::raw(""),
+        Line::styled("  ¿Cuánto vas a trabajar?", fg),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("    [ ", dim),
+            Span::styled(format!("{minutes}"), fg.add_modifier(Modifier::BOLD)),
+            Span::styled(" ] minutos", dim),
+        ]),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("  ↑↓ ", acc),
+            Span::styled("cambiar  ", dim),
+            Span::styled("Enter/␣ ", acc),
+            Span::styled(format!("{enter}  "), dim),
+            Span::styled("Esc ", acc),
+            Span::styled(esc.to_string(), dim),
+        ]),
+    ]
+}
+
 pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
     let Some(popup) = &app.popup else { return };
     let pal = *pal;
@@ -424,29 +450,10 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
     let cursor = if ((elapsed(app) * 2.0) as u32).is_multiple_of(2) { "▏" } else { " " };
 
     let (title, w, lines): (&str, u16, Vec<Line>) = match popup {
-        Popup::Intro(Intro::Time { minutes, .. }) => (
-            " Antes de arrancar · 1 de 2 ",
-            46,
-            vec![
-                Line::raw(""),
-                Line::styled("  ¿Cuánto vas a trabajar?", fg),
-                Line::raw(""),
-                Line::from(vec![
-                    Span::styled("    [ ", dim),
-                    Span::styled(format!("{minutes}"), fg.add_modifier(Modifier::BOLD)),
-                    Span::styled(" ] minutos", dim),
-                ]),
-                Line::raw(""),
-                Line::from(vec![
-                    Span::styled("  ↑↓ ", acc),
-                    Span::styled("cambiar  ", dim),
-                    Span::styled("Enter/␣ ", acc),
-                    Span::styled("seguir  ", dim),
-                    Span::styled("Esc ", acc),
-                    Span::styled("saltear", dim),
-                ]),
-            ],
-        ),
+        Popup::Intro(Intro::Time { minutes, .. }) => {
+            (" Antes de arrancar · 1 de 2 ", 46, minutes_lines(&pal, *minutes, "seguir", "saltear"))
+        }
+        Popup::Timer { minutes, .. } => (" Timer ", 46, minutes_lines(&pal, *minutes, "arrancar", "volver")),
         Popup::Intro(Intro::Sounds { sel, .. }) => {
             let mut names: Vec<String> = app.state.presets.iter().map(|p| truncate(&p.name, 36)).collect();
             names.push("Sonidos personalizados".into());
@@ -507,15 +514,15 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
         }
         Popup::Options { sel } => {
             let rows = app.option_rows();
-            let label_w = rows.iter().map(|r| r.chars().count()).max().unwrap_or(0);
+            let label_w = rows.iter().map(|r| r.1.chars().count()).max().unwrap_or(0);
             let mut lines = vec![Line::raw("")];
-            for (i, r) in rows.iter().enumerate() {
+            for (i, (kind, r)) in rows.iter().enumerate() {
                 let on = i == *sel;
                 let mut spans = vec![
                     Span::styled(if on { "  > " } else { "    " }, acc),
                     Span::styled(format!("{r:<label_w$}"), if on { fg.add_modifier(Modifier::BOLD) } else { dim }),
                 ];
-                if i == OPT_VOLUME {
+                if *kind == OptRow::Volume {
                     let m = app.state.master;
                     let n = (m * 8.0).round() as usize;
                     spans.push(Span::styled(format!("  {}", "━".repeat(n)), acc));
@@ -567,31 +574,6 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                 ]),
             ],
         ),
-        Popup::Timer { sel, custom } => {
-            let mut lines = vec![Line::raw("")];
-            if let Some(s) = custom {
-                lines.push(Line::styled("  Minutos:", dim));
-                lines.push(Line::from(vec![Span::styled("  › ", acc), Span::styled(format!("{s}{cursor}"), fg)]));
-            } else {
-                let mut opts: Vec<String> = TIMER_CHOICES
-                    .iter()
-                    .map(|m| if *m == 0 { "personalizado…".into() } else { format!("{m} min") })
-                    .collect();
-                if app.state.timer.is_some() {
-                    opts.push("cancelar temporizador".into());
-                }
-                for (i, o) in opts.iter().enumerate() {
-                    let s = i == *sel;
-                    lines.push(Line::from(vec![
-                        Span::styled(if s { "  ▸ " } else { "    " }, acc),
-                        Span::styled(o.clone(), if s { fg.add_modifier(Modifier::BOLD) } else { dim }),
-                    ]));
-                }
-            }
-            lines.push(Line::raw(""));
-            lines.push(Line::styled("  al terminar: fade-out + aviso", dim));
-            (" temporizador ", 40, lines)
-        }
         Popup::Add(form) => {
             let field = |i: usize, label: &str, value: String| {
                 let s = form.field == i;

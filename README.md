@@ -101,7 +101,8 @@ Hay dos atajos ocultos que no figuran en ninguna ayuda: `0` reinicia desde el pr
 
 | Fila | Qué hace |
 |---|---|
-| Timer › | 25, 50, 90 min, personalizado o cancelar (`Esc` vuelve a Opciones) |
+| Timer › | La misma ventanita de minutos de «Antes de arrancar»: `↑↓` ±5, escribir el número, `Enter` arranca el timer sin tocar el sonido (`Esc` vuelve a Opciones) |
+| Cancelar timer | Solo aparece con un timer en marcha, justo debajo de «Timer ›»: lo cancela |
 | Modo deep work / Salir de deep work | Prende o apaga el modo |
 | Cargar preset › | Elige un preset de la lista |
 | Volumen general | `←→` lo cambian sin cerrar el menú |
