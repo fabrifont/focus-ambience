@@ -34,6 +34,21 @@ jobs:
         run: |
           C:\focus\focus.exe add "https://www.youtube.com/watch?v=jNQXAC9IVRw" --name prueba 2>&1 | ForEach-Object { "$_" }
           "exit=$LASTEXITCODE"
+      - name: focus add con un audio que no es de YouTube (sin bloqueo anti-bot)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          C:\focus\focus.exe add "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg" --name ejemplo 2>&1 | ForEach-Object { "$_" }
+          "exit=$LASTEXITCODE"
+          C:\focus\focus.exe meditacion agregar "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg" 5 2>&1 | ForEach-Object { "$_" }
+          "exit=$LASTEXITCODE"
+      - name: Lo mismo sin node en el PATH
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'nodejs' }) -join ';'
+          C:\focus\focus.exe add "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg" --name ejemplo2 2>&1 | ForEach-Object { "$_" }
+          "exit=$LASTEXITCODE"
       - name: yt-dlp directo (mismos argumentos)
         shell: pwsh
         continue-on-error: true
