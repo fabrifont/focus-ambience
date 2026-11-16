@@ -48,6 +48,7 @@ jobs:
         run: |
           Start-Sleep 40
           C:\focus\focus.exe timer off 2>&1 | ForEach-Object { "$_" }
+          "--- daemon.log al arrancar"; Get-Content "$env:LOCALAPPDATA\focus-ambience\daemon.log" -ErrorAction SilentlyContinue
           Get-Process focus -ErrorAction SilentlyContinue | Format-Table Id, ProcessName
           $sock = New-Object System.Net.Sockets.Socket([System.Net.Sockets.AddressFamily]::Unix, [System.Net.Sockets.SocketType]::Stream, [System.Net.Sockets.ProtocolType]::Unspecified)
           $sock.Connect((New-Object System.Net.Sockets.UnixDomainSocketEndPoint("$env:TEMP\focus-ambience.sock")))
