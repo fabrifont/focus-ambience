@@ -149,7 +149,7 @@ fn home(app: &mut App, i: usize) {
     app.key(key(Enter));
 }
 
-/// Entrada `i` de Configuración (0 Rutinas, 1 Meditaciones, 2 Sonidos, 3 Presets).
+/// Entrada `i` de Configuración (0 Rutinas, 1 Meditaciones, 2 Sonidos, 3 Presets, 4 Horas trabajadas).
 fn config(app: &mut App, i: usize) {
     home(app, 3);
     app.config_cursor = 0;
@@ -1724,13 +1724,62 @@ fn config_lists_its_entries() {
     let mut app = App::new();
     home(&mut app, 3);
     let t = screen_text(&app, 80, 20);
-    for s in ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "↑↓ mover   Enter elegir"] {
+    for s in
+        ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "Horas trabajadas ›", "↑↓ mover   Enter elegir"]
+    {
         assert!(t.contains(s), "falta «{s}»");
     }
     assert!(!t.contains("Sincronización"), "la sincronización se sacó (#30)");
-    assert_eq!(app::CONFIG_ITEMS.len(), 4);
+    assert_eq!(app::CONFIG_ITEMS.len(), 5);
     ks(&mut app, "down*3 enter");
     assert_eq!(app.screen, app::Screen::Presets);
+}
+
+#[test]
+fn config_hours_row_opens_a_read_only_summary() {
+    let mut app = App::new();
+    config(&mut app, 4);
+    assert_eq!(app.screen, app::Screen::Hours);
+    assert!(app.hours_dirty, "se vuelve a leer el archivo al entrar");
+    // Sin archivo todo es cero; con datos se formatea como «2 h 35 min».
+    let t = screen_text(&app, 80, 24);
+    for s in ["Hoy", "Esta semana", "Este mes", "Total", "0 min", "Esc volver"] {
+        assert!(t.contains(s), "falta «{s}»");
+    }
+    app.hours = crate::hours::Summary { today: 155.0, week: 300.0, month: 1000.0, total: 6000.0 };
+    let t = screen_text(&app, 80, 24);
+    for s in ["2 h 35 min", "5 h 0 min", "16 h 40 min", "100 h 0 min"] {
+        assert!(t.contains(s), "falta «{s}»");
+    }
+    // Solo lectura: las teclas no mandan nada y Esc vuelve a Configuración.
+    sent(&mut app);
+    ks(&mut app, "down up enter tab left");
+    assert!(sent(&mut app).is_empty() && app.screen == app::Screen::Hours);
+    ks(&mut app, "?");
+    assert_eq!(app.help, Some(help::Topic::Hours));
+    ks(&mut app, "x esc");
+    assert_eq!(app.screen, app::Screen::Config);
+}
+
+#[test]
+fn options_tab_toggles_rest_and_shows_the_mode_only_there() {
+    let mut app = focus_app();
+    with_timer(&mut app, 600);
+    assert!(!screen_text(&app, 100, 30).contains("Modo:"), "el modo no se ve en Focus");
+    ks(&mut app, "tab");
+    assert!(screen_text(&app, 100, 30).contains("Modo: work · Tab cambia a rest"));
+    sent(&mut app);
+    ks(&mut app, "tab");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::ToggleRest]));
+    assert!(matches!(app.popup, Some(app::Popup::Options { .. })), "Opciones sigue abierta");
+    app.state.rest = true;
+    assert!(screen_text(&app, 100, 30).contains("Modo: rest · Tab cambia a work"));
+    ks(&mut app, "esc");
+    assert!(!screen_text(&app, 100, 30).contains("Modo:"));
+    // Sin timer no hay nada que cambiar.
+    without_timer(&mut app);
+    ks(&mut app, "tab tab");
+    assert!(sent(&mut app).is_empty());
 }
 
 // ------------------------------------------------------------- Meditaciones

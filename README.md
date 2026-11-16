@@ -116,6 +116,16 @@ Hay dos atajos ocultos que no figuran en ninguna ayuda: `0` reinicia desde el pr
 | Volver al inicio | Como `Esc` |
 | Salir | Pregunta cómo salir |
 
+`Tab` dentro de Opciones cambia el timer entre **work** y **rest** (abajo de la lista dice en cuál está; solo se ve ahí).
+
+### Horas trabajadas y modo rest
+
+El daemon cuenta el tiempo que el timer corre en modo **work**: la pausa no suma y en **rest** el timer anda igual pero ese tiempo no cuenta. Siempre arranca en work: al abrir el daemon y con cada timer nuevo. El modo deep work también usa el timer, así que cuenta igual.
+
+- Una sesión es un tramo del timer corriendo en work. Se cierra y se guarda al terminar o cancelar el timer, al pasar a rest (al volver a work empieza otra) y al salir del daemon. Con cero minutos trabajados no se guarda nada. Mientras corre se escribe cada ~30 s, así que si el daemon se cae se pierde a lo sumo eso.
+- De cada sesión se guarda solo inicio, fin, minutos trabajados y nombre de la compu, en `horas.sqlite` (carpeta de datos, solo local). Una sesión que cruza la medianoche cuenta entera en el día en que empezó.
+- **Configuración › Horas trabajadas ›** muestra hoy, esta semana (lunes a domingo), este mes y el total, en hora local («2 h 35 min»). Es solo lectura; `Esc` vuelve.
+
 ### Deep work
 
 Solo el reloj grande y `? ayuda` abajo.
@@ -212,6 +222,7 @@ bitrate = 160                # kbps de los .opus nuevos
 |---|---|---|
 | Biblioteca (listas y `.opus`) | `~/.local/share/focus-ambience/library` | `%APPDATA%\focus-ambience\library` |
 | Configuración | `~/.config/focus-ambience/config.toml` | `%APPDATA%\focus-ambience\config.toml` |
+| Horas trabajadas (`horas.sqlite`) | `~/.local/share/focus-ambience` | `%APPDATA%\focus-ambience` |
 | Estado, última rutina y log | `~/.local/state/focus-ambience` | `%LOCALAPPDATA%\focus-ambience` |
 
 Si existe `FOCUS_LIBRARY`, manda sobre la ruta de la biblioteca.

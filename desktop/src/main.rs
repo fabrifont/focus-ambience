@@ -1,6 +1,7 @@
 mod client;
 mod daemon;
 mod download;
+mod hours;
 mod paths;
 mod tui;
 

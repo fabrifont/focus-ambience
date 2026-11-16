@@ -175,6 +175,8 @@ struct Inner {
     ambient_hold: AmbientHold,
     master: f32,
     timer: Option<Timer>,
+    /// Rest mode of the timer: only a label for the host; it resets to work with every new timer.
+    rest: bool,
     downloads: Vec<(String, Download)>,
     /// Layers currently handed to the output.
     playing: HashSet<String>,
@@ -241,6 +243,7 @@ impl Player {
             ambient_hold: AmbientHold::default(),
             master: persisted.master.unwrap_or(0.8),
             timer: None,
+            rest: false,
             downloads: Vec::new(),
             playing: HashSet::new(),
             watch_levels: false,
@@ -442,8 +445,10 @@ impl Inner {
             Command::RestartSounds => self.restart_sounds(),
             Command::Timer { minutes } => {
                 self.timer = minutes.filter(|&m| m > 0).map(|m| Timer::new(Duration::from_secs(m as u64 * 60)));
+                self.rest = false;
                 self.out.set_fade(1.0);
             }
+            Command::ToggleRest => self.rest = self.timer.is_some() && !self.rest,
             // Solo frena el reloj: el audio no se toca (el fade del final se rearma en el tick).
             Command::ToggleTimerPause => {
                 if let Some(t) = &mut self.timer {
@@ -675,6 +680,7 @@ impl Inner {
             if left <= 0.0 {
                 let minutes = t.total.as_secs() / 60;
                 self.timer = None;
+                self.rest = false;
                 if !self.active.is_empty() {
                     self.paused = true;
                 }
@@ -714,6 +720,7 @@ impl Inner {
             active: self.active.clone(),
             paused: self.paused,
             master: self.master,
+            rest: self.rest,
             timer: self.timer.as_ref().map(|t| TimerState {
                 total_secs: t.total.as_secs(),
                 remaining_secs: t.left().as_secs(),

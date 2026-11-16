@@ -25,6 +25,8 @@ pub enum Screen {
     Sounds,
     /// Configuración > Presets.
     Presets,
+    /// Configuración > Horas trabajadas: resumen de solo lectura (#28).
+    Hours,
     /// Armar un preset a mano (vista parecida a Focus, sin audio).
     PresetBuilder,
     Routines,
@@ -34,7 +36,7 @@ pub enum Screen {
     RoutineRun,
 }
 
-pub const CONFIG_ITEMS: [&str; 4] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"];
+pub const CONFIG_ITEMS: [&str; 5] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "Horas trabajadas ›"];
 
 /// Lo que sonaba en Focus al entrar al armado de un preset, para dejarlo igual al salir.
 #[derive(Default)]
@@ -210,6 +212,9 @@ pub struct App {
     /// Cursor de Configuración > Presets: arranca en el primero; «+ Nuevo preset» es la última fila.
     pub preset_list_cursor: usize,
     pub builder: Option<PresetDraft>,
+    /// Lo que muestra Configuración > Horas trabajadas; se vuelve a leer del archivo al entrar (`persist`).
+    pub hours: crate::hours::Summary,
+    pub hours_dirty: bool,
     pub routines: Vec<Routine>,
     /// Por qué no se puede escribir routines.toml (archivo roto): no se pisa.
     pub routines_locked: Option<String>,
@@ -267,6 +272,8 @@ impl App {
             sound_cursor: 0,
             preset_list_cursor: 0,
             builder: None,
+            hours: Default::default(),
+            hours_dirty: false,
             routines: Vec::new(),
             routines_locked: None,
             last_routine: None,
@@ -451,6 +458,7 @@ impl App {
         if screen != Screen::Focus {
             self.deep = Deep::Off;
         }
+        self.hours_dirty |= screen == Screen::Hours;
         self.screen = screen;
     }
 
@@ -580,6 +588,7 @@ impl App {
                 1 => self.go(Screen::Meditations),
                 2 => self.go(Screen::Sounds),
                 3 => self.go(Screen::Presets),
+                4 => self.go(Screen::Hours),
                 _ => {}
             },
             KeyCode::Esc => self.go(Screen::Home),
@@ -936,6 +945,7 @@ impl App {
             (_, Screen::Meditations) => Topic::Meditations,
             (_, Screen::Sounds) => Topic::Sounds,
             (_, Screen::Presets) => Topic::Presets,
+            (_, Screen::Hours) => Topic::Hours,
             (_, Screen::PresetBuilder) => Topic::Builder,
             (_, Screen::Routines) => Topic::Routines,
             (_, Screen::RoutineEditor) => Topic::Editor,
@@ -967,6 +977,12 @@ impl App {
             Screen::Meditations => return self.meditations_key(k),
             Screen::Sounds => return self.sounds_key(k),
             Screen::Presets => return self.presets_key(k),
+            Screen::Hours => {
+                if k.code == KeyCode::Esc {
+                    self.go(Screen::Config);
+                }
+                return;
+            }
             Screen::PresetBuilder => return self.builder_key(k),
             Screen::Routines => return self.routines_key(k),
             Screen::RoutineEditor => return self.editor_key(k),
@@ -1159,6 +1175,15 @@ impl App {
                     {
                         let delta = if k.code == KeyCode::Left { -0.05 } else { 0.05 };
                         self.change_master(delta);
+                        Some(Popup::Options { sel })
+                    }
+                    // Tab cambia el timer entre work y rest (las horas trabajadas solo cuentan en work).
+                    KeyCode::Tab => {
+                        if self.state.timer.is_some() {
+                            self.send(Command::ToggleRest);
+                        } else {
+                            self.notify("no hay timer");
+                        }
                         Some(Popup::Options { sel })
                     }
                     _ => match row_key(k, &mut sel, self.option_rows().len()) {
