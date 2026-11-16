@@ -1095,7 +1095,8 @@ fn options_menu_lists_its_rows_in_order_with_the_volume_bar() {
         "Cargar preset ›",
         "Volumen general",
         "Pausar todo",
-        "Apagar todo",
+        "Pausar solo sonido",
+        "Pausar solo timer",
         "Volver al inicio",
         "Salir",
     ];
@@ -1269,20 +1270,56 @@ fn left_right_on_other_options_rows_do_nothing() {
 }
 
 #[test]
+fn options_pause_only_rows_send_their_own_command() {
+    let mut app = focus_app();
+    app.state.active = vec!["noise-brown".into()];
+    with_timer(&mut app, 600);
+    app.outbox.clear();
+    ks(&mut app, "tab down*5 enter");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
+    ks(&mut app, "tab down*6 enter");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::ToggleTimerPause]));
+}
+
+#[test]
+fn options_pause_only_rows_without_target_just_notify() {
+    let mut app = focus_app();
+    ks(&mut app, "tab down*5 enter");
+    assert!(sent(&mut app).is_empty() && app.notice.is_some());
+    ks(&mut app, "tab down*6 enter");
+    assert!(sent(&mut app).is_empty() && app.notice.is_some());
+}
+
+#[test]
+fn options_pause_labels_follow_the_state() {
+    let mut app = focus_app();
+    app.state.active = vec!["noise-brown".into()];
+    app.state.paused = true;
+    let mut s = app.state.clone();
+    s.timer = Some(crate::protocol::TimerState { total_secs: 600, remaining_secs: 500, paused: false });
+    app.set_state(s);
+    let rows = app.option_rows();
+    assert_eq!((rows[4], rows[5], rows[6]), ("Pausar todo", "Seguir solo sonido", "Pausar solo timer"));
+    let mut s = app.state.clone();
+    s.timer.as_mut().unwrap().paused = true;
+    app.set_state(s);
+    let rows = app.option_rows();
+    assert_eq!((rows[4], rows[5], rows[6]), ("Seguir todo", "Seguir solo sonido", "Seguir solo timer"));
+}
+
+#[test]
 fn options_pause_stop_home_and_quit_rows_work() {
     let mut app = focus_app();
     ks(&mut app, "tab down*4 enter");
-    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePauseAll]));
     assert!(app.popup.is_none());
-    ks(&mut app, "tab down*5 enter");
-    assert!(matches!(sent(&mut app).as_slice(), [Command::StopAll]));
-    ks(&mut app, "tab down*6 enter");
+    ks(&mut app, "tab down*7 enter");
     assert_eq!(app.screen, app::Screen::Home);
     assert!(app.popup.is_none());
 
     // Salir en silencio: la ventanita de siempre, con «No» marcada.
     let mut app = focus_app();
-    ks(&mut app, "tab down*7 enter");
+    ks(&mut app, "tab down*8 enter");
     assert!(matches!(app.popup, Some(app::Popup::ConfirmQuit { sel: 1 })));
     assert!(app.exit.is_none());
     ks(&mut app, "up enter");
@@ -1291,7 +1328,7 @@ fn options_pause_stop_home_and_quit_rows_work() {
     // Con algo sonando: seguir de fondo / apagar todo y salir / volver.
     let mut app = focus_app();
     app.state.active = vec!["noise-brown".into()];
-    ks(&mut app, "tab down*7 enter");
+    ks(&mut app, "tab down*8 enter");
     assert!(matches!(app.popup, Some(app::Popup::Quit { sel: 2 })));
     ks(&mut app, "up*2 enter");
     assert_eq!(app.exit, Some(app::Exit::Detach));
@@ -1470,8 +1507,8 @@ fn deep_work_keeps_the_sound_keys_and_options() {
     ks(&mut app, "down enter right");
     assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Toggle { .. })));
     ks(&mut app, "tab down*4 enter");
-    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
-    ks(&mut app, "tab down*7 enter");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePauseAll]));
+    ks(&mut app, "tab down*8 enter");
     assert!(matches!(app.popup, Some(app::Popup::ConfirmQuit { .. })));
     ks(&mut app, "esc esc");
     assert_eq!(app.screen, app::Screen::Home);
@@ -3142,17 +3179,21 @@ fn space_and_enter_do_the_same_everywhere_outside_text_fields() {
         a.screen = app::Screen::Focus;
         ks(a, "tab down*4");
     });
-    same_as_enter("opciones: apagar todo", |a| {
+    same_as_enter("opciones: pausar solo sonido", |a| {
         a.screen = app::Screen::Focus;
         ks(a, "tab down*5");
     });
-    same_as_enter("opciones: volver al inicio", |a| {
+    same_as_enter("opciones: pausar solo timer", |a| {
         a.screen = app::Screen::Focus;
         ks(a, "tab down*6");
     });
-    same_as_enter("opciones: salir", |a| {
+    same_as_enter("opciones: volver al inicio", |a| {
         a.screen = app::Screen::Focus;
         ks(a, "tab down*7");
+    });
+    same_as_enter("opciones: salir", |a| {
+        a.screen = app::Screen::Focus;
+        ks(a, "tab down*8");
     });
     same_as_enter("timer: 25 minutos", |a| a.popup = Some(Popup::Timer { sel: 0, custom: None }));
     same_as_enter("cargar preset", |a| a.popup = Some(Popup::LoadPreset { sel: 0 }));
@@ -3684,7 +3725,7 @@ fn every_popup_and_footer_fits_in_80_by_24() {
     cases.push(("timer", a));
     let mut a = focus_app();
     a.state.active = vec!["noise-brown".into()];
-    ks(&mut a, "tab down*7 enter");
+    ks(&mut a, "tab down*8 enter");
     cases.push(("salir", a));
     let mut a = app_with_routines();
     edit_first(&mut a);

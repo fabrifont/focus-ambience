@@ -36,6 +36,11 @@ pub enum Command {
     #[serde(rename = "resume")]
     ResumeAll,
     StopAll,
+    /// The unified pause: pauses sound, meditation and timer together, whichever are active. If
+    /// something active is still running it pauses that (everything ends up paused); if all the
+    /// active things are already paused it resumes them all.
+    #[serde(rename = "toggle_pause_all")]
+    TogglePauseAll,
     /// Restart from the beginning every sound that is playing right now (volumes untouched).
     RestartSounds,
     Timer {

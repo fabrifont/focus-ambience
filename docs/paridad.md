@@ -38,7 +38,8 @@ Se actualiza en cada PR. Una función no está terminada hasta que está en las 
 | Antes de arrancar (minutos, preset) | ✅ | ✅ (#17, #19) |
 | Focus: sonidos con volumen | ✅ | ✅ solo generados (#17) |
 | Timer con fade-out | ✅ | ✅ (#17, via core) |
-| Opciones (Timer, Volumen general, Pausar/Apagar todo, Volver) | ✅ | ✅ (#17) |
+| Opciones (Timer, Volumen general, Pausar todo / solo sonido / solo timer, Volver) (#25) | ✅ | ⚠️ sigue con Pausar/Apagar todo, sin pausa única (#17) |
+| `focus pause` como pausa única (#25) | ✅ | no aplica |
 | Configuración > Sonidos ambientales (borrar) | ✅ | ✅ lista; borrar llega con la etapa 3 (los generados no se borran) |
 | Sonido de fondo + notificación | ✅ (daemon) | ✅ servicio en primer plano (#17, falta celu real) |
 | Presets (cargar, armar, borrar) | ✅ | ✅ (#19, falta celu real) |

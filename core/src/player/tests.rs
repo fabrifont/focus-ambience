@@ -197,6 +197,69 @@ fn toggle_pause_still_toggles() {
 }
 
 #[test]
+fn toggle_pause_all_pauses_and_resumes_only_sound() {
+    let r = rig("tpa-sound");
+    r.player.send(set("noise-brown", true)).unwrap();
+    r.player.send(Command::TogglePauseAll).unwrap();
+    assert!(r.player.state().paused);
+    r.player.send(Command::TogglePauseAll).unwrap();
+    assert!(!r.player.state().paused);
+}
+
+#[test]
+fn toggle_pause_all_pauses_and_resumes_only_timer() {
+    let r = rig("tpa-timer");
+    r.player.send(Command::Timer { minutes: Some(10) }).unwrap();
+    r.player.send(Command::TogglePauseAll).unwrap();
+    assert!(r.player.state().timer.unwrap().paused);
+    r.player.send(Command::TogglePauseAll).unwrap();
+    assert!(!r.player.state().timer.unwrap().paused);
+}
+
+#[test]
+fn toggle_pause_all_handles_sound_and_timer_together() {
+    let r = rig("tpa-both");
+    r.player.send(set("noise-brown", true)).unwrap();
+    r.player.send(Command::Timer { minutes: Some(10) }).unwrap();
+    r.player.send(Command::TogglePauseAll).unwrap();
+    let s = r.player.state();
+    assert!(s.paused && s.timer.unwrap().paused);
+    r.player.send(Command::TogglePauseAll).unwrap();
+    let s = r.player.state();
+    assert!(!s.paused && !s.timer.unwrap().paused);
+}
+
+#[test]
+fn toggle_pause_all_with_one_paused_pauses_the_other() {
+    // Timer en pausa y sonido andando: todo termina en pausa.
+    let r = rig("tpa-mixed-a");
+    r.player.send(set("noise-brown", true)).unwrap();
+    r.player.send(Command::Timer { minutes: Some(10) }).unwrap();
+    r.player.send(Command::ToggleTimerPause).unwrap();
+    r.player.send(Command::TogglePauseAll).unwrap();
+    let s = r.player.state();
+    assert!(s.paused && s.timer.unwrap().paused);
+
+    // Sonido en pausa y timer andando: ídem.
+    let r = rig("tpa-mixed-b");
+    r.player.send(set("noise-brown", true)).unwrap();
+    r.player.send(Command::Timer { minutes: Some(10) }).unwrap();
+    r.player.send(Command::TogglePause).unwrap();
+    r.player.send(Command::TogglePauseAll).unwrap();
+    let s = r.player.state();
+    assert!(s.paused && s.timer.unwrap().paused);
+}
+
+#[test]
+fn toggle_pause_all_without_anything_does_nothing_and_has_its_wire_name() {
+    let r = rig("tpa-empty");
+    r.player.send(Command::TogglePauseAll).unwrap();
+    let s = r.player.state();
+    assert!(!s.paused && s.timer.is_none());
+    assert_eq!(serde_json::to_string(&Command::TogglePauseAll).unwrap(), r#"{"cmd":"toggle_pause_all"}"#);
+}
+
+#[test]
 fn toggle_pause_keeps_its_wire_name() {
     assert_eq!(serde_json::to_string(&Command::TogglePause).unwrap(), r#"{"cmd":"pause_all"}"#);
     assert_eq!(serde_json::to_string(&Command::PauseAll).unwrap(), r#"{"cmd":"pause"}"#);

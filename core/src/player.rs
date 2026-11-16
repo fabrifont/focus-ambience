@@ -433,6 +433,7 @@ impl Inner {
             }
             Command::PauseAll => self.pause_all(),
             Command::ResumeAll => self.resume_all(),
+            Command::TogglePauseAll => self.toggle_pause_all(),
             Command::StopAll => {
                 self.active.clear();
                 self.paused = false;
@@ -508,6 +509,28 @@ impl Inner {
         self.hold_ambient();
         if !self.active.is_empty() && !self.paused {
             self.paused = true;
+        }
+        self.out.set_fade(1.0);
+    }
+
+    /// Pausa única: si algo activo sigue andando (sonido, meditación o timer) lo pausa todo; si lo
+    /// activo ya está todo en pausa, lo reanuda todo. Sin sonido ni timer no hace nada.
+    fn toggle_pause_all(&mut self) {
+        let meditating = self.playback.as_ref().is_some_and(|p| p.since.is_some());
+        let sound_running = !self.active.is_empty() && !self.paused;
+        let timer_running = self.timer.as_ref().is_some_and(|t| !t.paused());
+        let anything_active = !self.active.is_empty() || self.timer.is_some() || self.playback.is_some();
+        if !anything_active {
+            return;
+        }
+        let pausing = sound_running || timer_running || meditating;
+        if pausing {
+            self.pause_all();
+        } else {
+            self.resume_all();
+        }
+        if let Some(t) = self.timer.as_mut().filter(|t| t.paused() != pausing) {
+            t.toggle_pause();
         }
         self.out.set_fade(1.0);
     }
