@@ -49,7 +49,8 @@ jobs:
         continue-on-error: true
         run: |
           Start-Sleep 40
-          C:\focus\focus.exe timer off 2>&1 | ForEach-Object { "$_" }
+          Start-Process -FilePath C:\focus\focus.exe -ArgumentList daemon -WindowStyle Hidden
+          Start-Sleep 3
           "--- daemon.log al arrancar"; Get-Content "$env:LOCALAPPDATA\focus-ambience\daemon.log" -ErrorAction SilentlyContinue
           Get-Process focus -ErrorAction SilentlyContinue | Format-Table Id, ProcessName
           try {
