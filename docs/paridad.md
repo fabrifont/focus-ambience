@@ -39,6 +39,7 @@ Se actualiza en cada PR. Una función no está terminada hasta que está en las 
 | Focus: sonidos con volumen | ✅ | ✅ solo generados (#17) |
 | Timer con fade-out | ✅ | ✅ (#17, via core) |
 | Opciones (Timer, Volumen general, Pausar todo / solo sonido / solo timer, Volver) (#25) | ✅ | ⚠️ sigue con Pausar/Apagar todo, sin pausa única (#17) |
+| Opciones › Timer con la misma ventanita de minutos que «Antes de arrancar» y fila «Cancelar timer» solo con timer en marcha (#26) | ✅ | ⚠️ sigue con la lista 25/50/90/Otro |
 | `focus pause` como pausa única (#25) | ✅ | no aplica |
 | Configuración > Sonidos ambientales (borrar) | ✅ | ✅ lista; borrar llega con la etapa 3 (los generados no se borran) |
 | Sonido de fondo + notificación | ✅ (daemon) | ✅ servicio en primer plano (#17, falta celu real) |

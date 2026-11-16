@@ -23,6 +23,7 @@ pub enum Topic {
     Step,
     Run,
     IntroTime,
+    TimerTime,
     IntroSounds,
     Focus,
 }
@@ -49,6 +50,9 @@ impl Topic {
             ],
             Topic::IntroTime => {
                 vec![("↑↓", "±5 minutos"), ("0-9", "escribir minutos"), (ENTER, "seguir"), ("Esc", "saltear")]
+            }
+            Topic::TimerTime => {
+                vec![("↑↓", "±5 minutos"), ("0-9", "escribir minutos"), (ENTER, "arrancar el timer"), ("Esc", "volver")]
             }
             Topic::IntroSounds => vec![("↑↓", "elegir"), (ENTER, "empezar"), ("Esc", "saltear")],
             Topic::Focus => vec![
