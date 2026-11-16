@@ -48,4 +48,4 @@ Se actualiza en cada PR. Una función no está terminada hasta que está en las 
 | Rutinas / tareas (elegir, crear, editar, mover, borrar, en curso) | ✅ | ✅ (#19, falta celu real) |
 | Meditaciones | ✅ | ⏳ pendiente de Fabrizio (duda 1 del diseñador) |
 | Agregar desde YouTube / sonidos de archivo | ✅ | ⏳ etapa 3 |
-| Sincronización con Drive | ✅ | ❌ no va |
+| Sincronización con Drive | ❌ sacada (#30): cada instalación es independiente | ❌ no va (no aplica) |

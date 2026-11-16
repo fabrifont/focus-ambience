@@ -8,7 +8,7 @@ Ambientes para concentrarse, en la terminal. Sin pestaña de YouTube abierta.
 - ⏱️ Temporizador con fade-out y aviso de escritorio, y modo *deep work* con el reloj grande.
 - ✅ Rutinas: tareas para tildar y una meditación guiada opcional.
 - 🔊 El audio sigue sonando en background aunque cierres la terminal.
-- ☁️ Los audios se bajan una vez y las listas se sincronizan entre compus con Google Drive.
+- 📦 Los audios se bajan una vez de YouTube y quedan en disco. Cada instalación es independiente: no hay sincronización entre compus.
 - 🪶 Liviano: ~11 MB de RAM y ~1% de un núcleo mientras suena (medido en un Celeron N4020).
 
 ## Instalar
@@ -29,22 +29,20 @@ Si actualizás, corré `focus quit` una vez para que arranque el daemon nuevo.
 
 ### Herramientas externas
 
-El `.deb` las deja como recomendadas (`rclone`, `yt-dlp`, `ffmpeg`). Tienen que estar en el `PATH` (en Linux también sirve `~/.local/bin`).
+El `.deb` las deja como recomendadas (`yt-dlp`, `ffmpeg`). Tienen que estar en el `PATH` (en Linux también sirve `~/.local/bin`).
 
 | Herramienta | Para qué |
 |---|---|
 | `yt-dlp` | Busca el título y baja el audio de YouTube |
 | `ffmpeg` | Recorta, hornea el crossfade del loop y codifica a Opus |
 | `ffprobe` | Mide la duración del audio bajado |
-| `rclone` | Sincroniza con Google Drive; si falta, `focus sync` lo baja solo |
 | Node o Deno | Para que `yt-dlp` baje de YouTube a velocidad normal |
 
 ## Primeros pasos
 
-1. `focus sync` (o Configuración > Sincronización): conecta Google Drive y baja tus sonidos, presets y rutinas.
+1. `focus add <url>` baja un sonido de YouTube (o, desde la interfaz, Configuración > Sonidos ambientales > `+ Agregar desde YouTube`).
 2. `focus`: abre la interfaz en el menú de inicio.
-3. Sin Drive: `focus add <url>` baja un sonido de YouTube.
-4. Elegí **Ir a Focus**, poné el tiempo y un preset.
+3. Elegí **Ir a Focus**, poné el tiempo y un preset.
 
 Al abrir arranca sin sonar; recuerda volúmenes y la posición de cada pista.
 
@@ -150,9 +148,6 @@ Solo el reloj grande y `? ayuda` abajo.
 | Sonidos ambientales | `+ Agregar desde YouTube` al final · `Enter` sobre un sonido pregunta si borrarlo |
 | Presets | `+ Nuevo preset` al final · `Enter` sobre un preset pregunta si borrarlo |
 | Armar preset | `Enter` elige o saca un sonido (suena en vivo) · `←→` volumen · `✓ Guardar preset` al final · `Esc` descarta (pregunta) |
-| Sincronización | `Enter` / `␣` elige: **Conectar Google Drive** (`focus setup`), **Sincronizar** (`focus sync`) o **Verificar archivos** (`focus verify`) |
-
-En Sincronización se abre una ventana con el avance. Mientras trabaja no responde ninguna tecla; al terminar, `Enter`, `␣` o `Esc` la cierran. Al conectar Drive se abre el navegador y el link también se ve en la ventana.
 
 En Meditaciones y Sonidos ambientales, pegar un link de YouTube abre el diálogo de agregar.
 
@@ -183,9 +178,6 @@ En Meditaciones y Sonidos ambientales, pegar un link de YouTube abre el diálogo
 | `focus meditacion listar` | Meditaciones por duración |
 | `focus meditacion reproducir <nombre>` | La reproduce una vez |
 | `focus meditacion borrar <nombre>` | La saca de la biblioteca |
-| `focus setup` | Instala rclone y conecta Google Drive |
-| `focus sync [pull\|push]` | Sincroniza con Google Drive |
-| `focus verify` | Compara los archivos con el manifest |
 | `focus help` | Ayuda |
 
 Opciones de `focus add`:
@@ -201,22 +193,15 @@ Opciones de `focus add`:
 focus add <url> --theme nature --visual rain --trim 60
 ```
 
-## Sincronizar con Google Drive
+## Cada instalación es independiente
 
-```sh
-focus sync
-```
+No hay sincronización: la biblioteca (listas y `.opus`) vive solo en la compu donde la armaste. Para tener lo mismo en otra, agregá los sonidos y meditaciones de nuevo desde YouTube. Los audios tienen copyright y las listas son personales, por eso nunca van a git.
 
-- La primera vez prepara todo solo (o a mano con `focus setup`): baja `rclone` verificando su SHA256 y abre el navegador para iniciar sesión.
-- Permiso `drive.file`: la app solo ve lo que ella misma sube.
-- Sube y baja los `.opus` y las listas (`sounds`, `presets`, `meditations`, `routines`); de cada lista gana la copia más nueva.
-- La app arranca vacía hasta el primer sync.
+Si venías usando Google Drive, la app ya no lo toca: lo que haya quedado en la nube se queda como está, y lo que tenés en disco sigue funcionando igual.
 
-Para cambiar el destino, `~/.config/focus-ambience/config.toml`:
+Configuración opcional en `~/.config/focus-ambience/config.toml`:
 
 ```toml
-remote = "gdrive:focus-ambience/sounds"
-# meditations_remote = "gdrive:focus-ambience/meditations"
 bitrate = 160                # kbps de los .opus nuevos
 # library = "/otra/ruta"
 ```

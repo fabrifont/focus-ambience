@@ -37,7 +37,7 @@ Solo los que sirven en una terminal (nada de animaciones, gestos ni transparenci
 - Los pasos se marcan en cualquier orden y en cualquier momento. En la rutina en curso la meditación aparece como un paso más, siempre al final de la lista.
 - Cuando todos los pasos quedan hechos, se entra a Focus.
 - Siempre que se entra a Focus (después de una rutina o con "Ir a Focus"), primero aparece una ventanita: pregunta cuánto tiempo va a trabajar y arranca el temporizador; después pregunta qué preset de sonidos usar, con una última opción "Sonidos personalizados" que lleva a elegirlos a mano como en Focus hoy.
-- Rutinas y meditaciones se sincronizan entre compus con `focus sync`, igual que presets y sonidos.
+- Rutinas y meditaciones se sincronizan entre compus con `focus sync`, igual que presets y sonidos. *(Nota: en el escritorio la sincronización se sacó en #30; cada instalación es independiente y `focus sync` ya no existe.)*
 - `Esc` en la ventanita de tiempo y preset no vuelve al menú: la saltea y entra directo a Focus. Si ya eligió el tiempo y aprieta `Esc` en la parte de sonidos, no arranca nada (ni temporizador) y entra a Focus como hoy.
 - Las meditaciones se ordenan solo por duración, en categorías fijas: 5, 10, 15, 20, 25, 30, 40 minutos y 1 hora. Una categoría solo aparece si tiene al menos una meditación. Al bajar una, Fabrizio elige a mano en qué categoría va.
 - En la rutina se elige una duración y la app pone una meditación al azar de esa categoría.

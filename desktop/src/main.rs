@@ -2,9 +2,6 @@ mod client;
 mod daemon;
 mod download;
 mod paths;
-mod progress;
-mod setup;
-mod sync;
 mod tui;
 
 use anyhow::{Result, bail};
@@ -34,10 +31,6 @@ USO
   focus meditacion listar                    meditaciones por duración
   focus meditacion borrar <nombre>           la saca de la biblioteca y borra el archivo
   focus meditacion reproducir <nombre>       la reproduce una vez, de principio a fin
-  focus setup                instala rclone y conecta Google Drive (una vez)
-  focus sync [pull|push]     sincroniza los .opus (sonidos y meditaciones) y las listas con Google Drive (rclone);
-                             la primera vez hace el `setup` solo
-  focus verify               compara los archivos con el manifest
 ";
 
 fn main() {
@@ -49,6 +42,10 @@ fn main() {
 
 fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    dispatch(&args)
+}
+
+fn dispatch(args: &[String]) -> Result<()> {
     let rest = args.get(1..).unwrap_or(&[]);
     match args.first().map(String::as_str) {
         None => tui::run(),
@@ -86,17 +83,7 @@ fn run() -> Result<()> {
         Some("status") => status(),
         Some("list") => list(),
         Some("add") => add(rest),
-        Some("setup") => setup::run(&mut progress::Out::console()),
         Some("meditacion" | "meditación") => meditation_cmd(rest),
-        Some("sync") => sync::run(
-            match rest.first().map(String::as_str) {
-                Some("pull") => sync::Direction::Pull,
-                Some("push") => sync::Direction::Push,
-                _ => sync::Direction::Both,
-            },
-            &mut progress::Out::console(),
-        ),
-        Some("verify") => sync::verify(&mut progress::Out::console()),
         Some(other) => bail!("comando desconocido: {other}\n\n{HELP}"),
     }
 }
@@ -145,7 +132,7 @@ fn list() -> Result<()> {
         println!("  {}{:<44} {}{extra}", if s.available { " " } else { "☁" }, s.name, s.id);
     }
     if sounds.iter().all(|s| s.theme == Theme::Generated) {
-        println!("\ntodavía no hay sonidos descargados: corré focus sync (o focus add <url>)");
+        println!("\ntodavía no hay sonidos descargados: agregá uno con focus add <url>");
     }
     let presets = library::load_presets(&paths::library_dir());
     if !presets.presets.is_empty() {
@@ -220,7 +207,7 @@ fn meditation_cmd(args: &[String]) -> Result<()> {
         Some("listar") => {
             let all = meditation::all_meditations(&paths::library_dir())?;
             if all.is_empty() {
-                println!("no hay meditaciones todavía (corré focus sync, o focus meditacion agregar <url> <minutos>)");
+                println!("no hay meditaciones todavía (agregá una con focus meditacion agregar <url> <minutos>)");
             }
             for (cat, items) in meditation::group(&all) {
                 println!("\n{}", cat.label());
@@ -253,7 +240,7 @@ fn meditation_cmd(args: &[String]) -> Result<()> {
             let all = meditation::all_meditations(&paths::library_dir())?;
             let m = meditation::find(&all, &rest.join(" "))?;
             if !m.available {
-                bail!("«{}» no está en esta compu: corré `focus sync`", m.name);
+                bail!("«{}» no está en esta compu (el archivo falta); borrala y agregala de nuevo", m.name);
             }
             client::oneshot(Some(Command::PlayMeditation { id: m.id.clone() }), true)?;
             println!("▶ {} ({})", m.name, meditation::clock(m.duration));
@@ -280,5 +267,22 @@ fn progress_printer() -> impl FnMut(&str, f32) {
             eprint!("\r  {stage}…");
         }
         let _ = std::io::stderr().flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// La sincronización se sacó (#30): esos subcomandos ya no existen.
+    #[test]
+    fn sync_setup_and_verify_are_unknown_commands() {
+        for cmd in ["sync", "setup", "verify"] {
+            let e = dispatch(&[cmd.to_string()]).unwrap_err().to_string();
+            assert!(e.contains("comando desconocido"), "{cmd}: {e}");
+        }
+        for word in ["sync", "setup", "verify", "rclone", "Drive"] {
+            assert!(!HELP.contains(word), "la ayuda todavía menciona {word}");
+        }
     }
 }

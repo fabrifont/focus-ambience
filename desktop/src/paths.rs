@@ -9,16 +9,10 @@ use serde::Deserialize;
 pub struct Config {
     /// Folder holding sounds.toml, meditations.toml, presets.toml, sounds/ and meditations/.
     pub library: Option<PathBuf>,
-    /// rclone destination for the sound .opus files.
-    pub remote: Option<String>,
-    /// rclone destination for the meditation .opus files. By default, a `meditations` folder next
-    /// to the one in `remote`.
-    pub meditations_remote: Option<String>,
     /// Opus bitrate in kbps used by `focus add`.
     pub bitrate: Option<u32>,
 }
 
-pub const DEFAULT_REMOTE: &str = "gdrive:focus-ambience/sounds";
 pub const DEFAULT_BITRATE: u32 = 160;
 
 fn home() -> PathBuf {
@@ -78,7 +72,7 @@ pub fn config() -> Config {
 /// build from a clone keeps using the lists and audio already in its `library/`), and the user
 /// data dir. The lists
 /// (`*.toml`) aren't created here: a missing one is an empty list until something is saved,
-/// and `focus sync` brings them from the remote.
+/// (each install is standalone).
 pub fn library_dir() -> PathBuf {
     if let Some(p) = env::var_os("FOCUS_LIBRARY") {
         return PathBuf::from(p);
@@ -122,7 +116,7 @@ pub fn log_file() -> PathBuf {
     state_dir().join("daemon.log")
 }
 
-/// Where focus installs tools it downloads itself (rclone): ~/.local/bin, or the app folder on
+/// Where focus installs tools it downloads itself (yt-dlp): ~/.local/bin, or the app folder on
 /// Windows (which has no such convention).
 #[cfg(unix)]
 pub fn bin_dir() -> PathBuf {

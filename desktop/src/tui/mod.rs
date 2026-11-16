@@ -5,7 +5,6 @@ mod menu;
 mod routine_ui;
 mod routines;
 mod scene;
-mod syncmenu;
 mod theme;
 mod ui;
 
@@ -90,7 +89,7 @@ pub fn run() -> Result<()> {
             app.persist();
             terminal.draw(|f| ui::draw(f, &app))?;
 
-            let deadline = now + frame_for(app.animating() || app.popup.is_some() || app.sync.is_some());
+            let deadline = now + frame_for(app.animating() || app.popup.is_some());
             // Sleep until the next frame is due; input or daemon news cut it short.
             while let Some(wait) = wait_until(deadline, Instant::now()) {
                 let Ok(first) = rx.recv_timeout(wait) else { break };
