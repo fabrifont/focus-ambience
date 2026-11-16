@@ -1,0 +1,50 @@
+# Temporal para reproducir #29 en Windows. Se borra con la rama.
+name: repro-29
+on:
+  push:
+    branches: [workhub/repro-29]
+  workflow_dispatch:
+jobs:
+  repro:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Bajar el .exe de la última release
+        shell: pwsh
+        run: |
+          gh release download --repo $env:GITHUB_REPOSITORY -p focus-windows-x86_64.exe -D C:\focus
+          Rename-Item C:\focus\focus-windows-x86_64.exe focus.exe
+          C:\focus\focus.exe --help | Select-Object -First 3
+      - name: Herramientas
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force C:\tools | Out-Null
+          Invoke-WebRequest https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -OutFile C:\tools\yt-dlp.exe
+          choco install ffmpeg -y --no-progress | Select-Object -Last 2
+          "C:\tools" | Out-File -Append $env:GITHUB_PATH
+      - name: Versiones
+        shell: pwsh
+        run: |
+          yt-dlp --version; ffmpeg -version | Select-Object -First 1; ffprobe -version | Select-Object -First 1; node --version
+          Get-Command yt-dlp, ffmpeg, ffprobe, node | Format-Table Name, Source
+      - name: focus add (CLI)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          C:\focus\focus.exe add "https://www.youtube.com/watch?v=jNQXAC9IVRw" --name prueba 2>&1 | ForEach-Object { "$_" }
+          "exit=$LASTEXITCODE"
+      - name: yt-dlp directo (mismos argumentos)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $node = (Get-Command node).Source
+          yt-dlp --js-runtimes "node:$node" --no-playlist --newline -f "bestaudio[acodec=opus]/bestaudio/best" --ffmpeg-location ffmpeg -o "$env:TEMP\src.%(ext)s" "https://www.youtube.com/watch?v=jNQXAC9IVRw" 2>&1 | ForEach-Object { "$_" }
+          "exit=$LASTEXITCODE"
+      - name: Estado
+        shell: pwsh
+        if: always()
+        run: |
+          C:\focus\focus.exe list 2>&1 | ForEach-Object { "$_" }
+          Get-ChildItem -Recurse "$env:APPDATA\focus-ambience","$env:LOCALAPPDATA\focus-ambience" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Get-Content "$env:LOCALAPPDATA\focus-ambience\daemon.log" -ErrorAction SilentlyContinue
