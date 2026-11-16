@@ -1393,7 +1393,7 @@ fn old_focus_keys_do_nothing() {
     let mut app = focus_app();
     app.state.active = vec!["noise-brown".into()];
     app.state.master = 0.5;
-    for c in "qpx+-=dhjklraAsgnemy1234".chars() {
+    for c in "qx=hjklraAsgney1234".chars() {
         press(&mut app, &c.to_string());
     }
     ks(&mut app, "home end del backtab");
@@ -1529,9 +1529,11 @@ fn hidden_shortcuts_appear_nowhere() {
 // ---------------------------------------------------------- modo deep work
 
 #[test]
-fn d_no_longer_toggles_deep_work() {
+fn d_toggles_deep_work_in_focus() {
     let mut app = focus_app();
-    press(&mut app, "dD");
+    press(&mut app, "d");
+    assert_eq!(app.deep, app::Deep::On);
+    press(&mut app, "D");
     assert_eq!(app.deep, app::Deep::Off);
     assert!(app.outbox.is_empty());
 }
@@ -1576,12 +1578,16 @@ fn reaching_zero_in_deep_work_ends_the_session_and_enter_goes_back() {
 }
 
 #[test]
-fn space_also_goes_back_from_the_final_screen_and_d_does_not() {
+fn space_also_goes_back_from_the_final_screen_and_the_shortcuts_still_act() {
     let mut app = focus_app();
     app.deep = app::Deep::Done;
-    press(&mut app, "d");
+    press(&mut app, "p");
+    assert!(sent(&mut app).iter().any(|c| matches!(c, Command::TogglePauseAll)));
     assert_eq!(app.deep, app::Deep::Done);
     press(&mut app, " ");
+    assert_eq!(app.deep, app::Deep::Off);
+    app.deep = app::Deep::Done;
+    press(&mut app, "d");
     assert_eq!(app.deep, app::Deep::Off);
 }
 
@@ -2722,6 +2728,10 @@ fn removed_keys_do_nothing_on_any_screen() {
         let (name, base) = inert_screen(i);
         let before = state_print(&base);
         for c in chars.chars() {
+            // En Focus, `+ - d p m` son atajos nuevos (#27).
+            if name.starts_with("focus") && "+-dpmDPM".contains(c) {
+                continue;
+            }
             let (_, mut app) = inert_screen(i);
             press(&mut app, &c.to_string());
             assert_eq!(state_print(&app), before, "{name}: la tecla «{c}» cambió algo");
@@ -3608,12 +3618,17 @@ fn every_screens_help_lists_only_the_new_keys() {
             "volumen del sonido",
             "Enter/␣",
             "encender / apagar",
+            "+ -",
+            "volumen general",
+            "modo deep work",
+            "pausa de todo",
+            "pausa del sonido",
             "Tab",
             "opciones",
             "Esc",
             "volver al inicio",
         ],
-        vec!["presets", "reinicia", "timer", "pausar", "deep work", "apagar todo", "Ctrl+Q", "salir"],
+        vec!["presets", "reinicia", "timer", "apagar todo", "Ctrl+Q", "salir"],
     ));
     for (name, mut app, wanted, absent) in cases {
         let t = help_text(&mut app);
@@ -3636,7 +3651,7 @@ fn deep_work_help_is_the_focus_one() {
     let mut app = focus_app();
     deep_on(&mut app);
     let t = help_text(&mut app);
-    assert!(t.contains("Tab") && t.contains("opciones") && !t.contains("deep work"), "{t}");
+    assert!(t.contains("Tab") && t.contains("opciones") && t.contains("volumen general"), "{t}");
     assert_eq!(app.deep, app::Deep::On);
 }
 
@@ -3779,4 +3794,93 @@ fn every_popup_and_footer_fits_in_80_by_24() {
     let t = screen_text(&app, 80, 24);
     let footer = t.lines().last().unwrap().to_string() + t.lines().rev().nth(1).unwrap_or("");
     assert!(footer.contains("Tab opciones") && footer.contains("vol "), "{t}");
+}
+
+// ---------------------------------------------------------- atajos de Focus (#27)
+
+fn master_cmds(app: &mut App) -> Vec<f32> {
+    sent(app)
+        .into_iter()
+        .filter_map(|c| match c {
+            Command::SetMaster { volume } => Some(volume),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn plus_and_minus_change_the_master_volume_by_ten_percent_and_clamp() {
+    let mut app = focus_app();
+    let start = app.state.master;
+    press(&mut app, "-");
+    let v = master_cmds(&mut app);
+    assert_eq!(v.len(), 1);
+    assert!((v[0] - (start - 0.1).max(0.0)).abs() < 1e-5);
+    app.state.master = 0.5;
+    press(&mut app, "+");
+    assert!((master_cmds(&mut app)[0] - 0.6).abs() < 1e-5);
+    app.state.master = 0.95;
+    press(&mut app, "+");
+    assert_eq!(master_cmds(&mut app), vec![1.0]);
+    app.state.master = 0.05;
+    press(&mut app, "-");
+    assert_eq!(master_cmds(&mut app), vec![0.0]);
+    assert_eq!(app.state.master, 0.0);
+}
+
+#[test]
+fn p_sends_the_unified_pause_in_normal_and_deep_mode() {
+    let mut app = focus_app();
+    press(&mut app, "pP");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePauseAll, Command::TogglePauseAll]));
+    deep_on(&mut app);
+    press(&mut app, "p");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePauseAll]));
+}
+
+#[test]
+fn m_pauses_only_the_sound_or_says_there_is_none() {
+    let mut app = focus_app();
+    app.state.active.clear();
+    press(&mut app, "m");
+    assert!(sent(&mut app).is_empty());
+    assert_eq!(app.notice.as_ref().map(|(n, _)| n.as_str()), Some("no hay sonido"));
+    app.state.active = vec!["noise-brown".into()];
+    press(&mut app, "m");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePause]));
+}
+
+#[test]
+fn space_is_the_unified_pause_only_in_deep_work() {
+    let mut app = focus_app();
+    deep_on(&mut app);
+    press(&mut app, " ");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::TogglePauseAll]));
+    // Con una ventanita abierta sigue siendo Enter.
+    ks(&mut app, "tab");
+    press(&mut app, " ");
+    assert!(sent(&mut app).iter().all(|c| !matches!(c, Command::TogglePauseAll)));
+}
+
+#[test]
+fn space_in_normal_focus_toggles_the_sound_like_enter() {
+    let mut app = focus_app();
+    press(&mut app, " ");
+    assert!(matches!(sent(&mut app).as_slice(), [Command::Toggle { .. }]));
+}
+
+#[test]
+fn focus_shortcuts_do_nothing_elsewhere_or_with_options_open() {
+    let mut app = app_with_sounds_and_presets();
+    press(&mut app, "+-dpm");
+    assert_eq!(app.screen, app::Screen::Home);
+    assert!(sent(&mut app).is_empty());
+    assert_eq!(app.deep, app::Deep::Off);
+
+    let mut app = focus_app();
+    ks(&mut app, "tab");
+    press(&mut app, "+-dpm");
+    assert!(sent(&mut app).is_empty());
+    assert_eq!(app.deep, app::Deep::Off);
+    assert!(matches!(app.popup, Some(app::Popup::Options { .. })));
 }

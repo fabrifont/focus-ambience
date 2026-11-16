@@ -883,6 +883,18 @@ impl App {
             KeyCode::Char(c) if c.is_ascii_uppercase() && !self.typing() => {
                 k.code = KeyCode::Char(c.to_ascii_lowercase());
             }
+            // En deep work (con la pantalla de Focus a la vista, sin ventanita) el espacio es la
+            // pausa única, como `p`; en la pantalla de sesión terminada sigue siendo Enter.
+            KeyCode::Char(' ')
+                if self.screen == Screen::Focus
+                    && self.deep == Deep::On
+                    && self.popup.is_none()
+                    && self.help.is_none()
+                    && self.sync.is_none()
+                    && !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                k.code = KeyCode::Char('p');
+            }
             KeyCode::Char(' ')
                 if !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && !self.space_is_text() =>
             {
@@ -1001,6 +1013,20 @@ impl App {
             }
             // Terminada la sesión de deep work, Enter vuelve a Focus.
             KeyCode::Enter if self.deep == Deep::Done => self.deep = Deep::Off,
+            // Atajos de Focus (también en la pantalla de sesión terminada): volumen general, deep work y pausas.
+            KeyCode::Char('+') => self.change_master(0.1),
+            KeyCode::Char('-') => self.change_master(-0.1),
+            KeyCode::Char('d') => {
+                self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off };
+            }
+            KeyCode::Char('p') => self.send(Command::TogglePauseAll),
+            KeyCode::Char('m') => {
+                if self.state.active.is_empty() {
+                    self.notify("no hay sonido");
+                } else {
+                    self.send(Command::TogglePause);
+                }
+            }
             KeyCode::Up => self.cursor = self.cursor.saturating_sub(1),
             KeyCode::Down => self.cursor = (self.cursor + 1).min(items.saturating_sub(1)),
             KeyCode::Left => self.change_volume(-0.05),
@@ -1013,6 +1039,12 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Sube o baja el volumen general (el de «Volumen general» en Opciones) y se lo manda al daemon.
+    fn change_master(&mut self, delta: f32) {
+        self.state.master = (self.state.master + delta).clamp(0.0, 1.0);
+        self.send(Command::SetMaster { volume: self.state.master });
     }
 
     /// Todo lo activo (sonido, timer) está en pausa: ahí la pausa única ofrece «Seguir todo».
@@ -1149,8 +1181,7 @@ impl App {
                         if self.option_rows().get(sel).is_some_and(|r| r.0 == OptRow::Volume) =>
                     {
                         let delta = if k.code == KeyCode::Left { -0.05 } else { 0.05 };
-                        self.state.master = (self.state.master + delta).clamp(0.0, 1.0);
-                        self.send(Command::SetMaster { volume: self.state.master });
+                        self.change_master(delta);
                         Some(Popup::Options { sel })
                     }
                     _ => match row_key(k, &mut sel, self.option_rows().len()) {

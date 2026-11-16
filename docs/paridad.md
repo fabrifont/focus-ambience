@@ -40,6 +40,7 @@ Se actualiza en cada PR. Una función no está terminada hasta que está en las 
 | Timer con fade-out | ✅ | ✅ (#17, via core) |
 | Opciones (Timer, Volumen general, Pausar todo / solo sonido / solo timer, Volver) (#25) | ✅ | ⚠️ sigue con Pausar/Apagar todo, sin pausa única (#17) |
 | Opciones › Timer con la misma ventanita de minutos que «Antes de arrancar» y fila «Cancelar timer» solo con timer en marcha (#26) | ✅ | ⚠️ sigue con la lista 25/50/90/Otro |
+| Atajos de Focus: `+ -` volumen general, `d` deep work, `p` pausa única, `m` solo sonido, `␣` = `p` en deep work (#27) | ✅ | ⚠️ sin estos atajos (botones y gestos) |
 | `focus pause` como pausa única (#25) | ✅ | no aplica |
 | Configuración > Sonidos ambientales (borrar) | ✅ | ✅ lista; borrar llega con la etapa 3 (los generados no se borran) |
 | Sonido de fondo + notificación | ✅ (daemon) | ✅ servicio en primer plano (#17, falta celu real) |
