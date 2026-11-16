@@ -15,6 +15,7 @@ use super::app::{App, CONFIG_ITEMS, MedPopup, Screen};
 use super::routine_ui;
 use super::theme::{self, Palette};
 use super::{font, ui};
+use crate::hours;
 use crate::meditation::{self, Category};
 
 /// Terminals shorter than this many rows hide the star band: with the 7 rows it needs, the list
@@ -47,6 +48,7 @@ fn header(app: &App) -> Header {
         Screen::Meditations => plain("MEDITACIONES"),
         Screen::Sounds => plain("SONIDOS"),
         Screen::Presets => plain("PRESETS"),
+        Screen::Hours => plain("HORAS"),
         Screen::PresetBuilder => plain("NUEVO PRESET"),
         Screen::Routines => plain("RUTINAS"),
         Screen::RoutineEditor => Header {
@@ -122,6 +124,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             preset_lines(app, &pal, body.width as usize).0,
             &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")],
         ),
+        Screen::Hours => (hours_lines(app, &pal), &[("Esc", " volver   "), ("?", " ayuda")]),
         Screen::PresetBuilder => (
             builder_lines(app, &pal, body.width as usize).0,
             &[
@@ -266,6 +269,18 @@ fn config_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
         v.push(row(i == app.config_cursor, String::new(), label, pal));
     }
     v
+}
+
+/// Configuración > Horas trabajadas: solo lectura.
+fn hours_lines(app: &App, pal: &Palette) -> Vec<Line<'static>> {
+    let h = &app.hours;
+    let (acc, fg) = (Style::new().fg(pal.accent.c()), Style::new().fg(pal.fg.c()));
+    let rows = [("Hoy", h.today), ("Esta semana", h.week), ("Este mes", h.month), ("Total", h.total)];
+    rows.iter()
+        .map(|(label, min)| {
+            Line::from(vec![Span::styled(format!("{label:<14}"), fg), Span::styled(hours::format_minutes(*min), acc)])
+        })
+        .collect()
 }
 
 /// The meditations list grouped by duration, plus the index of the selected line.

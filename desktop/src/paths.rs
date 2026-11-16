@@ -88,6 +88,11 @@ pub fn library_dir() -> PathBuf {
     data_dir().join("library")
 }
 
+/// Base de horas trabajadas (#28): vive en la carpeta de datos local, no en la biblioteca.
+pub fn hours_file() -> PathBuf {
+    data_dir().join("horas.sqlite")
+}
+
 pub fn sounds_dir() -> PathBuf {
     focus_core::library::sounds_dir(&library_dir())
 }

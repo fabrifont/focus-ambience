@@ -217,6 +217,29 @@ fn toggle_pause_all_pauses_and_resumes_only_timer() {
 }
 
 #[test]
+fn rest_mode_needs_a_timer_and_resets_with_every_new_one() {
+    let r = rig("rest");
+    r.player.send(Command::ToggleRest).unwrap();
+    assert!(!r.player.state().rest, "sin timer no hay modo rest");
+    r.player.send(Command::Timer { minutes: Some(10) }).unwrap();
+    r.player.send(Command::ToggleRest).unwrap();
+    assert!(r.player.state().rest);
+    // El timer sigue igual en rest (también la pausa).
+    r.player.send(Command::ToggleTimerPause).unwrap();
+    assert!(r.player.state().timer.unwrap().paused);
+    r.player.send(Command::ToggleRest).unwrap();
+    assert!(!r.player.state().rest);
+    r.player.send(Command::ToggleRest).unwrap();
+    r.player.send(Command::Timer { minutes: Some(5) }).unwrap();
+    assert!(!r.player.state().rest, "un timer nuevo arranca en work");
+    r.player.send(Command::ToggleRest).unwrap();
+    r.player.send(Command::Timer { minutes: None }).unwrap();
+    assert!(!r.player.state().rest, "cancelar lo deja en work");
+    // En el cable: `toggle_rest`, y un State viejo sin `rest` se lee igual.
+    assert_eq!(serde_json::to_string(&Command::ToggleRest).unwrap(), r#"{"cmd":"toggle_rest"}"#);
+}
+
+#[test]
 fn toggle_pause_all_handles_sound_and_timer_together() {
     let r = rig("tpa-both");
     r.player.send(set("noise-brown", true)).unwrap();

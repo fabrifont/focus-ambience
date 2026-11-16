@@ -48,6 +48,10 @@ pub enum Command {
     },
     /// Pause/resume the countdown only; the sound keeps playing. Does nothing without a timer.
     ToggleTimerPause,
+    /// Switch the timer between work and rest. The countdown is the same; the host decides what
+    /// to do with the mode (the desktop only counts worked hours). Does nothing without a timer;
+    /// every new timer starts in work.
+    ToggleRest,
     LoadPreset {
         name: String,
     },
@@ -129,6 +133,9 @@ pub struct State {
     pub paused: bool,
     pub master: f32,
     pub timer: Option<TimerState>,
+    /// The timer is in rest mode (always false without a timer).
+    #[serde(default)]
+    pub rest: bool,
     pub downloads: Vec<Download>,
     #[serde(default)]
     pub meditations: Vec<Meditation>,

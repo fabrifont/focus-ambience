@@ -42,6 +42,7 @@ Se actualiza en cada PR. Una función no está terminada hasta que está en las 
 | Opciones › Timer con la misma ventanita de minutos que «Antes de arrancar» y fila «Cancelar timer» solo con timer en marcha (#26) | ✅ | ⚠️ sigue con la lista 25/50/90/Otro |
 | Atajos de Focus: `+ -` volumen general, `d` deep work, `p` pausa única, `m` solo sonido, `␣` = `p` en deep work (#27) | ✅ | ⚠️ sin estos atajos (botones y gestos) |
 | `focus pause` como pausa única (#25) | ✅ | no aplica |
+| Horas trabajadas (SQLite local, Configuración › Horas trabajadas) y modo rest con `Tab` en Opciones (#28) | ✅ | ⚠️ pendiente (el `core/` ya trae `ToggleRest` y `State.rest`, pero el celu no lo usa ni cuenta horas) |
 | Configuración > Sonidos ambientales (borrar) | ✅ | ✅ lista; borrar llega con la etapa 3 (los generados no se borran) |
 | Sonido de fondo + notificación | ✅ (daemon) | ✅ servicio en primer plano (#17, falta celu real) |
 | Presets (cargar, armar, borrar) | ✅ | ✅ (#19, falta celu real) |

@@ -533,6 +533,12 @@ pub(super) fn draw_popup(f: &mut Frame, app: &App, pal: &Palette) {
                 lines.push(Line::from(spans));
             }
             lines.push(Line::raw(""));
+            let mode = match (app.state.timer.is_some(), app.state.rest) {
+                (false, _) => "Modo: work",
+                (true, false) => "Modo: work · Tab cambia a rest",
+                (true, true) => "Modo: rest · Tab cambia a work",
+            };
+            lines.push(Line::styled(format!("  {mode}"), dim));
             lines.push(keys_line(&pal, "cerrar"));
             (" opciones ", 42, lines)
         }

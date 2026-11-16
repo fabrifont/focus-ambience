@@ -20,6 +20,7 @@ use focus_core::protocol::{AddMeditationRequest, Command, Event};
 use uds_windows::{UnixListener, UnixStream};
 
 use crate::download;
+use crate::hours::{self, TimerObs, Tracker};
 use crate::paths;
 
 const IDLE_EXIT: Duration = Duration::from_secs(60);
@@ -70,11 +71,32 @@ pub fn run() -> Result<()> {
         thread::spawn(move || accept(listener, player, clients, tx));
     }
 
+    // Horas trabajadas: si la base no abre, el daemon sigue sin contarlas.
+    let mut tracker = hours::Store::open(&paths::hours_file()).ok().map(|s| Tracker::new(s, hours::hostname()));
+    let clock = Instant::now();
+    let unix = || {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        t.map_or(0, |d| d.as_secs() as i64)
+    };
+
     let mut idle_since: Option<Instant> = None;
     loop {
-        match rx.recv_timeout(Duration::from_secs(1)) {
-            Ok(Msg::Quit) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        let quit = match rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(Msg::Quit) | Err(mpsc::RecvTimeoutError::Disconnected) => true,
+            Err(mpsc::RecvTimeoutError::Timeout) => false,
+        };
+        if let Some(t) = &mut tracker {
+            let st = player.state();
+            let timer = st.timer.map(|t| TimerObs {
+                total: t.total_secs,
+                remaining: t.remaining_secs,
+                paused: t.paused,
+                rest: st.rest,
+            });
+            t.observe(clock.elapsed().as_secs_f64(), unix(), timer);
+        }
+        if quit {
+            break;
         }
         let idle = lock(&clients).is_empty() && player.is_idle();
         match (idle, idle_since) {
@@ -85,6 +107,10 @@ pub fn run() -> Result<()> {
         }
     }
 
+    // Salir (`focus quit`, Salir, cierre por inactividad) guarda la sesión que quedara abierta.
+    if let Some(t) = &mut tracker {
+        t.finish(clock.elapsed().as_secs_f64(), unix());
+    }
     player.shutdown();
     let _ = std::fs::remove_file(&sock);
     Ok(())

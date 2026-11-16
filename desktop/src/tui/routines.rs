@@ -183,6 +183,9 @@ impl App {
 
     /// Escribe a disco lo que cambió. Es lo único con I/O de este módulo.
     pub fn persist(&mut self) {
+        if std::mem::take(&mut self.hours_dirty) {
+            self.hours = crate::hours::load_summary();
+        }
         if std::mem::take(&mut self.routines_dirty) {
             let r = routine::Routines { routines: self.routines.clone() };
             if let Err(e) = routine::save(&paths::library_dir(), &r) {

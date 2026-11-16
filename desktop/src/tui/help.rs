@@ -16,6 +16,7 @@ pub enum Topic {
     Meditations,
     Sounds,
     Presets,
+    Hours,
     Builder,
     Routines,
     Editor,
@@ -37,6 +38,7 @@ impl Topic {
             Topic::Meditations | Topic::Sounds | Topic::Presets | Topic::Routines | Topic::Editor => {
                 vec![("↑↓", "mover"), (ENTER, "elegir"), ("Esc", "volver")]
             }
+            Topic::Hours => vec![("Esc", "volver")],
             Topic::Builder => {
                 vec![("↑↓", "mover"), (ENTER, "elegir / quitar"), ("← →", "volumen"), ("Esc", "cancelar")]
             }
@@ -62,7 +64,7 @@ impl Topic {
                 ("d", "modo deep work"),
                 ("p", "pausa de todo"),
                 ("m", "pausa del sonido"),
-                ("Tab", "opciones"),
+                ("Tab", "opciones (ahí, Tab: work / rest)"),
                 ("Esc", "volver al inicio"),
             ],
         }
