@@ -10,6 +10,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Placa de audio virtual
+        uses: LABSN/sound-ci-helpers@v1
       - name: Bajar el .exe de la última release
         shell: pwsh
         run: |
