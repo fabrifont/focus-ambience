@@ -69,7 +69,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some("stop") => client::oneshot(Some(Command::StopAll), false).map(drop),
-        Some("pause") => client::oneshot(Some(Command::TogglePause), false).map(drop),
+        Some("pause") => client::oneshot(Some(Command::TogglePauseAll), false).map(drop),
         Some("quit") => {
             if client::oneshot(Some(Command::Quit), false)?.is_none() {
                 println!("no había nada sonando");

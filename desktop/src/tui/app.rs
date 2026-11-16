@@ -149,7 +149,7 @@ pub enum Popup {
 /// Fila de «Volumen general» en el menú Opciones (← → lo cambian sin cerrarlo).
 pub const OPT_VOLUME: usize = 3;
 /// Cantidad de filas del menú Opciones.
-pub const OPT_ROWS: usize = 8;
+pub const OPT_ROWS: usize = 9;
 
 /// Qué pasó con una tecla en una ventanita de filas.
 pub(super) enum RowKey {
@@ -993,6 +993,13 @@ impl App {
         }
     }
 
+    /// Todo lo activo (sonido, timer) está en pausa: ahí la pausa única ofrece «Seguir todo».
+    fn all_paused(&self) -> bool {
+        let sound = !self.state.active.is_empty();
+        let timer = self.state.timer.is_some();
+        (sound || timer) && (!sound || self.state.paused) && self.state.timer.as_ref().is_none_or(|t| t.paused)
+    }
+
     /// Filas del menú Opciones, en el orden en que se dibujan (la del volumen lleva su barra aparte).
     pub fn option_rows(&self) -> [&'static str; OPT_ROWS] {
         [
@@ -1000,8 +1007,9 @@ impl App {
             if self.deep == Deep::Off { "Modo deep work" } else { "Salir de deep work" },
             "Cargar preset ›",
             "Volumen general",
-            if self.state.paused { "Seguir todo" } else { "Pausar todo" },
-            "Apagar todo",
+            if self.all_paused() { "Seguir todo" } else { "Pausar todo" },
+            if self.state.paused { "Seguir solo sonido" } else { "Pausar solo sonido" },
+            if self.state.timer.as_ref().is_some_and(|t| t.paused) { "Seguir solo timer" } else { "Pausar solo timer" },
             "Volver al inicio",
             "Salir",
         ]
@@ -1014,9 +1022,22 @@ impl App {
             1 => self.deep = if self.deep == Deep::Off { Deep::On } else { Deep::Off },
             2 => return Some(Popup::LoadPreset { sel: 0 }),
             OPT_VOLUME => return Some(Popup::Options { sel: row }),
-            4 => self.send(Command::TogglePause),
-            5 => self.send(Command::StopAll),
-            6 => self.go(Screen::Home),
+            4 => self.send(Command::TogglePauseAll),
+            5 => {
+                if self.state.active.is_empty() {
+                    self.notify("no hay sonido");
+                } else {
+                    self.send(Command::TogglePause);
+                }
+            }
+            6 => {
+                if self.state.timer.is_some() {
+                    self.send(Command::ToggleTimerPause);
+                } else {
+                    self.notify("no hay timer");
+                }
+            }
+            7 => self.go(Screen::Home),
             _ => {
                 self.request_quit();
                 return self.popup.take();

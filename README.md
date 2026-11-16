@@ -105,8 +105,9 @@ Hay dos atajos ocultos que no figuran en ninguna ayuda: `0` reinicia desde el pr
 | Modo deep work / Salir de deep work | Prende o apaga el modo |
 | Cargar preset › | Elige un preset de la lista |
 | Volumen general | `←→` lo cambian sin cerrar el menú |
-| Pausar todo / Seguir todo | Pausa o reanuda los sonidos |
-| Apagar todo | Apaga todos los sonidos |
+| Pausar todo / Seguir todo | Pausa única: frena sonido y timer juntos (lo que esté activo); si todo está en pausa, lo sigue |
+| Pausar solo sonido / Seguir solo sonido | Pausa o reanuda solo los sonidos |
+| Pausar solo timer / Seguir solo timer | Pausa o reanuda solo el timer |
 | Volver al inicio | Como `Esc` |
 | Salir | Pregunta cómo salir |
 
@@ -164,7 +165,7 @@ En Meditaciones y Sonidos ambientales, pegar un link de YouTube abre el diálogo
 | `focus` | Abre la interfaz |
 | `focus play <preset>` | Carga un preset sin abrir nada |
 | `focus stop` | Apaga todos los sonidos |
-| `focus pause` | Pausa o reanuda |
+| `focus pause` | Pausa única: pausa o reanuda sonido y timer juntos |
 | `focus timer <min\|off>` | Temporizador con fade-out |
 | `focus status` | Qué está sonando |
 | `focus quit` | Cierra el audio en background |
