@@ -149,7 +149,7 @@ fn home(app: &mut App, i: usize) {
     app.key(key(Enter));
 }
 
-/// Entrada `i` de Configuración (0 Rutinas, 1 Meditaciones, 2 Sonidos, 3 Presets, 4 Sincronización).
+/// Entrada `i` de Configuración (0 Rutinas, 1 Meditaciones, 2 Sonidos, 3 Presets).
 fn config(app: &mut App, i: usize) {
     home(app, 3);
     app.config_cursor = 0;
@@ -1724,10 +1724,11 @@ fn config_lists_its_entries() {
     let mut app = App::new();
     home(&mut app, 3);
     let t = screen_text(&app, 80, 20);
-    for s in ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "Sincronización", "↑↓ mover   Enter elegir"]
-    {
+    for s in ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "↑↓ mover   Enter elegir"] {
         assert!(t.contains(s), "falta «{s}»");
     }
+    assert!(!t.contains("Sincronización"), "la sincronización se sacó (#30)");
+    assert_eq!(app::CONFIG_ITEMS.len(), 4);
     ks(&mut app, "down*3 enter");
     assert_eq!(app.screen, app::Screen::Presets);
 }
@@ -2618,14 +2619,13 @@ fn state_print(app: &App) -> String {
         None => (false, 0),
     };
     format!(
-        "{:?}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{:?}",
+        "{:?}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{:?}",
         app.screen,
         app.home_cursor,
         app.config_cursor,
         app.med_cursor,
         app.sound_cursor,
         app.preset_list_cursor,
-        app.sync_cursor,
         app.list_cursor,
         app.deep,
         app.cursor,
@@ -3300,227 +3300,6 @@ fn space_still_types_in_every_text_field() {
     assert!(matches!(&app.med_popup, Some(app::MedPopup::Add { url, category: None }) if url == "a b"));
 }
 
-// ------------------------------------------------------- sincronización
-
-use crate::progress::Out;
-use std::sync::{Arc, Mutex, mpsc};
-use syncmenu::SyncKind;
-
-/// Un runner falso: avisa qué le pidieron, cuenta dos cosas y espera la señal para terminar.
-/// Devuelve la señal (manda `Ok`/`Err` con el texto del error) y los pedidos que recibió.
-type Finish = mpsc::Sender<Result<(), String>>;
-
-fn gated_runner(app: &mut App) -> (Finish, Arc<Mutex<Vec<SyncKind>>>) {
-    let (tx, rx) = mpsc::channel::<Result<(), String>>();
-    let rx = Mutex::new(rx);
-    let asked = Arc::new(Mutex::new(Vec::new()));
-    let seen = Arc::clone(&asked);
-    app.sync_runner = Arc::new(move |kind, out: &mut Out| {
-        seen.lock().unwrap().push(kind);
-        out.line("primera línea");
-        out.line("segunda línea");
-        let r = rx.lock().unwrap().recv().unwrap();
-        r.map_err(|e| anyhow::anyhow!(e))
-    });
-    (tx, asked)
-}
-
-fn open_sync(app: &mut App) {
-    config(app, 4);
-    assert_eq!(app.screen, app::Screen::Sync);
-}
-
-/// Espera (hasta 5 s) a que la ventana cumpla `cond`, trayendo lo que llegue.
-fn wait_for(app: &mut App, cond: impl Fn(&App) -> bool) {
-    for _ in 0..500 {
-        app.poll_sync();
-        if cond(app) {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("la ventana de sincronización no llegó al estado esperado");
-}
-
-#[test]
-fn sync_menu_shows_its_three_options_and_the_big_title_fits() {
-    let mut app = App::new();
-    open_sync(&mut app);
-    let t = screen_text(&app, 80, 24);
-    for s in ["Conectar Google Drive", "Sincronizar", "Verificar archivos", "↑↓", "Esc"] {
-        assert!(t.contains(s), "falta «{s}»");
-    }
-    assert!(font::render("SINCRONIZACIÓN", 1).0 + 2 <= 80, "las letras de bloque entran en 80 columnas");
-    assert!(t.contains('█'), "el título va en letras de bloque");
-}
-
-#[test]
-fn sync_menu_moves_stays_inside_the_list_and_esc_goes_back_to_config() {
-    let mut app = App::new();
-    open_sync(&mut app);
-    ks(&mut app, "up*2");
-    assert_eq!(app.sync_cursor, 0);
-    ks(&mut app, "down*5");
-    assert_eq!(app.sync_cursor, 2);
-    app.key(key(Up));
-    assert_eq!(app.sync_cursor, 1);
-    app.key(key(Esc));
-    assert_eq!(app.screen, app::Screen::Config);
-}
-
-#[test]
-fn each_option_runs_its_own_task() {
-    for (moves, kind) in [("", SyncKind::Setup), ("down", SyncKind::Sync), ("down*2", SyncKind::Verify)] {
-        let mut app = App::new();
-        let (done, asked) = gated_runner(&mut app);
-        open_sync(&mut app);
-        ks(&mut app, moves);
-        press(&mut app, " "); // ␣ = Enter
-        wait_for(&mut app, |a| a.sync.as_ref().is_some_and(|j| j.lines.len() == 2));
-        assert_eq!(*asked.lock().unwrap(), [kind]);
-        done.send(Ok(())).unwrap();
-        wait_for(&mut app, |a| !a.sync_running());
-    }
-}
-
-#[test]
-fn while_it_runs_the_window_blocks_every_key_and_shows_the_progress() {
-    let mut app = App::new();
-    let (done, _) = gated_runner(&mut app);
-    open_sync(&mut app);
-    sent(&mut app);
-    ks(&mut app, "down enter");
-    wait_for(&mut app, |a| a.sync.as_ref().is_some_and(|j| j.lines.len() == 2));
-    let t = screen_text(&app, 80, 24);
-    assert!(t.contains("primera línea") && t.contains("segunda línea"), "{t}");
-    assert!(t.contains("Trabajando"), "dice que está en curso");
-
-    for c in ['q', 'j', 'k', 'n', 's', 'a', 'd', ' ', '?', '\n'] {
-        press(&mut app, &c.to_string());
-    }
-    for code in [Esc, Enter, Up, Down, Left, Right] {
-        app.key(key(code));
-    }
-    ctrl(&mut app, "q");
-    assert!(app.sync_running(), "nada la cierra");
-    assert!(app.popup.is_none() && app.exit.is_none(), "ni q ni Ctrl+Q salen");
-    assert_eq!(app.screen, app::Screen::Sync);
-    assert_eq!(app.sync_cursor, 1, "el cursor de atrás no se movió");
-
-    // Ctrl+C sigue siendo la salida de emergencia.
-    ctrl(&mut app, "c");
-    assert!(app.exit == Some(app::Exit::Detach));
-    done.send(Ok(())).unwrap();
-    wait_for(&mut app, |a| !a.sync_running());
-}
-
-#[test]
-fn enter_space_and_esc_close_it_once_finished() {
-    for close in ["enter", "space", "esc"] {
-        let mut app = App::new();
-        let (done, _) = gated_runner(&mut app);
-        open_sync(&mut app);
-        app.key(key(Enter));
-        done.send(Ok(())).unwrap();
-        wait_for(&mut app, |a| !a.sync_running());
-        assert!(screen_text(&app, 80, 24).contains("Listo"));
-        match close {
-            "enter" => app.key(key(Enter)),
-            "space" => press(&mut app, " "),
-            _ => app.key(key(Esc)),
-        }
-        assert!(app.sync.is_none(), "{close} cierra");
-        assert_eq!(app.screen, app::Screen::Sync, "y se queda en el submenú");
-    }
-}
-
-#[test]
-fn a_finished_window_ignores_other_keys() {
-    let mut app = App::new();
-    let (done, _) = gated_runner(&mut app);
-    open_sync(&mut app);
-    app.key(key(Enter));
-    done.send(Ok(())).unwrap();
-    wait_for(&mut app, |a| !a.sync_running());
-    press(&mut app, "qjk");
-    assert!(app.sync.is_some() && app.popup.is_none() && app.exit.is_none());
-    assert_eq!(app.sync_cursor, 0);
-}
-
-#[test]
-fn an_error_is_shown_with_its_message() {
-    let mut app = App::new();
-    let (done, _) = gated_runner(&mut app);
-    open_sync(&mut app);
-    app.key(key(Enter));
-    sent(&mut app);
-    done.send(Err("rclone falló: sin permiso".into())).unwrap();
-    wait_for(&mut app, |a| !a.sync_running());
-    let t = screen_text(&app, 80, 24);
-    assert!(t.contains("✗") && t.contains("rclone falló: sin permiso"), "{t}");
-    assert!(sent(&mut app).is_empty(), "si falló no hace falta releer nada");
-    assert!(!app.routines_stale);
-}
-
-#[test]
-fn success_asks_the_daemon_to_reload_and_the_routines_to_be_reread() {
-    let mut app = App::new();
-    let (done, _) = gated_runner(&mut app);
-    open_sync(&mut app);
-    app.key(key(Enter));
-    sent(&mut app);
-    done.send(Ok(())).unwrap();
-    wait_for(&mut app, |a| !a.sync_running());
-    assert!(sent(&mut app).iter().any(|c| matches!(c, Command::Reload)));
-    assert!(app.routines_stale);
-    app.poll_sync();
-    assert!(sent(&mut app).is_empty(), "una sola vez");
-}
-
-#[cfg(unix)]
-#[test]
-fn a_live_status_replaces_itself_and_a_line_clears_it() {
-    let mut app = App::new();
-    app.sync_runner = Arc::new(|_, out: &mut Out| {
-        out.run(std::process::Command::new("sh").args(["-c", "printf 'a\\rb\\r'; sleep 0.3; echo fin"]))?;
-        Ok(())
-    });
-    open_sync(&mut app);
-    app.key(key(Enter));
-    wait_for(&mut app, |a| a.sync.as_ref().is_some_and(|j| j.live.as_deref() == Some("a")));
-    wait_for(&mut app, |a| !a.sync_running());
-    let job = app.sync.as_ref().unwrap();
-    assert_eq!(job.lines, ["fin"]);
-    assert_eq!(job.live, None, "la línea final borra el estado");
-}
-
-#[test]
-fn a_panicking_task_does_not_leave_the_window_stuck() {
-    let mut app = App::new();
-    app.sync_runner = Arc::new(|_, _: &mut Out| panic!("boom"));
-    open_sync(&mut app);
-    app.key(key(Enter));
-    wait_for(&mut app, |a| !a.sync_running());
-    assert!(matches!(app.sync.as_ref().unwrap().result, Some(Err(_))));
-    app.key(key(Esc));
-    assert!(app.sync.is_none());
-}
-
-#[test]
-fn a_long_link_wraps_inside_the_window() {
-    let mut app = App::new();
-    app.sync_runner = Arc::new(|_, out: &mut Out| {
-        out.line(format!("http://127.0.0.1:53682/auth?state={}", "x".repeat(60)));
-        Ok(())
-    });
-    open_sync(&mut app);
-    app.key(key(Enter));
-    wait_for(&mut app, |a| !a.sync_running());
-    let t = screen_text(&app, 80, 24);
-    assert!(t.contains("http://127.0.0.1:53682/auth?state="));
-    assert!(t.contains("xxxxxxxx"), "el final del link se ve en la línea siguiente");
-}
-
 // ------------------------------------------------------------- ayuda (?)
 
 /// Las filas «tecla  descripción» de la ayuda que muestra la pantalla actual.
@@ -3543,9 +3322,6 @@ fn every_screens_help_lists_only_the_new_keys() {
     let mut a = app_with_routines();
     home(&mut a, 3);
     cases.push(("configuración", a, vec!["↑↓", "Enter/␣", "elegir", "Esc", "volver"], vec![]));
-    let mut a = app_with_routines();
-    config(&mut a, 4);
-    cases.push(("sincronización", a, vec!["↑↓", "Enter/␣", "elegir", "Esc", "volver"], vec!["ejecutar"]));
     let mut a = app_with_routines();
     a.go(app::Screen::Meditations);
     cases.push((
@@ -3736,7 +3512,6 @@ fn every_help_fits_in_80_by_24() {
         Meditations,
         Sounds,
         Presets,
-        Sync,
         Builder,
         Routines,
         Editor,

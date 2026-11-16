@@ -1,5 +1,5 @@
 //! Rutinas: una lista ordenada de tareas de texto y, aparte, una meditación opcional. Viven en
-//! `library/routines.toml` (en Drive, se sincroniza con `focus sync`); la última usada se recuerda aparte,
+//! `library/routines.toml` (local de cada instalación); la última usada se recuerda aparte,
 //! en el estado local de la TUI.
 
 use std::path::{Path, PathBuf};

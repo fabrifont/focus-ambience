@@ -13,12 +13,12 @@ maintainer = "Fabrizio Fontanarrosa <fabriziofontanarrosa@gmail.com>"
 section = "sound"
 priority = "optional"
 depends = "$auto"
-recommends = "rclone, yt-dlp, ffmpeg"
+recommends = "yt-dlp, ffmpeg"
 extended-description = """\
 Mezclador de ambientes para concentrarse, en la terminal: sonidos de \
 juegos y películas, lluvia, ruido de color y binaural 40 Hz, con \
 temporizador, rutinas y meditaciones guiadas. El audio sigue sonando \
-en segundo plano y las listas se sincronizan con Google Drive."""
+en segundo plano."""
 assets = [
     ["target/release/focus", "usr/bin/", "755"],
     ["../README.md", "usr/share/doc/focus/README", "644"],

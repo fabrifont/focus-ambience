@@ -343,7 +343,8 @@ fn draw_sounds(f: &mut Frame, area: Rect, app: &App) {
     } else if app.state.sounds.iter().all(|s| s.theme == Theme::Generated) {
         lines.push(Line::raw(""));
         lines.push(Line::styled("  todavía no hay sonidos descargados.", Style::new().fg(pal.dim.c())));
-        lines.push(Line::styled("  corré `focus sync` para traerlos.", Style::new().fg(pal.dim.c())));
+        lines
+            .push(Line::styled("  agregalos desde Configuración › Sonidos ambientales.", Style::new().fg(pal.dim.c())));
     }
     let h = area.height as usize;
     let scroll = if cursor_line + 2 >= h { cursor_line + 3 - h } else { 0 };

@@ -13,7 +13,6 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 
 use super::app::{App, CONFIG_ITEMS, MedPopup, Screen};
 use super::routine_ui;
-use super::syncmenu;
 use super::theme::{self, Palette};
 use super::{font, ui};
 use crate::meditation::{self, Category};
@@ -48,7 +47,6 @@ fn header(app: &App) -> Header {
         Screen::Meditations => plain("MEDITACIONES"),
         Screen::Sounds => plain("SONIDOS"),
         Screen::Presets => plain("PRESETS"),
-        Screen::Sync => plain("SINCRONIZACIÓN"),
         Screen::PresetBuilder => plain("NUEVO PRESET"),
         Screen::Routines => plain("RUTINAS"),
         Screen::RoutineEditor => Header {
@@ -111,10 +109,6 @@ pub fn draw(f: &mut Frame, app: &App) {
             config_lines(app, &pal),
             &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")],
         ),
-        Screen::Sync => (
-            syncmenu::lines(app, &pal),
-            &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver   "), ("?", " ayuda")],
-        ),
         Screen::Routines | Screen::RoutineEditor | Screen::RoutineStep | Screen::RoutineRun => {
             let v = routine_ui::view(app, &pal, body.width as usize);
             routine_sel = v.selected;
@@ -171,7 +165,6 @@ pub fn draw(f: &mut Frame, app: &App) {
         draw_med_popup(f, app, p, &pal);
     }
     routine_ui::draw_popup(f, app, &pal);
-    syncmenu::draw_popup(f, app, &pal);
     super::help::draw(f, app, &pal);
 }
 
@@ -315,7 +308,7 @@ pub fn meditation_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'st
         }
     }
     if app.state.meditations.is_empty() {
-        v.push(note("Todavía no hay meditaciones. Corré `focus sync` o agregá una abajo.", dim));
+        v.push(note("Todavía no hay meditaciones. Agregá una abajo.", dim));
     }
     let add_line = push_add_row(&mut v, app.med_cursor >= app.state.meditations.len(), "+ Agregar desde YouTube", pal);
     if app.med_cursor >= app.state.meditations.len() {
@@ -359,7 +352,7 @@ fn sound_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, u
     }
     let count = app.file_sounds().len();
     if count == 0 {
-        v.push(note("Todavía no hay sonidos descargados. Corré `focus sync` o agregá uno abajo.", dim));
+        v.push(note("Todavía no hay sonidos descargados. Agregá uno abajo.", dim));
     }
     let add_line = push_add_row(&mut v, app.sound_cursor >= count, "+ Agregar desde YouTube", pal);
     if app.sound_cursor >= count {
@@ -402,7 +395,7 @@ fn preset_lines(app: &App, pal: &Palette, width: usize) -> (Vec<Line<'static>>, 
         v.push(Line::styled(format!("    {}", trunc(&sounds.join(" · "), width.saturating_sub(6))), dim));
     }
     if app.state.presets.is_empty() {
-        v.push(note("Todavía no hay presets. Corré `focus sync` o armá uno abajo.", dim));
+        v.push(note("Todavía no hay presets. Armá uno abajo.", dim));
     }
     let on_add = app.preset_list_cursor >= app.state.presets.len();
     let add_line = push_add_row(&mut v, on_add, "+ Nuevo preset", pal);

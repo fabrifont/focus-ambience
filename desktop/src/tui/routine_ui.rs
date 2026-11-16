@@ -49,7 +49,7 @@ fn list_view(app: &App, pal: &Palette, width: usize) -> View {
         lines.push(line);
     }
     if app.routines.is_empty() {
-        lines.push(note("Todavía no hay rutinas. Creá una abajo (o corré `focus sync` para traerlas).", dim));
+        lines.push(note("Todavía no hay rutinas. Creá una abajo.", dim));
     }
     if !lines.is_empty() {
         lines.push(Line::raw(""));
@@ -279,7 +279,7 @@ fn chooser_view(app: &App, pal: &Palette, sel: usize) -> View {
         lines.push(row(i == sel, String::new(), &c.label(), pal));
     }
     if cats.is_empty() {
-        lines.push(note("No hay meditaciones en esta compu. Corré `focus sync` o agregá una.", dim));
+        lines.push(note("No hay meditaciones en esta compu. Agregá una desde Configuración › Meditaciones.", dim));
     }
     View { lines, hints: &[("↑↓", " mover   "), ("Enter", " elegir   "), ("Esc", " volver")], selected }
 }

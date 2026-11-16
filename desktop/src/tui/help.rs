@@ -16,7 +16,6 @@ pub enum Topic {
     Meditations,
     Sounds,
     Presets,
-    Sync,
     Builder,
     Routines,
     Editor,
@@ -34,7 +33,7 @@ impl Topic {
     fn rows(self) -> Vec<(&'static str, &'static str)> {
         match self {
             Topic::Home => vec![("↑↓", "mover"), (ENTER, "elegir")],
-            Topic::Config | Topic::Sync => vec![("↑↓", "mover"), (ENTER, "elegir"), ("Esc", "volver")],
+            Topic::Config => vec![("↑↓", "mover"), (ENTER, "elegir"), ("Esc", "volver")],
             Topic::Meditations | Topic::Sounds | Topic::Presets | Topic::Routines | Topic::Editor => {
                 vec![("↑↓", "mover"), (ENTER, "elegir"), ("Esc", "volver")]
             }

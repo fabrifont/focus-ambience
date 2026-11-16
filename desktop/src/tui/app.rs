@@ -6,7 +6,6 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::help::Topic;
 use super::routines::{Editor, ListPopup, Run};
 use super::scene::{Emitter, Scene};
-use super::syncmenu::{self, Runner, SyncJob};
 use super::theme::{self, Palette};
 use crate::library::{Sound, SoundKind, Theme};
 use crate::meditation::{self, Category, Meditation};
@@ -26,8 +25,6 @@ pub enum Screen {
     Sounds,
     /// Configuración > Presets.
     Presets,
-    /// Configuración > Sincronización.
-    Sync,
     /// Armar un preset a mano (vista parecida a Focus, sin audio).
     PresetBuilder,
     Routines,
@@ -37,7 +34,7 @@ pub enum Screen {
     RoutineRun,
 }
 
-pub const CONFIG_ITEMS: [&str; 5] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets", "Sincronización"];
+pub const CONFIG_ITEMS: [&str; 4] = ["Rutinas", "Meditaciones", "Sonidos ambientales", "Presets"];
 
 /// Lo que sonaba en Focus al entrar al armado de un preset, para dejarlo igual al salir.
 #[derive(Default)]
@@ -213,13 +210,6 @@ pub struct App {
     /// Cursor de Configuración > Presets: arranca en el primero; «+ Nuevo preset» es la última fila.
     pub preset_list_cursor: usize,
     pub builder: Option<PresetDraft>,
-    /// Cursor de Configuración > Sincronización.
-    pub sync_cursor: usize,
-    /// La tarea de Drive con su ventana, si hay una abierta.
-    pub sync: Option<SyncJob>,
-    pub sync_runner: Runner,
-    /// Terminó una sincronización: hay que releer routines.toml (lo hace `persist`).
-    pub routines_stale: bool,
     pub routines: Vec<Routine>,
     /// Por qué no se puede escribir routines.toml (archivo roto): no se pisa.
     pub routines_locked: Option<String>,
@@ -277,10 +267,6 @@ impl App {
             sound_cursor: 0,
             preset_list_cursor: 0,
             builder: None,
-            sync_cursor: 0,
-            sync: None,
-            sync_runner: syncmenu::real_runner(),
-            routines_stale: false,
             routines: Vec::new(),
             routines_locked: None,
             last_routine: None,
@@ -408,7 +394,6 @@ impl App {
 
     /// Advance animations by `dt` seconds.
     pub fn animate(&mut self, dt: f32, scene_w: u16, scene_h: u16) {
-        self.poll_sync();
         if self.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs() >= 4) {
             self.notice = None;
         }
@@ -595,7 +580,6 @@ impl App {
                 1 => self.go(Screen::Meditations),
                 2 => self.go(Screen::Sounds),
                 3 => self.go(Screen::Presets),
-                4 => self.go(Screen::Sync),
                 _ => {}
             },
             KeyCode::Esc => self.go(Screen::Home),
@@ -695,7 +679,7 @@ impl App {
                         self.send(Command::SetVolume { id: id.clone(), volume });
                         self.send(Command::SetActive { id, active: true });
                     } else {
-                        self.notify("ese sonido no está en esta compu: corré `focus sync`");
+                        self.notify("ese sonido no está en esta compu (falta el archivo)");
                     }
                 }
                 None if b.picked.is_empty() => self.notify("elegí al menos un sonido con Enter"),
@@ -890,7 +874,6 @@ impl App {
                     && self.deep == Deep::On
                     && self.popup.is_none()
                     && self.help.is_none()
-                    && self.sync.is_none()
                     && !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 k.code = KeyCode::Char('p');
@@ -953,7 +936,6 @@ impl App {
             (_, Screen::Meditations) => Topic::Meditations,
             (_, Screen::Sounds) => Topic::Sounds,
             (_, Screen::Presets) => Topic::Presets,
-            (_, Screen::Sync) => Topic::Sync,
             (_, Screen::PresetBuilder) => Topic::Builder,
             (_, Screen::Routines) => Topic::Routines,
             (_, Screen::RoutineEditor) => Topic::Editor,
@@ -964,10 +946,6 @@ impl App {
     }
 
     fn handle_key(&mut self, k: KeyEvent) {
-        if self.sync.is_some() {
-            self.sync_job_key(k);
-            return;
-        }
         if self.help.take().is_some() {
             return;
         }
@@ -989,7 +967,6 @@ impl App {
             Screen::Meditations => return self.meditations_key(k),
             Screen::Sounds => return self.sounds_key(k),
             Screen::Presets => return self.presets_key(k),
-            Screen::Sync => return self.sync_key(k),
             Screen::PresetBuilder => return self.builder_key(k),
             Screen::Routines => return self.routines_key(k),
             Screen::RoutineEditor => return self.editor_key(k),
