@@ -92,8 +92,14 @@ Solo la lista de sonidos.
 | `↑↓` | Mueve por los sonidos |
 | `←` `→` | Volumen del sonido |
 | `Enter` / `␣` | Prende o apaga el sonido |
+| `+` `-` | Sube o baja el volumen general de a 10 % |
+| `d` | Prende o apaga el modo deep work |
+| `p` | Pausa única: frena o sigue sonido y timer juntos |
+| `m` | Pausa o reanuda solo el sonido |
 | `Tab` | Abre **Opciones** |
 | `Esc` | Vuelve al inicio, sin cortar el sonido |
+
+Estos atajos andan solo en Focus, dentro de la app y con ninguna ventanita abierta. En modo deep work, `␣` hace lo mismo que `p`; en la pantalla de «¡Buen trabajo!» y en Focus normal, `␣` sigue siendo `Enter`.
 
 Hay dos atajos ocultos que no figuran en ninguna ayuda: `0` reinicia desde el principio los sonidos que suenan y `t` pausa o reanuda el timer (el sonido sigue).
 
@@ -116,8 +122,9 @@ Hay dos atajos ocultos que no figuran en ninguna ayuda: `0` reinicia desde el pr
 
 Solo el reloj grande y `? ayuda` abajo.
 
-- Las teclas de Focus siguen activas, aunque no se vean (sonido, volumen, `Tab`).
-- Para salir del modo: `Tab` › Salir de deep work, o `Esc` para volver al inicio.
+- Las teclas de Focus siguen activas, aunque no se vean (sonido, volumen, `+` `-`, `p`, `m`, `Tab`).
+- `␣` pausa o sigue todo, igual que `p`.
+- Para salir del modo: `d`, `Tab` › Salir de deep work, o `Esc` para volver al inicio.
 - Si el timer llega a cero estando en el modo: «¡Buen trabajo!» y `Enter` para volver.
 
 ### Rutinas
